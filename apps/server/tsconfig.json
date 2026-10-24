@@ -1,0 +1,46 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["esnext"],
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "strict": false,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": false,
+    "forceConsistentCasingInFileNames": true,
+    "disableSizeLimit": false,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@styxrouter/open-sse": ["./open-sse"],
+      "@styxrouter/open-sse/*": ["./open-sse/*"]
+    }
+  },
+  "include": [
+    "server/**/*.ts",
+    "open-sse/**/*.ts",
+    "src/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    ".build",
+    "coverage",
+    "**/*.test.ts",
+    "src/app/**",
+    "src/mitm/**",
+    "src/i18n/**",
+    "src/models/**",
+    "src/store/**",
+    "src/types/**"
+  ]
+}

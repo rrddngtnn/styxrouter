@@ -1,0 +1,18 @@
+export const STYX_RESPONSE_HEADERS = {
+  cache: "X-StyxRouter-Cache",
+  cacheHit: "X-StyxRouter-Cache-Hit",
+  cacheLatency: "X-StyxRouter-Cache-Latency",
+  compression: "X-StyxRouter-Compression",
+  costSaved: "X-StyxRouter-Cost-Saved",
+  decision: "X-StyxRouter-Decision",
+  fallbackAttempts: "X-StyxRouter-Fallback-Attempts",
+  latencyMs: "X-StyxRouter-Latency-Ms",
+  model: "X-StyxRouter-Model",
+  progress: "X-StyxRouter-Progress",
+  provider: "X-StyxRouter-Provider",
+  requestId: "X-StyxRouter-Request-Id",
+  responseCost: "X-StyxRouter-Response-Cost",
+  tokensIn: "X-StyxRouter-Tokens-In",
+  tokensOut: "X-StyxRouter-Tokens-Out",
+  version: "X-StyxRouter-Version",
+} as const;

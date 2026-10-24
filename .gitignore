@@ -1,0 +1,69 @@
+# StyxRouter root .gitignore
+
+# Dependencies
+node_modules/
+*.log
+.pnpm-store/
+bun-store/
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+apps/panel/dist/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Runtime data
+data/
+databases/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+
+# Evidence / snapshots / backups — local-only forensics, never commit
+evidence/
+backups/
+snapshots/
+
+# Internal planning docs — stay local
+specs/
+.specs/
+plans/
+AGENTS.md
+SDD.md
+*.sdd.md
+adr-*.md
+ADR-*.md
+
+# Internal operational docs carrying operator context — stay local (hygiene R-H5)
+docs/branding.md
+docs/styxrouter.service.md
+
+# Dev tooling scratch
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+__pycache__/
+.pytest_cache/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Panel build
+apps/panel/node_modules/
+apps/panel/dist/
+
+# Server scratch
+apps/server/node_modules/
+apps/server/.next/
+apps/server/.next-cli-build/
+apps/server/dist/
+apps/server/build/
