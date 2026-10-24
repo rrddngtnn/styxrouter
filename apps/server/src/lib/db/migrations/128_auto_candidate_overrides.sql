@@ -1,5 +1,5 @@
 -- #7819 (Level 2) — per-API-key candidate exclusions for `auto/*` channels.
--- OmniRoute is single-tenant (no `users` table); `api_key_id` is the closest
+-- StyxRouter is single-tenant (no `users` table); `api_key_id` is the closest
 -- real per-caller identity this app has. One row per excluded candidate
 -- connection for a given API key + auto channel.
 CREATE TABLE IF NOT EXISTS auto_candidate_overrides (

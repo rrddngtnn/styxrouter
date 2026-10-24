@@ -40,7 +40,7 @@ CREATE INDEX IF NOT EXISTS idx_reasoning_rules_api_key ON reasoning_routing_rule
 CREATE INDEX IF NOT EXISTS idx_reasoning_rules_combo ON reasoning_routing_rules(combo_id);
 CREATE INDEX IF NOT EXISTS idx_reasoning_rules_connection ON reasoning_routing_rules(connection_id);
 
--- OmniRoute historically does not rely on a process-wide PRAGMA foreign_keys setting.
+-- StyxRouter historically does not rely on a process-wide PRAGMA foreign_keys setting.
 -- Triggers keep the policy table referentially clean on every supported database.
 CREATE TRIGGER IF NOT EXISTS trg_reasoning_rules_api_key_delete
 AFTER DELETE ON api_keys BEGIN

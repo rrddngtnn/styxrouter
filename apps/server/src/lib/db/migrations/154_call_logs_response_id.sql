@@ -1,6 +1,6 @@
 -- 154_call_logs_response_id.sql
 -- Index a completed OpenAI Responses API call by the response id it returned
--- to the client (real upstream id, or OmniRoute's own synthesized `resp_`
+-- to the client (real upstream id, or StyxRouter's own synthesized `resp_`
 -- id — see normalizeResponsesId in open-sse/handlers/responseSanitizer.ts).
 -- Lets a later request's `previous_response_id` resolve back to this row's
 -- already-captured call-log artifact (full, untruncated request/response

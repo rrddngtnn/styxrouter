@@ -8,7 +8,7 @@
 -- (a real-world OpenClaw pattern: cache-aware context injection edits/
 -- duplicates a turn mid-history to keep provider-side prompt caches warm)
 -- becomes its OWN independent conversation instead (2026-08-06 — every
--- OmniRoute conversation is a single straight line, it never forks; see
+-- StyxRouter conversation is a single straight line, it never forks; see
 -- resolveConversationId's doc comment). See agentic_conversations (155) for
 -- the conversation-root record; its last_message_count/last_messages_hash
 -- columns are superseded by this table and no longer written to.

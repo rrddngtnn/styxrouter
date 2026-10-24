@@ -1,5 +1,5 @@
 -- 159_remove_mimocode_provider.sql
--- MiMoCode was removed from OmniRoute, but installations that configured it
+-- MiMoCode was removed from StyxRouter, but installations that configured it
 -- before removal can retain provider-scoped state. Remove that stale
 -- configuration for both the canonical provider id and its historical alias.
 --
