@@ -468,7 +468,9 @@ app.use(
     root: "./panel",
     rewriteRequestPath: (p) => {
       const stripped = p.replace(/^\/panel/, "");
-      return stripped === "" || stripped === "/" ? "/index.html" : stripped;
+      // Single-page app: any path without a file extension is a client-side route, so serve the shell.
+      // A path WITH an extension is an asset and must stay a 404 when it is missing.
+      return stripped === "" || stripped === "/" || !/\.[A-Za-z0-9]+$/.test(stripped) ? "/index.html" : stripped;
     },
   })
 );

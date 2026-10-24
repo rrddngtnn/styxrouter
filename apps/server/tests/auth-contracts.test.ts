@@ -11,7 +11,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SignJWT } from "jose";
@@ -195,6 +195,24 @@ describe("/v1 needs an API key", () => {
     expect((await call("/v1/models", asSession())).status).toBe(200);
     const r = await call("/v1/chat/completions", asSession(json({ model: "x/y", messages: [] })));
     expect(r.status).toBe(401);
+  });
+});
+
+// The panel is a single-page app: a deep link or a refresh on /panel/keys must serve index.html, while a
+// missing asset must stay a 404 (never an HTML page pretending to be a script).
+const panelBuilt = existsSync(join(ROOT, "panel", "index.html"));
+describe.skipIf(!panelBuilt)("panel routes", () => {
+  test("deep links serve the app shell without a session", async () => {
+    for (const path of ["/panel/", "/panel/login", "/panel/keys", "/panel/providers"]) {
+      const r = await call(path);
+      expect(r.status).toBe(200);
+      expect(r.headers.get("content-type") ?? "").toMatch(/text\/html/);
+      expect(await r.text()).toContain('id="root"');
+    }
+  });
+
+  test("a missing asset is a 404, not the app shell", async () => {
+    expect((await call("/panel/assets/definitely-missing.js")).status).toBe(404);
   });
 });
 
