@@ -106,6 +106,7 @@ const executors = {
   cursor: new CursorExecutor(),
   trae: new TraeExecutor(),
   glm: new GlmExecutor("glm"),
+  zai: new GlmExecutor("glm"),
   glmt: new GlmExecutor("glmt"),
   cu: new CursorExecutor(), // Alias for cursor
   "cursor-api": new CursorExecutor("cursor-api"),

@@ -25,7 +25,8 @@ let _reserved: Set<string> | null = null;
 function buildReservedProviderPrefixes(): Set<string> {
   if (_reserved) return _reserved;
   const reserved = new Set<string>();
-  for (const entry of Object.values(REGISTRY)) {
+  for (const [key, entry] of Object.entries(REGISTRY)) {
+    if (key) reserved.add(key);
     if (entry?.id) reserved.add(entry.id);
     if (entry?.alias) reserved.add(entry.alias);
   }

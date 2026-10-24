@@ -62,26 +62,30 @@ app.get("/api/providers", async (c) => {
     if (r.test_status === "active") slot.active += 1;
     liveByProvider.set(r.provider, slot);
   }
-  const providers = Object.entries(REGISTRY).map(([id, entry]) => {
-    const live = liveByProvider.get(id);
-    const authType = entry.authType ?? "none";
-    const baseModes = Array.isArray(entry.authModes)
-      ? [...entry.authModes]
-      : authType !== "none"
-        ? [authType]
-        : [];
-    const hasOauth = Boolean((OAUTH_PROVIDERS as Record<string, any>)[toOauthKey(id)]?.requestDeviceCode);
-    const authModes = hasOauth && !baseModes.includes("oauth") ? ["oauth", ...baseModes] : baseModes;
-    return {
-      id,
-      name: entry.name ?? id,
-      vendor: entry.vendor ?? null,
-      authType,
-      authModes,
-      enabled: !!live && live.total > 0,
-      healthy: !!live && live.active > 0,
-    };
-  });
+  const providers = Object.entries(REGISTRY)
+    .filter(([id, entry]) => entry.id === id)
+    .map(([id, entry]) => {
+      const live = liveByProvider.get(id);
+      const authType = entry.authType ?? "none";
+      const baseModes = Array.isArray(entry.authModes)
+        ? [...entry.authModes]
+        : authType !== "none"
+          ? [authType]
+          : [];
+      const hasOauth = Boolean((OAUTH_PROVIDERS as Record<string, any>)[toOauthKey(id)]?.requestDeviceCode);
+      const authModes = hasOauth && !baseModes.includes("oauth") ? ["oauth", ...baseModes] : baseModes;
+      return {
+        id,
+        name: entry.displayName ?? (entry as any).name ?? id,
+        displayName: entry.displayName ?? (entry as any).name ?? id,
+        vendor: entry.vendor ?? null,
+        category: entry.category ?? null,
+        authType,
+        authModes,
+        enabled: !!live && live.total > 0,
+        healthy: !!live && live.active > 0,
+      };
+    });
   return c.json({ providers });
 });
 
@@ -472,10 +476,19 @@ console.log(`StyxRouter :${port} (Hono+Bun)`);
 // window (or already expired) and run the standard refresh pipeline with
 // the same circuit breaker the dispatch path uses. Failures just log —
 // dispatch-time refresh remains the fallback.
+// Disabled when STYX_DISABLE_TOKEN_HEALTHCHECK=1 or STYX_TEST_MODE=1 so
+// test/acceptance instances booted against a DB copy never rotate upstream
+// single-use OAuth refresh tokens.
 // ---------------------------------------------------------------------------
 const TOKEN_HEALTH_INTERVAL_MS = 30 * 60 * 1000;
+const tokenHealthDisabled =
+  process.env.STYX_DISABLE_TOKEN_HEALTHCHECK === "1" ||
+  process.env.STYX_DISABLE_TOKEN_HEALTHCHECK === "true" ||
+  process.env.STYX_TEST_MODE === "1" ||
+  Boolean(process.env.BUN_TEST);
 
 async function runTokenHealthPass(): Promise<void> {
+  if (tokenHealthDisabled) return;
   try {
     const { getProviderConnections, updateProviderConnection } = await import(
       "../src/lib/db/providers.ts"
@@ -527,10 +540,12 @@ async function runTokenHealthPass(): Promise<void> {
   }
 }
 
-const tokenHealthTimer = setInterval(runTokenHealthPass, TOKEN_HEALTH_INTERVAL_MS);
-tokenHealthTimer.unref?.(); // never hold the process open on its own
-// first pass shortly after boot (after the DB has settled)
-setTimeout(() => { void runTokenHealthPass(); }, 30_000).unref?.();
+if (!tokenHealthDisabled) {
+  const tokenHealthTimer = setInterval(runTokenHealthPass, TOKEN_HEALTH_INTERVAL_MS);
+  tokenHealthTimer.unref?.(); // never hold the process open on its own
+  // first pass shortly after boot (after the DB has settled)
+  setTimeout(() => { void runTokenHealthPass(); }, 30_000).unref?.();
+}
 
 // Prime version-drift caches and apply persisted DB runtime settings at boot.
 void (async () => {

@@ -434,6 +434,7 @@ export function getProviderByAlias(alias: string): AiProviderDefinition | null {
 
 // Helper: Get provider ID from alias
 export function resolveProviderId(aliasOrId: string): string {
+  if (aliasOrId === "zai") return "glm";
   const provider = getProviderByAlias(aliasOrId);
   return provider?.id || aliasOrId;
 }

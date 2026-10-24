@@ -127,16 +127,6 @@ export const APIKEY_PROVIDERS_REGIONAL = {
     hasFree: true,
     freeNote: "5M free tokens on signup - no credit card required",
   },
-  zai: {
-    id: "zai",
-    alias: "glm",
-    name: "Z.AI",
-    icon: "psychology",
-    color: "#2563EB",
-    textIcon: "ZA",
-    website: "https://open.bigmodel.cn",
-    apiHint: "API key from https://open.bigmodel.cn/usercenter/apikeys",
-  },
   alibaba: {
     id: "alibaba",
     alias: "ali",

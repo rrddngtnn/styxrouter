@@ -3,6 +3,7 @@ import { GLM_REQUEST_DEFAULTS, GLM_TIMEOUT_MS, GLM_SHARED_MODELS } from "../../s
 
 export const glmProvider: RegistryEntry = {
   id: "glm",
+  displayName: "GLM (Z.ai Coding / Start Plan)",
   vendor: "zhipu",
   category: "chat",
   alias: "glm",

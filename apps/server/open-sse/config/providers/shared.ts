@@ -113,11 +113,14 @@ export type ReasoningTransport = "plaintext" | "opaque" | "none";
 
 export interface RegistryEntry {
   id: string;
+  /** Human-readable provider display name for dashboard/catalog disambiguation. */
+  displayName?: string;
   /** Upstream org that owns the models (e.g. "google","openai","anthropic","zhipu"). */
   vendor?: string;
   /** Capability class: coding-agent|chat|image|video|audio|search|embedding|rerank|web-session|media. */
   category?: string;
   alias?: string;
+  authModes?: string[];
   format: string;
   executor: string;
   baseUrl?: string;
