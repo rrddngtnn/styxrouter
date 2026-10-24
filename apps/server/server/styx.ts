@@ -97,7 +97,7 @@ app.get("/api/providers", async (c) => {
 // Settings read-only passthrough (Settings page displays as JSON for now).
 app.get("/api/settings", async (c) => {
   try {
-    const { password: _hash, ...settings } = (await getSettings()) as Record<string, unknown>;
+    const { password: _hash, oidcClientSecret: _secret, ...settings } = (await getSettings()) as Record<string, unknown>;
     return c.json(settings);
   } catch (e: any) {
     return c.json({ error: String(e?.message || e) }, 500);

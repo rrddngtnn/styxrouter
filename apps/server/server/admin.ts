@@ -19,7 +19,26 @@ import {
 } from "../src/lib/db/combos.ts";
 import { getConsistentMachineId } from "../src/shared/utils/machineId.ts";
 import { logAuditEvent } from "../src/lib/compliance/index.ts";
-import type { ZodTypeAny, z } from "zod";
+import { z, type ZodTypeAny } from "zod";
+import {
+  deleteProviderConnection,
+  getProviderConnectionById,
+  getProviderConnections,
+  resetConnectionBackoff,
+  updateProviderConnection,
+} from "../src/lib/db/providers.ts";
+import { cleanupComboConnectionRefs } from "../src/lib/db/combos.ts";
+import { getSettings, updateSettings } from "../src/lib/db/settings.ts";
+import { updateSettingsSchema } from "../src/shared/validation/settingsSchemas.ts";
+import { validateProviderApiKey } from "../src/lib/providers/validation.ts";
+import { TOKEN_EXPIRY_BUFFER_MS, getAccessToken, getRefreshLeadMs } from "../open-sse/services/tokenRefresh.ts";
+import {
+  getStoredManagementPassword,
+  hashManagementPassword,
+  verifyManagementPassword,
+} from "../src/lib/auth/managementPassword.ts";
+import { checkLoginGuard, clearLoginAttempts, recordLoginFailure } from "../src/server/auth/loginGuard.ts";
+import { clientIp } from "./auth.ts";
 import { createKeySchema } from "../src/shared/validation/schemas/keys.ts";
 import { createComboSchema, reorderCombosSchema, updateComboSchema } from "../src/shared/validation/schemas/combo.ts";
 import { validateCompositeTiersConfig } from "../src/lib/combos/compositeTiers.ts";
@@ -165,6 +184,148 @@ export function createAdminApi() {
     if (String(current.name).startsWith(QUOTA_MODEL_PREFIX)) return bad(c, "Quota-share combos are managed automatically", 409);
     if (!(await deleteCombo(id))) return notFound(c, "Combo");
     audit(c, "combo.delete", id, { name: current.name });
+    return c.json({ success: true });
+  });
+
+  // ── Connected accounts ───────────────────────────────────────────────────
+  // Metadata only: the column list keeps credential columns out of the query altogether.
+  const CONNECTION_COLUMNS = [
+    "id", "provider", "auth_type", "name", "display_name", "email", "priority", "is_active", "test_status",
+    "last_error", "last_error_at", "backoff_level", "rate_limited_until", "token_expires_at", "last_used_at",
+  ];
+  const connectionView = (r: any) => ({
+    id: r.id,
+    provider: r.provider,
+    authType: r.auth_type ?? r.authType,
+    name: r.name || r.display_name || null,
+    email: r.email ?? null,
+    priority: r.priority ?? null,
+    isActive: Boolean(r.is_active ?? r.isActive),
+    testStatus: r.test_status ?? r.testStatus ?? null,
+    lastError: r.last_error ?? r.lastError ?? null,
+    lastErrorAt: r.last_error_at ?? r.lastErrorAt ?? null,
+    backoffLevel: r.backoff_level ?? r.backoffLevel ?? 0,
+    rateLimitedUntil: r.rate_limited_until ?? r.rateLimitedUntil ?? null,
+    tokenExpiresAt: r.token_expires_at ?? r.tokenExpiresAt ?? null,
+    lastUsedAt: r.last_used_at ?? r.lastUsedAt ?? null,
+  });
+
+  api.get("/connections", async (c) => {
+    const rows = (await getProviderConnections({}, undefined, undefined, CONNECTION_COLUMNS)) as any[];
+    return c.json({ connections: rows.map(connectionView) });
+  });
+
+  // Strict: secrets (apiKey, tokens) are not editable here, a stray key is a 400.
+  const patchConnectionSchema = z
+    .object({
+      isActive: z.boolean().optional(),
+      name: z.string().trim().min(1).max(200).optional(),
+      priority: z.number().int().min(0).max(100000).optional(),
+    })
+    .strict();
+
+  api.patch("/connections/:id", async (c) => {
+    const id = c.req.param("id");
+    const v = validateBody(patchConnectionSchema, await bodyOf(c));
+    if (isValidationFailure(v)) return bad(c, v.error);
+    if (!(await updateProviderConnection(id, v.data))) return notFound(c, "Connection");
+    audit(c, "connection.update", id, v.data);
+    return c.json({ success: true });
+  });
+
+  api.post("/connections/:id/release-cooldown", async (c) => {
+    const id = c.req.param("id");
+    if (!(await getProviderConnectionById(id))) return notFound(c, "Connection");
+    await resetConnectionBackoff(id);
+    await updateProviderConnection(id, { rateLimitedUntil: null });
+    audit(c, "connection.release-cooldown", id);
+    return c.json({ success: true });
+  });
+
+  api.delete("/connections/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!(await getProviderConnectionById(id))) return notFound(c, "Connection");
+    await deleteProviderConnection(id);
+    await cleanupComboConnectionRefs(id);
+    audit(c, "connection.delete", id);
+    return c.json({ success: true });
+  });
+
+  // API-key accounts: ask the provider whether the key still works. OAuth accounts: refresh the token
+  // only when it is due (the same rule the token-health pass uses), never forcing a single-use rotation.
+  api.post("/connections/:id/test", async (c) => {
+    const id = c.req.param("id");
+    const conn = (await getProviderConnectionById(id)) as any;
+    if (!conn) return notFound(c, "Connection");
+    let ok = false;
+    let error: string | null = null;
+    try {
+      if (conn.authType === "oauth") {
+        const expiresAt = conn.tokenExpiresAt ? new Date(conn.tokenExpiresAt).getTime() : null;
+        const due = expiresAt !== null && Date.now() >= expiresAt - getRefreshLeadMs(conn.provider) - TOKEN_EXPIRY_BUFFER_MS;
+        if (!due) ok = true;
+        else {
+          const log = { warn: () => {}, error: () => {} };
+          const r = await getAccessToken(
+            conn.provider,
+            { refreshToken: conn.refreshToken, connectionId: id, accessToken: conn.accessToken, expiresAt: conn.tokenExpiresAt, providerSpecificData: conn.providerSpecificData },
+            log,
+            null,
+            async (persisted) => { await updateProviderConnection(id, persisted as Record<string, unknown>); }
+          );
+          ok = Boolean(r?.accessToken);
+          if (!ok) error = "token refresh failed";
+        }
+      } else {
+        const r: any = await validateProviderApiKey({ provider: conn.provider, apiKey: conn.apiKey, providerSpecificData: conn.providerSpecificData });
+        ok = Boolean(r?.valid);
+        if (!ok) error = String(r?.error ?? "key rejected").slice(0, 200);
+      }
+    } catch (e) {
+      error = (e instanceof Error ? e.message : "test failed").slice(0, 200);
+    }
+    await updateProviderConnection(id, { testStatus: ok ? "active" : "error", lastTested: new Date().toISOString() });
+    audit(c, "connection.test", id, { ok });
+    return c.json({ ok, error });
+  });
+
+  // ── Settings and the management password ─────────────────────────────────
+  api.patch("/settings", async (c) => {
+    // .strict(): the upstream schema silently drops unknown keys, which would turn a typo into a 200 that changed nothing.
+    const v = validateBody(updateSettingsSchema.strict(), await bodyOf(c));
+    if (isValidationFailure(v)) return bad(c, v.error);
+    const { newPassword, currentPassword, expectedRevision, ...changes } = v.data as Record<string, any>;
+    if (newPassword !== undefined || currentPassword !== undefined) return bad(c, "Change the password with POST /api/auth/password");
+    try {
+      const { password: _hash, oidcClientSecret: _s, ...settings } = (await updateSettings(changes, { expectedRevision })) as Record<string, unknown>;
+      audit(c, "settings.update", "settings", { keys: Object.keys(changes) });
+      return c.json(settings);
+    } catch (e) {
+      if (e instanceof Error && /revision/i.test(e.message)) return bad(c, e.message, 409);
+      throw e;
+    }
+  });
+
+  const passwordSchema = z.object({
+    currentPassword: z.string().min(1).max(200),
+    newPassword: z.string().min(12, "use at least 12 characters").max(200),
+  });
+
+  // Existing sessions stay valid until their cookie expires; rotate JWT_SECRET to end them all.
+  api.post("/auth/password", async (c) => {
+    const v = validateBody(passwordSchema, await bodyOf(c));
+    if (isValidationFailure(v)) return bad(c, v.error);
+    const ip = clientIp(c);
+    const guard = checkLoginGuard(ip, { enabled: true });
+    if (!guard.allowed) return c.json({ error: "Too many failed attempts. Try again later." }, 429);
+    const hash = getStoredManagementPassword((await getSettings()) as any);
+    if (!hash || !(await verifyManagementPassword(v.data.currentPassword, hash))) {
+      recordLoginFailure(ip, { enabled: true });
+      return c.json({ error: "Current password is wrong" }, 401);
+    }
+    clearLoginAttempts(ip);
+    await updateSettings({ password: await hashManagementPassword(v.data.newPassword) });
+    audit(c, "auth.password.change", "management");
     return c.json({ success: true });
   });
 

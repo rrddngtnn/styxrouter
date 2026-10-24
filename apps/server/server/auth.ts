@@ -55,7 +55,7 @@ function foreignOrigin(c: Context): boolean {
 }
 
 // Behind Caddy every peer is loopback; the last X-Forwarded-For entry is the one Caddy appended.
-function clientIp(c: Context): string | null {
+export function clientIp(c: Context): string | null {
   const peer = (c.env as { peerAddress?: string } | undefined)?.peerAddress ?? null;
   const loopback = !peer || ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(peer);
   const forwarded = c.req.header("x-forwarded-for")?.split(",").pop()?.trim();
