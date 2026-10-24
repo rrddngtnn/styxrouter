@@ -45,7 +45,7 @@ describe("GLM / Z.ai runtime disambiguation", () => {
 
   test("Zhipu family registry entries expose distinct displayName values", () => {
     expect(REGISTRY.glm?.displayName).toBe("GLM (Z.ai Coding / Start Plan)");
-    expect(REGISTRY.glmt?.displayName).toBe("GLM Team (Thinking)");
+    expect(REGISTRY.glmt?.displayName).toBe("GLM (Thinking)");
     expect(REGISTRY.zcode?.displayName).toBe("ZCode CLI");
   });
 });

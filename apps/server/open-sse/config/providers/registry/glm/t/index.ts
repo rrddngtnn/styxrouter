@@ -3,7 +3,7 @@ import { GLMT_REQUEST_DEFAULTS, GLMT_TIMEOUT_MS, GLM_SHARED_MODELS } from "../..
 
 export const glmtProvider: RegistryEntry = {
   id: "glmt",
-  displayName: "GLM Team (Thinking)",
+  displayName: "GLM (Thinking)",
   vendor: "zhipu",
   category: "chat",
   alias: "glmt",
