@@ -101,7 +101,7 @@ export const APIKEY_PROVIDERS_REGIONAL = {
   minimax: {
     id: "minimax",
     alias: "minimax",
-    name: "Minimax Coding",
+    name: "MiniMax Coding",
     icon: "memory",
     color: "#7C3AED",
     textIcon: "MM",
@@ -110,7 +110,7 @@ export const APIKEY_PROVIDERS_REGIONAL = {
   "minimax-cn": {
     id: "minimax-cn",
     alias: "minimax-cn",
-    name: "Minimax (China)",
+    name: "MiniMax (China)",
     icon: "memory",
     color: "#DC2626",
     textIcon: "MC",

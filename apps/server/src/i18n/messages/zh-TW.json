@@ -6174,7 +6174,7 @@
       "maritalk": "使用 API 金鑰連線 Maritalk。",
       "meta-llama": "使用 API 金鑰連線 Meta Llama API。",
       "minimax-cn": "使用 API 金鑰連線 Minimax（中國）。",
-      "minimax": "使用 API 金鑰連線 Minimax Coding。",
+      "minimax": "使用 API 金鑰連線 MiniMax Coding。",
       "mistral": "免費實驗方案：所有模型速率限制存取，無需信用卡",
       "modal": "Modal 通常在 /v1 提供用戶自託管的 OpenAI 相容應用程式。StyxRouter 將探測 /v1/models 並將聊天流量路由至 /v1/chat/completions。",
       "modelscope": "透過 ModelScope API-Inference 的免費方案 — 需要阿里雲帳號。",

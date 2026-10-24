@@ -6174,7 +6174,7 @@
       "maritalk": "Подключите Maritalk с помощью API-ключа.",
       "meta-llama": "Подключите Meta Llama API с помощью API-ключа.",
       "minimax-cn": "Подключите Minimax (Китай) с помощью API-ключа.",
-      "minimax": "Подключите Minimax Coding с помощью API-ключа.",
+      "minimax": "Подключите MiniMax Coding с помощью API-ключа.",
       "mistral": "Бесплатный тариф Experiment: доступ ко всем моделям с ограничением частоты запросов, кредитная карта не требуется",
       "modal": "Modal обычно обслуживает размещенные пользователем OpenAI-совместимые приложения по пути /v1. StyxRouter будет опрашивать /v1/models и направлять чат-трафик на /v1/chat/completions.",
       "modelscope": "Бесплатный тариф через ModelScope API-Inference — требуется учетная запись Alibaba.",

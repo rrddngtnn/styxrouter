@@ -6174,7 +6174,7 @@
       "maritalk": "Csatlakoztassa a Maritalkot egy API-kulccsal.",
       "meta-llama": "Csatlakoztassa a Meta Llama API-t egy API-kulccsal.",
       "minimax-cn": "Csatlakoztassa a Minimaxot (Kína) egy API-kulccsal.",
-      "minimax": "Csatlakoztassa a Minimax Codingot egy API-kulccsal.",
+      "minimax": "Csatlakoztassa a MiniMax Codingot egy API-kulccsal.",
       "mistral": "Ingyenes Experiment csomag: sebességkorlátozott hozzáférés az összes modellhez, bankkártya nem szükséges",
       "modal": "A Modal általában a felhasználó által üzemeltetett OpenAI-kompatibilis alkalmazásokat szolgálja ki a /v1 végponton. Az StyxRouter lekérdezi a /v1/models végpontot, és a csevegési forgalmat a /v1/chat/completions végpontra irányítja.",
       "modelscope": "Ingyenes csomag a ModelScope API-Inference-en keresztül — Alibaba-fiók szükséges.",

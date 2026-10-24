@@ -6174,7 +6174,7 @@
       "maritalk": "Koble til Maritalk med en API-nøkkel.",
       "meta-llama": "Koble til Meta Llama API med en API-nøkkel.",
       "minimax-cn": "Koble til Minimax (Kina) med en API-nøkkel.",
-      "minimax": "Koble til Minimax Coding med en API-nøkkel.",
+      "minimax": "Koble til MiniMax Coding med en API-nøkkel.",
       "mistral": "Gratis eksperiment-nivå: hastighetsbegrenset tilgang til alle modeller, ikke krav om kredittkort",
       "modal": "Modal kjører vanligvis brukerhostede OpenAI-kompatible apper på /v1. StyxRouter vil sjekke /v1/models og rute chattrafikk til /v1/chat/completions.",
       "modelscope": "Gratisnivå via ModelScope API-Inference — Alibaba-konto kreves.",
