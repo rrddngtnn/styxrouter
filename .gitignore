@@ -1,7 +1,7 @@
 # StyxRouter root .gitignore
 
 # Dependencies
-node_modules/
+node_modules
 *.log
 .pnpm-store/
 bun-store/
@@ -58,11 +58,11 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Panel build
-apps/panel/node_modules/
+apps/panel/node_modules
 apps/panel/dist/
 
 # Server scratch
-apps/server/node_modules/
+apps/server/node_modules
 apps/server/.next/
 apps/server/.next-cli-build/
 apps/server/dist/

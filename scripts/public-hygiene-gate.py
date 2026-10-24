@@ -304,7 +304,12 @@ def gate_tracked_files(repo_root, compiled, allowlist) -> GateResult:
     result = GateResult()
     for rel in _list_files(repo_root):
         fp = repo_root / rel
-        if not fp.is_file() or fp.is_symlink():
+        if fp.is_symlink():
+            # A tracked symlink stores a path (often an absolute home path). Scan that text; never follow it.
+            result.scanned += 1
+            result.hits.extend(_scan_text(os.readlink(fp), rel, "tracked_file", compiled, allowlist))
+            continue
+        if not fp.is_file():
             continue
         text = _read_text(fp)
         if text is None:

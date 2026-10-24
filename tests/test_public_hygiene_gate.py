@@ -96,5 +96,25 @@ class HygieneGateT1(unittest.TestCase):
         )
 
 
+class HygieneGateSymlinks(unittest.TestCase):
+    def test_symlink_target_is_scanned(self):
+        """A tracked symlink stores a path; an absolute home path in it is a leak the gate must see."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text("clean\n")
+            os.symlink("/home/acmeuser/project/node_modules", root / "deps")  # target need not exist
+            proc = run_gate(root)
+            self.assertNotEqual(proc.returncode, 0, "a leaking symlink target must fail the gate")
+            paths = [h["path"] for g in proc.report_data["gates"].values() for h in g.get("hits", [])]
+            self.assertIn("deps", paths)
+
+    def test_harmless_relative_symlink_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text("clean\n")
+            os.symlink("../panel/dist", root / "panel")
+            self.assertEqual(run_gate(root).returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
