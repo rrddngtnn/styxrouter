@@ -16,6 +16,8 @@ import {
   modelCooldownResponse,
   providerCircuitOpenResponse,
   unavailableResponse,
+  isUpstreamAuthStatus,
+  upstreamAuthFailureResponse,
 } from "@styxrouter/open-sse/utils/error.ts";
 import { inheritTrustedLocalRateLimitResponse } from "@styxrouter/open-sse/services/rateLimitManager/errors.ts";
 import { HTTP_STATUS } from "@styxrouter/open-sse/config/constants.ts";
@@ -661,6 +663,9 @@ export function handleNoCredentials(
     }
 
     log.warn("CHAT", `[${provider}/${model}] ${errorMsg} (${credentials.retryAfterHuman})`);
+    if (isUpstreamAuthStatus(Number(status))) {
+      return upstreamAuthFailureResponse(provider, model, Number(status), String(errorMsg));
+    }
     return unavailableResponse(
       status,
       `[${provider}/${model}] ${errorMsg}`,
@@ -675,6 +680,9 @@ export function handleNoCredentials(
       model,
       lastStatus,
     });
+    if (isUpstreamAuthStatus(lastStatus)) {
+      return upstreamAuthFailureResponse(provider, model, lastStatus, lastError);
+    }
     return errorResponse(lastStatus, lastError);
   }
   if (credentials?.allExpired) {
@@ -692,7 +700,8 @@ export function handleNoCredentials(
           : "authentication expired";
     const message = `[${provider}] All ${count} connection(s) ${reason} — please reconnect in the dashboard`;
     log.warn("CHAT", message);
-    return errorResponse(HTTP_STATUS.UNAUTHORIZED, message);
+    // The connected accounts are dead, not the caller's key: 401 would read as "bad StyxRouter API key".
+    return upstreamAuthFailureResponse(provider, model, HTTP_STATUS.UNAUTHORIZED, message);
   }
   if (!excludeConnectionId) {
     // Ported from upstream decolua/9router#336 (Ibrahim Ryan): surface as 404

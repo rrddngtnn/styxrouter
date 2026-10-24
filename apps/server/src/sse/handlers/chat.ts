@@ -27,7 +27,11 @@ import {
 import { getCombo, getComboForModel, getModelInfo } from "../services/model";
 import { stripContextWindowSuffix } from "@styxrouter/open-sse/services/model.ts";
 import { resolveBareModelToConnectionDefault } from "@styxrouter/open-sse/services/model.ts";
-import { errorResponse } from "@styxrouter/open-sse/utils/error.ts";
+import {
+  errorResponse,
+  isUpstreamAuthStatus,
+  upstreamAuthFailureResponse,
+} from "@styxrouter/open-sse/utils/error.ts";
 import { getImageModelEntry } from "@styxrouter/open-sse/config/imageRegistry.ts";
 import { acceptHeaderForcesStream } from "@styxrouter/open-sse/utils/aiSdkCompat.ts";
 import { applyNoThinkingAlias } from "@styxrouter/open-sse/utils/noThinkingAlias.ts";
@@ -2339,6 +2343,12 @@ async function handleSingleModelChat(
         breaker._onFailure();
       }
 
+      if (isUpstreamAuthStatus(result.status)) {
+        return withSelectedConnectionHeader(
+          upstreamAuthFailureResponse(provider, model, result.status, result.error),
+          credentials?.connectionId
+        );
+      }
       return withSelectedConnectionHeader(result.response, credentials?.connectionId);
     }
   }

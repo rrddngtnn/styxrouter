@@ -623,6 +623,38 @@ export function unavailableResponse(
   });
 }
 
+/** 401/403 from a provider's API mean OUR stored credentials were refused, not the caller's key. */
+export function isUpstreamAuthStatus(status: unknown): boolean {
+  return status === 401 || status === 403;
+}
+
+/**
+ * The provider rejected the connected account(s). Relaying its 401/403 makes clients report "your API
+ * key is wrong", so answer 502 and say whose credentials were refused. The provider's text is
+ * sanitised to one line (providers answer with HTML pages).
+ */
+export function upstreamAuthFailureResponse(
+  provider: string,
+  model: string,
+  upstreamStatus: number,
+  detail?: string | null
+): Response {
+  // An HTML error page (proxies answer 401 with one) is reduced to its <title>; anything else to one clean line.
+  const text = detail
+    ? /<\s*(!doctype|html|head|body)\b/i.test(detail)
+      ? (detail.match(/<title>([^<]*)<\/title>/i)?.[1] ?? "").trim()
+      : sanitizeErrorMessage(detail)
+    : "";
+  const why = text ? ` Provider said: ${text}` : "";
+  const message =
+    `[${provider}/${model}] the upstream provider rejected the connected account(s) (HTTP ${upstreamStatus}); ` +
+    `this is not a problem with your StyxRouter API key.${why}`;
+  const body = buildErrorBody(502, message);
+  body.error.code = "UPSTREAM_AUTH_REJECTED";
+  body.error.type = "upstream_auth_error";
+  return new Response(JSON.stringify(body), { status: 502, headers: { "Content-Type": "application/json" } });
+}
+
 export function providerCircuitOpenResponse(
   provider: string,
   retryAfter?: string | number | Date | null
