@@ -30,6 +30,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 
 let proc: ReturnType<typeof spawn> | null = null;
 let dataDir = "";
+let cookie = "";
 
 async function waitReady(deadlineMs = 30000): Promise<void> {
   const deadline = Date.now() + deadlineMs;
@@ -52,12 +53,22 @@ beforeAll(async () => {
       PORT: String(PORT),
       DATA_DIR: dataDir,
       STYX_TEST_MODE: "1",
+      JWT_SECRET: "panel-contracts-jwt-secret-0123456789abcdef",
+      INITIAL_PASSWORD: "panel-contracts-password",
     },
     stdout: "ignore",
     stderr: "ignore",
   });
   await waitReady();
+  // The API is closed without a session: log in once and send the cookie on every call.
+  const login = await fetch(`${BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "panel-contracts-password" }),
+  });
+  cookie = (login.headers.get("set-cookie") ?? "").split(";")[0];
 });
+
 
 afterAll(() => {
   proc?.kill("SIGKILL");
@@ -65,7 +76,10 @@ afterAll(() => {
 });
 
 const j = async (path: string, init?: RequestInit) => {
-  const r = await fetch(`${BASE}${path}`, init);
+  const r = await fetch(`${BASE}${path}`, {
+    ...init,
+    headers: { ...((init?.headers as Record<string, string>) ?? {}), cookie },
+  });
   const body = await r.json().catch(() => ({}));
   return { status: r.status, body };
 };

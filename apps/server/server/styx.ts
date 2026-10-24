@@ -16,8 +16,11 @@ import { getRequestDetailLogs } from "../src/lib/db/detailedLogs.ts";
 import { getUnifiedModelsResponse } from "../src/app/api/v1/models/catalog.ts";
 
 import { createModelMetadataApi, type ModelMetadataEnv } from "./modelMetadata.ts";
+import { authLogin, authLogout, authStatus, requireAuth } from "./auth.ts";
 
 const app = new Hono<ModelMetadataEnv>();
+// Registered first so it runs before every route below, including the mounted sub-app.
+app.use("*", requireAuth);
 app.route("/api/model-metadata", createModelMetadataApi());
 
 // Root `/` redirects to the panel so a bare domain hit lands somewhere useful
@@ -44,10 +47,10 @@ app.get("/api/health/ping", (c) =>
   })
 );
 
-// Panel auth gate: no auth layer yet — report authenticated so the SPA renders.
-app.get("/api/auth/status", (c) => c.json({ authenticated: true }));
-app.post("/api/auth/logout", (c) => c.json({ ok: true }));
-app.post("/api/auth/login", (c) => c.json({ authenticated: true }));
+// Panel auth: real password login, JWT session cookie (see ./auth.ts).
+app.get("/api/auth/status", authStatus);
+app.post("/api/auth/logout", authLogout);
+app.post("/api/auth/login", authLogin);
 
 // Providers list: joins registry metadata with live DB connections.
 // Shape matches spike/styx-panel's Provider interface. No credentials returned.
@@ -93,7 +96,7 @@ app.get("/api/providers", async (c) => {
 // Settings read-only passthrough (Settings page displays as JSON for now).
 app.get("/api/settings", async (c) => {
   try {
-    const settings = await getSettings();
+    const { password: _hash, ...settings } = (await getSettings()) as Record<string, unknown>;
     return c.json(settings);
   } catch (e: any) {
     return c.json({ error: String(e?.message || e) }, 500);
