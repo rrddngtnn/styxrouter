@@ -17,6 +17,7 @@ import { getUnifiedModelsResponse } from "../src/app/api/v1/models/catalog.ts";
 
 import { createModelMetadataApi, type ModelMetadataEnv } from "./modelMetadata.ts";
 import { authLogin, authLogout, authStatus, requireAuth } from "./auth.ts";
+import { createAdminApi } from "./admin.ts";
 
 const app = new Hono<ModelMetadataEnv>();
 // Registered first so it runs before every route below, including the mounted sub-app.
@@ -226,6 +227,9 @@ app.get("/api/activity", (c) => {
     return c.json({ entries: [], error: String(e?.message || e) });
   }
 });
+
+// Admin writes (keys, combos). GET readers for the same paths stay in this file.
+app.route("/api", createAdminApi());
 
 app.get("/v1/models", (c) => {
   const url = new URL(c.req.url);
