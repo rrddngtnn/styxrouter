@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { api } from "../lib/api.ts";
+import { useAction } from "../lib/actions.tsx";
 import { useFetch } from "../lib/useFetch.ts";
 
 type SettingsBag = Record<string, unknown>;
@@ -9,6 +11,8 @@ export function Settings() {
   return (
     <div className="page">
       <h1>Settings</h1>
+      <ChangePassword />
+      <h2>Current values</h2>
       {state.status === "loading" && <p>Loading…</p>}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
       {state.status === "ok" && (
@@ -16,6 +20,50 @@ export function Settings() {
       )}
       <MigrateFromStyxRouter />
     </div>
+  );
+}
+
+function ChangePassword() {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [again, setAgain] = useState("");
+  const [done, setDone] = useState(false);
+  const { busy, error, run, clearError } = useAction();
+  const mismatch = again.length > 0 && next !== again;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setDone(false);
+    clearError();
+    const out = await run("password", () => api.post("/api/auth/password", { currentPassword: current, newPassword: next }));
+    if (out) {
+      setDone(true);
+      setCurrent("");
+      setNext("");
+      setAgain("");
+    }
+  }
+
+  return (
+    <section className="settings-card">
+      <h2>Management password</h2>
+      <p className="muted">
+        Used to sign in here. At least 12 characters. Other signed-in browsers stay signed in until their session expires.
+      </p>
+      <form className="stack-form" onSubmit={submit}>
+        <input type="password" autoComplete="current-password" placeholder="Current password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
+        <input type="password" autoComplete="new-password" placeholder="New password (12+ characters)" minLength={12} value={next} onChange={(e) => setNext(e.target.value)} required />
+        <input type="password" autoComplete="new-password" placeholder="Repeat new password" value={again} onChange={(e) => setAgain(e.target.value)} required />
+        {mismatch && <div className="bad">The two new passwords differ.</div>}
+        {error && <div className="bad">{error}</div>}
+        {done && <div className="ok">Password changed.</div>}
+        <div>
+          <button type="submit" className="btn-add" disabled={busy !== null || mismatch || next.length < 12 || !current}>
+            {busy ? "…" : "Change password"}
+          </button>
+        </div>
+      </form>
+    </section>
   );
 }
 
@@ -32,6 +80,7 @@ function MigrateFromStyxRouter() {
     try {
       const r = await fetch("/api/admin/migrate-from-styx", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ srcDb, srcSecret: secret, dryRun }),
       });

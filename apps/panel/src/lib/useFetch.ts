@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api.ts";
 
 export type FetchState<T> =
@@ -6,16 +6,22 @@ export type FetchState<T> =
   | { status: "ok"; data: T; error: null }
   | { status: "error"; data: null; error: ApiError | Error };
 
-export function useFetch<T>(path: string | null): FetchState<T> {
+/** `reload()` refetches without flashing back to "loading", so a table stays on screen while it updates. */
+export function useFetch<T>(path: string | null): FetchState<T> & { reload: () => void } {
   const [state, setState] = useState<FetchState<T>>({
     status: "loading",
     data: null,
     error: null,
   });
+  const [tick, setTick] = useState(0);
+  const lastPath = useRef<string | null>(null);
   useEffect(() => {
     if (!path) return;
     const controller = new AbortController();
-    setState({ status: "loading", data: null, error: null });
+    if (lastPath.current !== path) {
+      lastPath.current = path;
+      setState({ status: "loading", data: null, error: null });
+    }
     api
       .get<T>(path, controller.signal)
       .then((data) => setState({ status: "ok", data, error: null }))
@@ -28,6 +34,6 @@ export function useFetch<T>(path: string | null): FetchState<T> {
         });
       });
     return () => controller.abort();
-  }, [path]);
-  return state;
+  }, [path, tick]);
+  return { ...state, reload: () => setTick((t) => t + 1) };
 }

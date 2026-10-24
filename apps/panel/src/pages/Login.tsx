@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../lib/api.ts";
 
 export function Login() {
-  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -14,7 +13,7 @@ export function Login() {
     setError(null);
     setSubmitting(true);
     try {
-      await api.post("/api/auth/login", { username, password });
+      await api.post("/api/auth/login", { password });
       navigate("/", { replace: true });
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "Login failed");
@@ -28,20 +27,11 @@ export function Login() {
       <form className="login-card" onSubmit={onSubmit}>
         <h1>StyxRouter</h1>
         <label>
-          <span>Username</span>
-          <input
-            type="text"
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-          />
-        </label>
-        <label>
-          <span>Password</span>
+          <span>Management password</span>
           <input
             type="password"
             autoComplete="current-password"
+            autoFocus
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required

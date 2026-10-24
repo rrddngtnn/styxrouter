@@ -255,3 +255,63 @@ body { margin: 0; background: var(--bg); color: var(--fg); }
   font-size: 11px;
 }
 .muted { color: #666; font-style: italic; }
+
+/* ── admin actions (keys, routing, accounts, settings) ───────────────────── */
+.row-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+td.row-actions { justify-content: flex-end; }
+.btn-ghost,
+.btn-danger {
+  border: 1px solid #3a3a3a;
+  background: transparent;
+  color: #ccc;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.btn-ghost:hover { background: #222; }
+.btn-danger { color: #e58a8a; border-color: #5a2f2f; }
+.btn-danger:hover { background: #2a1a1a; }
+.btn-ghost:disabled,
+.btn-danger:disabled,
+.btn-add:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.inline-form { display: flex; gap: 8px; margin: 16px 0; max-width: 560px; }
+.inline-form input { flex: 1; }
+.stack-form { display: grid; gap: 8px; margin: 12px 0; max-width: 560px; }
+.stack-form input,
+.stack-form textarea,
+.inline-form input {
+  background: #141414;
+  border: 1px solid #333;
+  color: #e6e6e6;
+  padding: 7px 9px;
+  border-radius: 4px;
+  font: inherit;
+}
+
+.secret-banner {
+  margin: 16px 0;
+  padding: 14px 16px;
+  background: #16261a;
+  border: 1px solid #2f5a3a;
+  border-radius: 6px;
+  max-width: 720px;
+}
+.secret-banner p { margin: 6px 0 10px; }
+.secret-value {
+  display: block;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  background: #0d0d0d;
+  border-radius: 4px;
+  word-break: break-all;
+  user-select: all;
+}
+
+.accounts { margin-top: 28px; }
+.accounts h2 { font-size: 16px; display: flex; gap: 8px; align-items: center; }
+.row-off td { opacity: 0.55; }
+.cell-error { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #999; font-size: 12px; }
+.settings-card { margin: 16px 0 28px; padding: 16px; border: 1px solid #333; border-radius: 6px; max-width: 640px; }
+.settings-card h2 { margin-top: 0; }
