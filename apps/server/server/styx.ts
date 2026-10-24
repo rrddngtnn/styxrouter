@@ -18,6 +18,7 @@ import { getUnifiedModelsResponse } from "../src/app/api/v1/models/catalog.ts";
 import { createModelMetadataApi, type ModelMetadataEnv } from "./modelMetadata.ts";
 import { authLogin, authLogout, authStatus, requireAuth } from "./auth.ts";
 import { createAdminApi } from "./admin.ts";
+import { createV1Api } from "./v1.ts";
 
 const app = new Hono<ModelMetadataEnv>();
 // Registered first so it runs before every route below, including the mounted sub-app.
@@ -239,6 +240,9 @@ app.get("/v1/models", (c) => {
   if (!url.searchParams.has("configuredOnly")) url.searchParams.set("configuredOnly", "true");
   return getUnifiedModelsResponse(new Request(url, c.req.raw));
 });
+
+// Anthropic- and Responses-style entry points, same gate and dispatcher as chat completions.
+app.route("/v1", createV1Api(ensureTranslators));
 
 app.post("/v1/chat/completions", async (c) => {
   await ensureTranslators();

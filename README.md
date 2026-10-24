@@ -1,6 +1,6 @@
 # StyxRouter
 
-Lean AI model router on Hono + Bun. Serves OpenAI-, Anthropic-, Google-, Tencent-, and Z.ai-shaped backends through a single `/v1/chat/completions` endpoint with per-provider OAuth/API-key credential rotation, cooldown-aware account failover, and ZCode/Codex/CBAI/Antigravity client-identity fingerprints for anti-ban resilience.
+Lean AI model router on Hono + Bun. Serves OpenAI-, Anthropic-, Google-, Tencent-, and Z.ai-shaped backends through OpenAI-style `/v1/chat/completions`, Anthropic-style `/v1/messages` and Responses-style `/v1/responses` endpoints with per-provider OAuth/API-key credential rotation, cooldown-aware account failover, and ZCode/Codex/CBAI/Antigravity client-identity fingerprints for anti-ban resilience.
 
 Ported and lean-refactored from an upstream lean-router line (see **Credits & lineage** below).
 
