@@ -1,13 +1,12 @@
 /**
  * Z.ai GLM — ZCode CLI OAuth bootstrap.
  *
- * Flow (reverse-engineered from 9Router compiled chunk 4049, field-verified
- * against the oauth config block in chunk 458/7011):
+ * Flow (ZCode CLI server-mediated polling flow):
  *
- *   1. INIT   POST {cliInitUrl}  Authorization: Bearer <random-32-byte-hex>
+ *   1. INIT   POST {cliInitUrl}  Authorization: Bearer <rando...hex>
  *             body: { provider: "zai" }
  *             -> { code, data: { flow_id, authorize_url, expires_at, poll_interval_sec } }
- *   2. POLL   GET {cliPollUrl}/{flow_id}  Authorization: Bearer <same random token>
+ *   2. POLL   GET {cliPollUrl}/{flow_id}  Authorization: Bearer *** random token>
  *             -> data.status: "pending" | "failed" | "ready"
  *                ready -> data[providerId].access_token (JWT)
  *   3. LOGIN  POST {businessLoginUrl} { token: <JWT> }
@@ -19,8 +18,8 @@
  *             find key named {planApiKeyName} or POST to create it
  *             GET  .../api_keys/copy/{apiKey} -> data.secretKey  (the plan API key)
  *
- * The returned access_token for the connection row is the PLAN API KEY
- * (zcode-api-key), not the JWT — same storage shape 9Router uses.
+ * The returned access_token for the connection row is the composite plan API key
+ * (`${apiKey}.${secretKey}`), alongside the ZCode platform JWT when present.
  */
 
 import { randomBytes } from "crypto";
@@ -176,7 +175,7 @@ async function fetchPlanApiKey(cfg: ZaiOAuthConfig, jwt: string): Promise<PlanAp
   );
   const secret = String(copied?.secretKey ?? "").trim();
   if (!secret) throw new Error("Z.ai api key copy response is missing secretKey");
-  return { apiKey: secret, discovery: detectPlanFamily(info, org) };
+  return { apiKey: `${apiKey}.${secret}`, discovery: detectPlanFamily(info, org) };
 }
 
 function expiresInSeconds(expiresAt: unknown): number {
@@ -185,6 +184,44 @@ function expiresInSeconds(expiresAt: unknown): number {
   const ms = n > 1e12 ? n : 1e3 * n;
   const secs = Math.floor((ms - Date.now()) / 1e3);
   return secs > 0 ? secs : 300;
+}
+
+async function checkActiveStartPlan(zcodeJwt: string): Promise<boolean> {
+  if (!zcodeJwt || !zcodeJwt.trim()) return false;
+  try {
+    const platform = process.platform === "win32" ? "windows" : process.platform;
+    const arch = process.arch === "x64" ? "amd64" : process.arch;
+    const url = `https://zcode.z.ai/api/v1/zcode-plan/billing/balance?app_version=3.16.3&platform=${platform}-${arch}`;
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${zcodeJwt.trim()}`,
+        Accept: "application/json",
+        "User-Agent": "ZCode/3.16.3",
+        "HTTP-Referer": "https://zcode.z.ai",
+        "X-Title": "Z Code@cli",
+        "X-ZCode-App-Version": "3.16.3",
+        "X-Platform": `${platform}-${arch}`,
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return false;
+    const parsed: any = await res.json().catch(() => null);
+    if (!codeOk(parsed?.code)) return false;
+    const plans: any[] = Array.isArray(parsed?.data?.plans) ? parsed.data.plans : [];
+    const balances: any[] = Array.isArray(parsed?.data?.balances) ? parsed.data.balances : [];
+    const hasActiveStartPlan = plans.some(
+      (p) =>
+        String(p?.status || "").toLowerCase() === "active" &&
+        String(p?.plan_id || p?.name || "").toLowerCase().includes("start")
+    );
+    const hasStartBalance = balances.some((b) => {
+      const rem = Number(b?.remaining_units ?? b?.remainingUnits ?? 0);
+      return rem > 0;
+    });
+    return hasActiveStartPlan || hasStartBalance;
+  } catch {
+    return false;
+  }
 }
 
 export const zaiGlmProvider = {
@@ -243,18 +280,25 @@ export const zaiGlmProvider = {
       return { ok: true, data: { error: "authorization_pending", error_description: `Unknown status: ${d.status}` } };
     }
     const byId = d[cfg.providerId || "zai"] || d[d.providerId] || {};
+    const zcodeJwt = typeof d.token === "string" ? d.token.trim() : "";
     const jwt = byId.access_token || byId.accessToken || d.accessToken || d.access_token;
     if (!jwt) {
       return { ok: true, data: { error: "access_denied", error_description: "ZCode poll response missing access token" } };
     }
     // Convert JWT to a usable plan API key AND discover the plan family in the
-    // same business-token round-trip (no extra network cost).
-    const { apiKey: planApiKey, discovery } = await fetchPlanApiKey(cfg, jwt as string);
+    // same business-token round-trip. Also check the ZCode billing plane with
+    // d.token (the ZCode platform JWT) for an active Start Plan bucket.
+    const [planRes, isStartPlanOnBillingPlane] = await Promise.all([
+      fetchPlanApiKey(cfg, jwt as string),
+      checkActiveStartPlan(zcodeJwt),
+    ]);
+    const { apiKey: planApiKey, discovery } = planRes;
+    const effectivePlanFamily = isStartPlanOnBillingPlane ? "start" : discovery.planFamily;
     // Bias the executor's transport selector at connection-save time: Start Plan
     // and off-peak quota live on the Anthropic translation layer; Coding and
     // Team plans live on the OpenAI gateway. The executor still accepts a
     // per-request override via providerSpecificData.primaryTransport.
-    const primaryTransport = discovery.planFamily === "start" ? "anthropic" : null;
+    const primaryTransport = effectivePlanFamily === "start" ? "anthropic" : null;
     return {
       ok: true,
       data: {
@@ -263,10 +307,11 @@ export const zaiGlmProvider = {
         refresh_token: null,
         expires_in: null,
         provider_specific_data: {
-          planFamily: discovery.planFamily,
+          planFamily: effectivePlanFamily,
           projectType: discovery.projectType,
           organizationName: discovery.organizationName,
           projectName: discovery.projectName,
+          ...(zcodeJwt ? { zcodeJwtToken: zcodeJwt } : {}),
           ...(primaryTransport ? { primaryTransport } : {}),
         },
       },

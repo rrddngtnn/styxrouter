@@ -321,7 +321,59 @@ app.post("/api/admin/migrate-from-styx", async (c) => {
 // Some flows return extra per-session secrets in the init response (e.g. Z.ai's
 // _zcodePollToken) — those are kept server-side in deviceFlows, never sent to
 // the browser, and re-attached on poll.
-const deviceFlows = new Map<string, { expiresAt: number; extras?: Record<string, unknown> }>();
+const deviceFlows = new Map<
+  string,
+  {
+    expiresAt: number;
+    extras?: Record<string, unknown>;
+    completed?: boolean;
+    error?: string;
+    polling?: boolean;
+  }
+>();
+
+async function stepDeviceFlowPoll(providerId: string, state: string, name?: string | null) {
+  const mod = (OAUTH_PROVIDERS as Record<string, any>)[toOauthKey(providerId)];
+  if (!mod?.pollToken) {
+    return { status: 404 as const, body: { error: `oauth not supported for provider '${providerId}'` } };
+  }
+  const flow = deviceFlows.get(state);
+  if (flow?.completed) return { status: 200 as const, body: { ok: true } };
+  if (flow?.error) return { status: 400 as const, body: { error: flow.error } };
+  if (flow?.polling) return { status: 200 as const, body: { pending: true } };
+  if (flow) flow.polling = true;
+  try {
+    const res = await mod.pollToken(mod.config, state, flow?.extras);
+    const errCode = res?.data?.error;
+    if (!res?.ok || errCode === "authorization_pending" || errCode === "slow_down") {
+      return { status: 200 as const, body: { pending: true } };
+    }
+    if (errCode || !res?.data?.access_token) {
+      const errMsg = res?.data?.error_description || errCode || "oauth authorization failed";
+      if (flow) flow.error = String(errMsg);
+      return { status: 400 as const, body: { error: errMsg } };
+    }
+    const { createProviderConnection } = await import("../src/lib/db/providers.ts");
+    const canonicalProvider = providerId === "zai" ? "glm" : providerId;
+    await createProviderConnection({
+      provider: canonicalProvider,
+      name: name || `${canonicalProvider}-${Date.now().toString(36).slice(-6)}`,
+      authType: "oauth",
+      accessToken: res.data.access_token,
+      refreshToken: res.data.refresh_token || null,
+      tokenExpiresAt: res.data.expires_in
+        ? new Date(Date.now() + res.data.expires_in * 1000).toISOString()
+        : null,
+      providerSpecificData: res.data.provider_specific_data || null,
+      isActive: 1,
+      testStatus: "active",
+    } as any);
+    if (flow) flow.completed = true;
+    return { status: 200 as const, body: { ok: true } };
+  } finally {
+    if (flow) flow.polling = false;
+  }
+}
 
 app.post("/api/oauth/:providerId/init", async (c) => {
   const providerId = c.req.param("providerId");
@@ -341,16 +393,33 @@ app.post("/api/oauth/:providerId/init", async (c) => {
       interval: _iv,
       ...flowExtras
     } = dc as Record<string, unknown>;
-    if (Object.keys(flowExtras).length > 0) {
-      deviceFlows.set(String(dc.device_code), {
-        expiresAt: Date.now() + ((dc.expires_in as number) ?? 300) * 1000,
-        extras: flowExtras,
-      });
+    const state = String(dc.device_code);
+    const expiresInSec = Number(dc.expires_in) || 300;
+    const intervalSec = Math.max(2, Number(dc.interval) || 3);
+    const expiresAt = Date.now() + expiresInSec * 1000;
+    deviceFlows.set(state, {
+      expiresAt,
+      extras: Object.keys(flowExtras).length > 0 ? flowExtras : undefined,
+    });
+    if (mod.pollToken && !process.env.BUN_TEST) {
+      const timer = setInterval(async () => {
+        const entry = deviceFlows.get(state);
+        if (!entry || entry.completed || entry.error || Date.now() >= entry.expiresAt) {
+          clearInterval(timer);
+          return;
+        }
+        try {
+          await stepDeviceFlowPoll(providerId, state);
+        } catch {
+          // ignore transient network errors during background poll
+        }
+      }, intervalSec * 1000);
+      timer.unref?.();
     }
     return c.json({
       providerId,
       authUrl: dc.verification_uri_complete ?? dc.verification_uri ?? dc.authUrl ?? null,
-      state: dc.device_code,
+      state,
       userCode: dc.user_code ?? null,
       expiresIn: dc.expires_in ?? null,
       interval: dc.interval ?? 5,
@@ -365,38 +434,9 @@ app.get("/api/oauth/:providerId/poll", async (c) => {
   const state = c.req.query("state");
   const name = c.req.query("name");
   if (!state) return c.json({ error: "state required" }, 400);
-  const mod = (OAUTH_PROVIDERS as Record<string, any>)[toOauthKey(providerId)];
-  if (!mod?.pollToken) {
-    return c.json({ error: `oauth not supported for provider '${providerId}'` }, 404);
-  }
   try {
-    const flow = deviceFlows.get(state);
-    const res = await mod.pollToken(mod.config, state, flow?.extras);
-    const errCode = res?.data?.error;
-    if (!res?.ok || errCode === "authorization_pending" || errCode === "slow_down") {
-      return c.json({ pending: true });
-    }
-    if (errCode || !res?.data?.access_token) {
-      if (flow) deviceFlows.delete(state);
-      return c.json({ error: res?.data?.error_description || errCode || "oauth authorization failed" }, 400);
-    }
-    if (flow) deviceFlows.delete(state);
-    const { createProviderConnection } = await import(
-      "../src/lib/db/providers.ts"
-    );
-    await createProviderConnection({
-      provider: providerId,
-      name: name || `${providerId}-${Date.now().toString(36).slice(-6)}`,
-      authType: "oauth",
-      accessToken: res.data.access_token,
-      refreshToken: res.data.refresh_token || null,
-      tokenExpiresAt: res.data.expires_in
-        ? new Date(Date.now() + res.data.expires_in * 1000).toISOString()
-        : null,
-      providerSpecificData: res.data.provider_specific_data || null,
-      isActive: 1,
-    } as any);
-    return c.json({ ok: true });
+    const res = await stepDeviceFlowPoll(providerId, state, name);
+    return c.json(res.body, res.status);
   } catch (e: any) {
     return c.json({ error: String(e?.message || e) }, 500);
   }
@@ -492,9 +532,15 @@ tokenHealthTimer.unref?.(); // never hold the process open on its own
 // first pass shortly after boot (after the DB has settled)
 setTimeout(() => { void runTokenHealthPass(); }, 30_000).unref?.();
 
-// Prime version-drift caches so the first live dispatch already carries the
-// current fingerprint (no cold-start request stamped with the fallback).
+// Prime version-drift caches and apply persisted DB runtime settings at boot.
 void (async () => {
+  try {
+    const settings = await getSettings();
+    const { applyRuntimeSettings } = await import("../src/lib/config/runtimeSettings.ts");
+    await applyRuntimeSettings(settings, { force: true, source: "startup" });
+  } catch (e: any) {
+    console.warn("[BOOT] applyRuntimeSettings failed:", e?.message || e);
+  }
   try {
     const { getZcodeVersion } = await import("../open-sse/services/zcodeVersion.ts");
     await getZcodeVersion();

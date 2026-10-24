@@ -15,10 +15,15 @@ import {
   buildGlmChatUrl,
   buildGlmCodingHeaders,
   buildGlmCountTokensUrl,
+  buildZcodeStartPlanHeaders,
+  getZcodeDeviceMid,
+  getZcodeJwtToken,
+  isZcodeStartPlanConnection,
   GLM_COUNT_TOKENS_TIMEOUT_MS,
   type GlmTransport,
   getGlmTransport,
 } from "../config/glmProvider.ts";
+import { applyZcodeStartPlanBodyTransform } from "../services/zcodeStartPlan.ts";
 import { applyProviderRequestDefaults } from "../services/providerRequestDefaults.ts";
 import { stripUnsupportedParams } from "../translator/paramSupport.ts";
 import { getRotatingApiKey } from "../services/apiKeyRotator.ts";
@@ -278,6 +283,10 @@ export class GlmExecutor extends DefaultExecutor {
     if (transport === "openai") {
       return buildGlmCodingHeaders(getEffectiveKey(credentials), stream);
     }
+    const zcodeJwt = getZcodeJwtToken(credentials.providerSpecificData);
+    if (isZcodeStartPlanConnection(credentials.providerSpecificData) && zcodeJwt) {
+      return buildZcodeStartPlanHeaders(zcodeJwt, stream);
+    }
 
     return {
       ...buildGlmBaseHeaders(getEffectiveKey(credentials), stream),
@@ -390,6 +399,29 @@ export class GlmExecutor extends DefaultExecutor {
           };
         }
       }
+    }
+
+    if (isZcodeStartPlanConnection(credentials.providerSpecificData)) {
+      const startBody = { ...(asRecord(translated) ?? {}) };
+      const clientBody = asRecord(body) ?? {};
+      const effort = effortTier?.effort || clientBody.reasoning_effort;
+      if (/^glm-5\.3(?:-|$)/i.test(effectiveModel) && effort) {
+        const level = effort === "low" ? "low" : effort === "high" || effort === "medium" ? "high" : "max";
+        const budget = { low: 8000, high: 16000, max: 32000 }[level];
+        startBody.output_config = { ...(asRecord(startBody.output_config) ?? {}), effort: level };
+        startBody.thinking = { type: "enabled", budget_tokens: budget };
+        startBody.max_tokens = Math.min(128000, Math.max(Number(startBody.max_tokens) || 4096, budget + (Number(clientBody.max_tokens) || 4096)));
+        delete startBody.effort;
+        delete startBody.reasoning_effort;
+        delete startBody.temperature;
+        delete startBody.top_p;
+      }
+      return applyZcodeStartPlanBodyTransform(
+        startBody,
+        effectiveModel,
+        getZcodeDeviceMid(),
+        "zai"
+      );
     }
 
     return translated;
@@ -535,6 +567,9 @@ export class GlmExecutor extends DefaultExecutor {
     // GLM-5.2 → Anthropic (Zhipu only graduates effort there, via the
     // effort-2025-11-24 beta header in GLM_ANTHROPIC_BETA); GLM-5.3 → OpenAI
     // coding endpoint (`reasoning_effort` param). See parseGlmEffortTier.
+    if (isZcodeStartPlanConnection(input.credentials.providerSpecificData)) {
+      return this.executeTransport(input, "anthropic");
+    }
     if (effortTier) {
       return this.executeTransport(input, effortTier.transport);
     }

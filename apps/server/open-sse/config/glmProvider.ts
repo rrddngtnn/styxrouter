@@ -64,6 +64,26 @@ export const GLM_SHARED_MODELS = Object.freeze([
     supportedThinkingEfforts: ["max"],
   },
   {
+    id: "glm-5.3-flash",
+    name: "GLM 5.3 Flash (Vision)",
+    contextLength: 1000000,
+    maxOutputTokens: 131072,
+    toolCalling: true,
+    supportsReasoning: true,
+    supportsVision: true,
+    supportedThinkingEfforts: ["low", "high", "max"],
+  },
+  {
+    id: "glm-5v-turbo",
+    name: "GLM 5V Turbo (Vision)",
+    contextLength: 200000,
+    maxOutputTokens: 131072,
+    toolCalling: true,
+    supportsReasoning: true,
+    supportsVision: true,
+    supportedThinkingEfforts: [],
+  },
+  {
     // GLM-5.2 has two positive effective tiers: low/medium map to high and xhigh
     // maps to max; disabling thinking remains the separate thinking toggle.
     // https://docs.z.ai/guides/capabilities/thinking
@@ -514,10 +534,32 @@ export function buildGlmOpenAIChatUrl(
   return joinGlmBaseAndPath(baseUrl, "/chat/completions");
 }
 
+export const ZCODE_START_PLAN_ANTHROPIC_URL =
+  "https://zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages";
+
+export function isZcodeStartPlanConnection(providerSpecificData: unknown): boolean {
+  const data = asRecord(providerSpecificData);
+  const jwt = asString(data.zcodeJwtToken);
+  return getGlmPlanFamily(providerSpecificData) === "start" && Boolean(jwt);
+}
+
+export function getZcodeJwtToken(providerSpecificData: unknown): string | null {
+  const data = asRecord(providerSpecificData);
+  return asString(data.zcodeJwtToken);
+}
+
 export function buildGlmAnthropicMessagesUrl(
   providerSpecificData: unknown,
   fallbackBaseUrl?: string | null
 ): string {
+  const data = asRecord(providerSpecificData);
+  if (
+    getGlmPlanFamily(providerSpecificData) === "start" &&
+    !asString(data.anthropicBaseUrl) &&
+    !asString(data.baseUrl)
+  ) {
+    return ZCODE_START_PLAN_ANTHROPIC_URL;
+  }
   return addBetaQuery(
     joinGlmBaseAndPath(
       getGlmAnthropicBaseUrl(providerSpecificData, fallbackBaseUrl),
@@ -605,7 +647,7 @@ function getZcodeOsVersion(): string {
 // (one id per install). Operators who prefer rotating per host boot can set
 // STYX_ZCODE_DEVICE_MID in the service env.
 let _zcodeDeviceMid: string | null = null;
-function getZcodeDeviceMid(): string {
+export function getZcodeDeviceMid(): string {
   const override = (process.env.STYX_ZCODE_DEVICE_MID || "").trim();
   if (override) return override;
   if (_zcodeDeviceMid) return _zcodeDeviceMid;
@@ -615,11 +657,39 @@ function getZcodeDeviceMid(): string {
   return _zcodeDeviceMid;
 }
 
+export function buildZcodeStartPlanHeaders(zcodeJwt: string, stream = true): Record<string, string> {
+  const zcodeVersion = getCachedZcodeVersion();
+  const reqId = globalThis.crypto?.randomUUID?.() || `${Date.now()}`;
+  const traceId = globalThis.crypto?.randomUUID?.() || `${Date.now()}`;
+  return {
+    "Content-Type": "application/json",
+    Accept: stream ? "text/event-stream" : "application/json",
+    Authorization: `Bearer ${zcodeJwt}`,
+    "anthropic-version": ANTHROPIC_VERSION_HEADER,
+    "User-Agent": `ZCode/${zcodeVersion} ai-sdk/anthropic/3.0.81`,
+    "HTTP-Referer": "https://zcode.z.ai",
+    "X-Title": "Z Code@cli",
+    "X-ZCode-App-Version": zcodeVersion,
+    "X-ZCode-Agent": "glm",
+    "X-Release-Channel": "production",
+    "X-Platform": getZcodePlatformToken(),
+    "X-Os-Category": getZcodeOsCategory(),
+    "X-Os-Version": getZcodeOsVersion(),
+    "X-Client-Language": "unknown",
+    "X-Client-Timezone": "unknown",
+    "x-request-id": reqId,
+    "x-zcode-session-type": "main",
+    "x-zcode-trace-id": traceId,
+    "x-zcode-query-source": "main_turn",
+  };
+}
+
 export function buildGlmBaseHeaders(apiKey: string, stream = true): Record<string, string> {
   return {
     "Content-Type": "application/json",
     Accept: stream ? "text/event-stream" : "application/json",
     "x-api-key": apiKey,
+    Authorization: "Bearer " + apiKey,
     "anthropic-version": ANTHROPIC_VERSION_HEADER,
     "anthropic-beta": GLM_ANTHROPIC_BETA,
     "anthropic-dangerous-direct-browser-access": "true",

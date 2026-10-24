@@ -68,6 +68,10 @@ export function buildAliasMaps() {
     if (!providerIdToAlias[providerId]) providerIdToAlias[providerId] = alias;
   }
 
+  // Registry identity wins over presentation aliases sharing the same prefix.
+  aliasToProviderId.glm = "glm";
+  aliasToProviderId.zai = "glm";
+  providerIdToAlias.glm = "glm";
   return { aliasToProviderId, providerIdToAlias };
 }
 

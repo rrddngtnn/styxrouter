@@ -129,7 +129,7 @@ export const APIKEY_PROVIDERS_REGIONAL = {
   },
   zai: {
     id: "zai",
-    alias: "zai",
+    alias: "glm",
     name: "Z.AI",
     icon: "psychology",
     color: "#2563EB",
