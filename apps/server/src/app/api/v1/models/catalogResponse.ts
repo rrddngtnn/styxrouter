@@ -247,6 +247,11 @@ export async function finalizeCatalogResponse(
         : entry;
       listedModel = maybeOmitCatalogModelName(listedModel, includeModelNames);
     }
+    // Every non-chat source in catalog.ts sets `type` itself (audio, embedding, image, rerank,
+    // moderation, video, music), so a listed model without one is an LLM chat model.
+    if (typeof listedModel.type !== "string" || listedModel.type.length === 0) {
+      listedModel = { ...listedModel, type: "chat" };
+    }
     enriched.push(listedModel);
     catEnrichCount++;
     if (catEnrichCount % catYIELD_EVERY === 0) {
