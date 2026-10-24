@@ -19,6 +19,8 @@ export const ZCODE_MODELS = GLM_SHARED_MODELS.filter(
  */
 export const zcodeProvider: RegistryEntry = {
   id: "zcode",
+  vendor: "zhipu",
+  category: "coding-agent",
   alias: "zc",
   format: "openai",
   executor: "zcode",

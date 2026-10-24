@@ -3,6 +3,8 @@ import { GLMT_REQUEST_DEFAULTS, GLMT_TIMEOUT_MS, GLM_SHARED_MODELS } from "../..
 
 export const glmtProvider: RegistryEntry = {
   id: "glmt",
+  vendor: "zhipu",
+  category: "chat",
   alias: "glmt",
   format: "openai",
   executor: "glm",
