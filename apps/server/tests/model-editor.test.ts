@@ -1,8 +1,9 @@
 import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
-const dir = mkdtempSync(join(process.env.TMPDIR!, "model-editor-"));
+const dir = mkdtempSync(join(tmpdir(), "model-editor-"));
 process.env.DATA_DIR = dir;
 const overrides = await import("../src/lib/db/modelCapabilityOverrides.ts");
 const { getResolvedModelCapabilities, createModelCapabilityResolutionSnapshot } = await import("../src/lib/modelCapabilities.ts");
