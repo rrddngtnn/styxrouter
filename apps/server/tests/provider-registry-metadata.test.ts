@@ -8,6 +8,8 @@
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
 import path from "node:path";
+import { getProviderById, getProviderLabel } from "../src/shared/constants/providers.ts";
+import { REGISTRY } from "../open-sse/config/providers/index.ts";
 
 const ROOT = path.resolve(import.meta.dir, "../open-sse/config/providers/registry");
 
@@ -72,5 +74,28 @@ describe("provider registry metadata", () => {
   test("no model object carries a provider-level vendor or category", async () => {
     const { stray } = await loadRegistry();
     expect(stray).toEqual([]);
+  });
+});
+
+// GET /api/providers labels each provider with getProviderLabel. A label equal to the raw id
+// (e.g. "kimi-coding-apikey") is unreadable in the panel; two providers sharing a label is the
+// GLM/ZAI kind of confusion.
+describe("served provider labels", () => {
+  // Alias keys point at the same entry object; the served list keeps only canonical ids.
+  const served = Object.entries(REGISTRY).filter(([id, entry]: [string, any]) => entry.id === id);
+
+  test("the catalog displayName wins, then the maintained dashboard name, then the id", () => {
+    expect(getProviderLabel("openai", "Override")).toBe("Override");
+    expect(getProviderLabel("openai")).toBe(getProviderById("openai")?.name);
+    expect(getProviderLabel("no-such-provider")).toBe("no-such-provider");
+  });
+
+  test("every served provider has a readable label and no two share one", () => {
+    const labels = served.map(([id, entry]: [string, any]) => [id, getProviderLabel(id, entry.displayName)] as const);
+    expect(labels.filter(([id, l]) => l === id).map(([id]) => id)).toEqual([]);
+    const byLabel = new Map<string, string[]>();
+    for (const [id, l] of labels) byLabel.set(l.toLowerCase(), [...(byLabel.get(l.toLowerCase()) ?? []), id]);
+    expect([...byLabel.values()].filter((ids) => ids.length > 1)).toEqual([]);
+    expect(served.length).toBeGreaterThan(40);
   });
 });

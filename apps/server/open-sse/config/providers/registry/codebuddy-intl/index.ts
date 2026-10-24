@@ -12,6 +12,7 @@ import type { RegistryEntry } from "../../shared.ts";
  */
 export const codebuddy_intlProvider: RegistryEntry = {
   id: "codebuddy-intl",
+  displayName: "CodeBuddy International",
   vendor: "tencent",
   category: "coding-agent",
   alias: "cbai",

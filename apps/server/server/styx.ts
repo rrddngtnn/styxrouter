@@ -7,6 +7,7 @@ import { handleChat } from "../src/sse/handlers/chat.ts";
 import { initTranslators } from "../open-sse/translator/index.ts";
 import { getProviderConnections } from "../src/lib/db/providers.ts";
 import { REGISTRY } from "../open-sse/config/providers/index.ts";
+import { getProviderLabel } from "../src/shared/constants/providers.ts";
 import { getSettings } from "../src/lib/db/settings.ts";
 import { PROVIDERS as OAUTH_PROVIDERS } from "../src/lib/oauth/providers/index.ts";
 import { getCombos } from "../src/lib/db/combos.ts";
@@ -76,8 +77,8 @@ app.get("/api/providers", async (c) => {
       const authModes = hasOauth && !baseModes.includes("oauth") ? ["oauth", ...baseModes] : baseModes;
       return {
         id,
-        name: entry.displayName ?? (entry as any).name ?? id,
-        displayName: entry.displayName ?? (entry as any).name ?? id,
+        name: getProviderLabel(id, entry.displayName),
+        displayName: getProviderLabel(id, entry.displayName),
         vendor: entry.vendor ?? null,
         category: entry.category ?? null,
         authType,

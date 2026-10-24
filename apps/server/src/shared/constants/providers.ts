@@ -383,6 +383,11 @@ export function getProviderById(id: string) {
   );
 }
 
+/** Served provider label: the catalog's own displayName wins, then the maintained dashboard name, then the id. */
+export function getProviderLabel(id: string, displayName?: string | null): string {
+  return displayName || getProviderById(id)?.name || id;
+}
+
 export const AI_PROVIDERS = new Proxy({} as Record<string, any>, {
   get(_, key) {
     if (key === "then") return undefined;
