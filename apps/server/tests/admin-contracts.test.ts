@@ -105,9 +105,13 @@ describe("api keys", () => {
     key = body.key;
   });
 
-  test("revoke makes the key stop working", async () => {
+  test("revoke makes the key stop working and the list says so", async () => {
+    const before: any = await (await api("GET", "/api/keys")).json();
+    expect(before.keys.find((k: any) => k.id === id)?.isActive).toBe(true);
     expect((await api("POST", `/api/keys/${id}/revoke`)).status).toBe(200);
     expect((await models(key)).status).toBe(401);
+    const after: any = await (await api("GET", "/api/keys")).json();
+    expect(after.keys.find((k: any) => k.id === id)?.isActive).toBe(false);
   });
 
   test("delete removes it from the list; unknown ids are 404", async () => {
@@ -145,6 +149,14 @@ describe("combos", () => {
     expect(((await r.json()) as any).description).toBe("edited");
     expect((await api("PUT", `/api/routing/combos/${a}`, { name: "combo-b" })).status).toBe(400);
     expect((await api("PUT", "/api/routing/combos/nope", { description: "x" })).status).toBe(404);
+  });
+
+  test("the list reports the step count and an enabled flag that follows isActive", async () => {
+    const row = (await combos()).find((c) => c.id === a);
+    expect(row).toMatchObject({ steps: 1, enabled: true });
+    expect((await api("PUT", `/api/routing/combos/${a}`, { isActive: false })).status).toBe(200);
+    expect((await combos()).find((c) => c.id === a)?.enabled).toBe(false);
+    expect((await api("PUT", `/api/routing/combos/${a}`, { isActive: true })).status).toBe(200);
   });
 
   test("a combo that references itself is refused (cycle)", async () => {

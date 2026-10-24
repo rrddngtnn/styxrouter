@@ -20,7 +20,9 @@ import {
 import { getConsistentMachineId } from "../src/shared/utils/machineId.ts";
 import { logAuditEvent } from "../src/lib/compliance/index.ts";
 import { z, type ZodTypeAny } from "zod";
+import { REGISTRY } from "../open-sse/config/providers/index.ts";
 import {
+  createProviderConnection,
   deleteProviderConnection,
   getProviderConnectionById,
   getProviderConnections,
@@ -213,6 +215,33 @@ export function createAdminApi() {
   api.get("/connections", async (c) => {
     const rows = (await getProviderConnections({}, undefined, undefined, CONNECTION_COLUMNS)) as any[];
     return c.json({ connections: rows.map(connectionView) });
+  });
+
+  const addConnectionSchema = z
+    .object({
+      provider: z.string().trim().min(1).max(100),
+      name: z.string().trim().min(1).max(200),
+      apiKey: z.string().trim().min(8).max(2000),
+    })
+    .strict();
+
+  // API-key accounts only (OAuth accounts are linked through the /api/oauth device flow). The provider
+  // must be a canonical registry id that takes an API key; the DB layer refuses the management password as a key.
+  api.post("/connections", async (c) => {
+    const v = validateBody(addConnectionSchema, await bodyOf(c));
+    if (isValidationFailure(v)) return bad(c, v.error);
+    const { provider, name, apiKey } = v.data;
+    const entry = (REGISTRY as Record<string, any>)[provider];
+    if (!entry || entry.id !== provider) return bad(c, `Unknown provider '${provider}'`);
+    const modes: string[] = Array.isArray(entry.authModes) ? entry.authModes : [entry.authType];
+    if (!modes.includes("apikey")) return bad(c, `Provider '${provider}' does not use an API key`);
+    try {
+      const conn = (await createProviderConnection({ provider, authType: "apikey", name, apiKey, isActive: true })) as any;
+      audit(c, "connection.create", String(conn.id), { provider, name });
+      return c.json({ id: conn.id, provider, name }, 201);
+    } catch (e) {
+      return bad(c, e instanceof Error ? e.message : "could not create the account");
+    }
   });
 
   // Strict: secrets (apiKey, tokens) are not editable here, a stray key is a 400.

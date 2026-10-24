@@ -124,6 +124,37 @@ describe("connections", () => {
   });
 });
 
+describe("add an API-key account", () => {
+  let newId = "";
+
+  test("creates the account; the list shows it and never the key", async () => {
+    const key = "sk-added-through-the-panel-0123456789";
+    const r = await api("POST", "/api/connections", { provider: "openai", name: "added", apiKey: key });
+    expect(r.status).toBe(201);
+    newId = ((await r.json()) as any).id;
+    expect(newId).toBeTruthy();
+    const text = await (await api("GET", "/api/connections")).text();
+    expect(text).not.toContain(key);
+    expect(JSON.parse(text).connections.find((c: any) => c.id === newId)).toMatchObject({ provider: "openai", name: "added", isActive: true, authType: "apikey" });
+  });
+
+  test("refuses an unknown provider, a provider without API-key auth, and a missing key", async () => {
+    expect((await api("POST", "/api/connections", { provider: "no-such-provider", name: "x", apiKey: "sk-0123456789abcdef" })).status).toBe(400);
+    expect((await api("POST", "/api/connections", { provider: "zcode", name: "x", apiKey: "sk-0123456789abcdef" })).status).toBe(400);
+    expect((await api("POST", "/api/connections", { provider: "openai", name: "x" })).status).toBe(400);
+    expect((await api("POST", "/api/connections", { provider: "openai", name: "x", apiKey: "short" })).status).toBe(400);
+  });
+
+  test("without a session it is 401", async () => {
+    const r = await fetch(`${BASE}/api/connections`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "openai", name: "x", apiKey: "sk-0123456789abcdef" }) });
+    expect(r.status).toBe(401);
+  });
+
+  test("the new account can be deleted again", async () => {
+    expect((await api("DELETE", `/api/connections/${newId}`)).status).toBe(200);
+  });
+});
+
 describe("settings", () => {
   test("patch updates a setting and the read shows it", async () => {
     const r = await api("PATCH", "/api/settings", { instanceName: "Styx Test" });

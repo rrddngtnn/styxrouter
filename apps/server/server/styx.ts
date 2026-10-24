@@ -179,7 +179,8 @@ app.get("/api/routing/combos", async (c) => {
         strategy: cb.strategy ?? "priority",
         provider: cb.providerDefault ?? cb.provider ?? null,
         model: cb.modelDefault ?? cb.model ?? null,
-        enabled: cb.enabled ?? true,
+        enabled: cb.isActive ?? cb.enabled ?? true,
+        steps: Array.isArray(cb.models) ? cb.models.length : 0,
       })),
     });
   } catch (e: any) {
@@ -199,6 +200,8 @@ app.get("/api/keys", async (c) => {
         createdAt: k.createdAt ?? null,
         lastUsedAt: k.lastUsedAt ?? null,
         modelRestrictions: k.allowedModels ?? null,
+        isActive: k.isActive !== false && !k.revokedAt,
+        revokedAt: k.revokedAt ?? null,
       })),
     });
   } catch (e: any) {
