@@ -25,24 +25,13 @@ export function createDisabledCompressionConfig(): CompressionConfig {
   };
 }
 
-export async function resolveCompressionSettings(log?: LoggerLike): Promise<{
+// The token saver (prompt compression, Caveman, RTK, delegated context editing) is permanently off in StyxRouter:
+// prompt shaping belongs to the client harness. The stored settings are ignored on purpose, so a leftover or imported
+// "enabled" value can never alter a request. Both call sites (chatCore and the SSE chat handler) go through here.
+export async function resolveCompressionSettings(_log?: LoggerLike): Promise<{
   settings: CompressionConfig | null;
   enabled: boolean;
   contextEditingEnabled: boolean;
 }> {
-  try {
-    const { getCompressionSettings } = await import("@/lib/db/compression");
-    const settings = await getCompressionSettings();
-    return {
-      settings,
-      enabled: settings.enabled,
-      contextEditingEnabled: settings.contextEditing?.enabled === true,
-    };
-  } catch (err) {
-    log?.warn?.(
-      "COMPRESSION",
-      "Compression settings lookup skipped: " + (err instanceof Error ? err.message : String(err))
-    );
-    return { settings: null, enabled: false, contextEditingEnabled: false };
-  }
+  return { settings: createDisabledCompressionConfig(), enabled: false, contextEditingEnabled: false };
 }
