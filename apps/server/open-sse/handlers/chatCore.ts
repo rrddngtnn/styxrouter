@@ -327,7 +327,6 @@ import { recordContextEditingTelemetryHook } from "./chatCore/contextEditingTele
 import { recordCompressionCacheStats } from "./chatCore/compressionCacheStats.ts";
 import { writeCavemanOutputAnalytics } from "./chatCore/cavemanOutputAnalytics.ts";
 import { scheduleQuotaShareConsumption } from "./chatCore/quotaShareConsumption.ts";
-import { emitRequestGamificationEvent } from "./chatCore/gamificationEvent.ts";
 import {
   runPluginOnResponseHook,
   runPluginOnStreamCompleteHook,
@@ -1338,7 +1337,7 @@ export async function handleChatCore({
 
     // --- Modular Compression Pipeline (Phase 1 Lite + Phase 2 Standard/Caveman + Phase 3 Aggressive) ---
     // Runs BEFORE the existing reactive compressContext() to proactively reduce tokens.
-    try {
+    if (promptCompressionEnabled) try {
       const {
         selectCompressionStrategy,
         selectCompressionPlan,
@@ -5256,9 +5255,6 @@ export async function handleChatCore({
     });
     // === /Quota Share POST-hook ===
 
-    // ── Gamification event (fire-and-forget) ──
-    await emitRequestGamificationEvent({ apiKeyId: apiKeyInfo?.id, model, provider });
-
     finalizePendingScope(pendingScope, {
       providerResponse: responseBody,
       clientResponse: translatedResponse,
@@ -5806,9 +5802,6 @@ export async function handleChatCore({
     echoModel,
     responseHeaders,
   });
-
-  // ── Gamification event (fire-and-forget) ──
-  await emitRequestGamificationEvent({ apiKeyId: apiKeyInfo?.id, model, provider });
 
   // ── Plugin onResponse hook (fire-and-forget) ──
   await runPluginOnResponseHook({

@@ -34,7 +34,7 @@ export const DEFAULT_MEMORY_SETTINGS: MemorySettings = {
   maxTokens: 2000,
   retentionDays: 30,
   strategy: "hybrid",
-  skillsEnabled: true,
+  skillsEnabled: false,
   // Plan 21 — D9 defaults
   embeddingSource: "auto",
   embeddingProviderModel: null,

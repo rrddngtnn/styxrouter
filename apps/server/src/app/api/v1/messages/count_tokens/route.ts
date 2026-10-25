@@ -5,7 +5,8 @@ import { countTextTokens, type TokenizerContext } from "@/shared/utils/tiktokenC
 import { getExecutor } from "@styxrouter/open-sse/executors/index.ts";
 import { runWithProxyContext } from "@styxrouter/open-sse/utils/proxyFetch.ts";
 import { getModelInfo } from "@/sse/services/model";
-import { extractApiKey, getProviderCredentials, isValidApiKey } from "@/sse/services/auth";
+import { getProviderCredentials } from "@/sse/services/auth";
+import { enforceApiKeyPolicy } from "@/shared/utils/apiKeyPolicy";
 import { safeResolveProxy } from "@/sse/handlers/chatHelpers";
 import * as log from "@/sse/utils/logger";
 import { isInputTokenCountPlausible } from "@styxrouter/open-sse/utils/usageTracking.ts";
@@ -50,6 +51,14 @@ export async function POST(request) {
     return estimated;
   }
 
+  const policy = await enforceApiKeyPolicy(request, requestedModel);
+  if (policy.rejection) {
+    return policy.rejection;
+  }
+  const allowedConnections = policy.apiKeyInfo?.allowedConnections?.length
+    ? policy.apiKeyInfo.allowedConnections
+    : null;
+
   try {
     const modelInfo = await getModelInfo(requestedModel);
     if (!modelInfo?.provider || !modelInfo?.model) {
@@ -59,7 +68,7 @@ export async function POST(request) {
     const credentials = await getProviderCredentials(
       modelInfo.provider,
       null,
-      null,
+      allowedConnections,
       modelInfo.model
     );
     if (!credentials || credentials.allRateLimited) {

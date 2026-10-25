@@ -10,12 +10,17 @@ interface AuthStatus {
 export function App() {
   const navigate = useNavigate();
   const [checking, setChecking] = useState(true);
+  const [authed, setAuthed] = useState(false);
 
   useEffect(() => {
     api
       .get<AuthStatus>("/api/auth/status")
       .then((status) => {
-        if (!status.authenticated) navigate("/login", { replace: true });
+        if (!status.authenticated) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setAuthed(true);
       })
       .catch((error: unknown) => {
         if (error instanceof ApiError && error.status === 401) {
@@ -27,10 +32,11 @@ export function App() {
 
   async function logout() {
     await api.post("/api/auth/logout").catch(() => undefined);
+    setAuthed(false);
     navigate("/login", { replace: true });
   }
 
-  if (checking) return <div className="loading">Checking session…</div>;
+  if (checking || !authed) return <div className="loading">Checking session…</div>;
 
   return (
     <div className="shell">

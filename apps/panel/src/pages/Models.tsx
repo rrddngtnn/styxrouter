@@ -64,7 +64,7 @@ export function Models() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   useEffect(() => {
-    api.get<{ data: CatalogModel[] }>("/v1/models?configuredOnly=true&prefixMode=canonical")
+    api.get<{ data: CatalogModel[] }>("/v1/models?configuredOnly=true&prefix=canonical")
       .then(result => setCatalog(result.data.filter(row => row.owned_by !== "combo")))
       .catch(error => setError(String(error)));
   }, []);

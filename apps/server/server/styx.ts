@@ -135,9 +135,14 @@ app.get("/api/routing/combos", async (c) => {
   }
 });
 
+const clampLimit = (raw: string | undefined, fallback: number, max = 500) => {
+  const n = Number.parseInt(String(raw ?? ""), 10);
+  return Number.isInteger(n) && n > 0 ? Math.min(n, max) : fallback;
+};
+
 app.get("/api/keys", async (c) => {
   try {
-    const limit = Number(c.req.query("limit") ?? 100);
+    const limit = clampLimit(c.req.query("limit"), 100, 500);
     const keys = await getApiKeys(limit, 0);
     return c.json({
       keys: keys.map((k: any) => ({
@@ -161,7 +166,7 @@ app.get("/api/keys", async (c) => {
 
 app.get("/api/activity", (c) => {
   try {
-    const limit = Number(c.req.query("limit") ?? 50);
+    const limit = clampLimit(c.req.query("limit"), 50, 500);
     const rows = getRequestDetailLogs(limit, 0);
     return c.json({
       entries: rows.map((r: any) => ({
@@ -210,9 +215,17 @@ app.post("/v1/chat/completions", async (c) => {
 // so the secret never leaves the host. A backup is written before the
 // first mutation; dry-run skips the backup and the write.
 app.post("/api/admin/migrate-from-styx", async (c) => {
-  // Loopback guard — the secret is in the body, never let a remote call it
-  const remote = c.req.header("x-forwarded-for") || c.req.header("host") || "";
-  if (!(remote.startsWith("127.0.0.1") || remote.startsWith("localhost") || remote.startsWith("[::1]"))) {
+  // Strict direct-loopback guard — never trust spoofable X-Forwarded-For headers.
+  const peer = c.env?.peerAddress;
+  const forwarded = [...c.req.raw.headers.keys()].some(
+    (k) => k === "forwarded" || k.startsWith("x-forwarded-") || k === "x-real-ip"
+  );
+  const host = (c.req.header("host") || "").split(":")[0];
+  if (
+    !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(peer ?? "") ||
+    forwarded ||
+    !["127.0.0.1", "localhost", "[::1]"].includes(host)
+  ) {
     return c.json({ error: "loopback only" }, 403);
   }
   const body = await c.req.json().catch(() => ({}) as any);
@@ -225,7 +238,7 @@ app.post("/api/admin/migrate-from-styx", async (c) => {
 
   const { scryptSync, createCipheriv, createDecipheriv, randomBytes } = await import("crypto");
   const fs = await import("fs");
-  const bs = (await import("better-sqlite3")).default;
+  const { tryOpenSync } = await import("../src/lib/db/adapters/driverFactory.ts");
 
   if (!fs.existsSync(srcDb)) return c.json({ error: `not found: ${srcDb}` }, 400);
 
@@ -253,7 +266,8 @@ app.post("/api/admin/migrate-from-styx", async (c) => {
     return `enc:v1:${iv.toString("hex")}:${ct.toString("hex")}:${tag.toString("hex")}`;
   }
 
-  const db = new bs(srcDb);
+  const db = tryOpenSync(srcDb);
+  if (!db) return c.json({ error: "could not open sqlite database" }, 500);
   const FIELDS = ["api_key", "access_token", "refresh_token", "id_token"];
   const rows = db.prepare(`SELECT rowid, ${FIELDS.join(", ")} FROM provider_connections`).all() as any[];
   let migrated = 0, failed = 0, skipped = 0;
@@ -323,27 +337,39 @@ async function stepDeviceFlowPoll(providerId: string, state: string, name?: stri
     }
     const { createProviderConnection } = await import("../src/lib/db/providers.ts");
     const canonicalProvider = providerId === "zai" ? "glm" : providerId;
+    const expiresAt = res.data.expires_in
+      ? new Date(Date.now() + res.data.expires_in * 1000).toISOString()
+      : null;
     await createProviderConnection({
       provider: canonicalProvider,
       name: name || `${canonicalProvider}-${Date.now().toString(36).slice(-6)}`,
       authType: "oauth",
       accessToken: res.data.access_token,
       refreshToken: res.data.refresh_token || null,
-      tokenExpiresAt: res.data.expires_in
-        ? new Date(Date.now() + res.data.expires_in * 1000).toISOString()
-        : null,
+      expiresAt,
+      tokenExpiresAt: expiresAt,
       providerSpecificData: res.data.provider_specific_data || null,
       isActive: 1,
       testStatus: "active",
     } as any);
-    if (flow) flow.completed = true;
+    if (flow) {
+      flow.completed = true;
+      flow.expiresAt = Math.min(flow.expiresAt, Date.now() + 60_000);
+    }
     return { status: 200 as const, body: { ok: true } };
   } finally {
     if (flow) flow.polling = false;
   }
 }
 
+function pruneDeviceFlows(now = Date.now()) {
+  for (const [k, v] of deviceFlows) {
+    if (now >= v.expiresAt + 60_000) deviceFlows.delete(k);
+  }
+}
+
 app.post("/api/oauth/:providerId/init", async (c) => {
+  pruneDeviceFlows();
   const providerId = c.req.param("providerId");
   const mod = (OAUTH_PROVIDERS as Record<string, any>)[toOauthKey(providerId)];
   if (!mod?.requestDeviceCode) {
@@ -463,11 +489,14 @@ const tokenHealthDisabled =
 async function runTokenHealthPass(): Promise<void> {
   if (tokenHealthDisabled) return;
   try {
-    const { getProviderConnections, updateProviderConnection } = await import(
+    const { getProviderConnections } = await import(
       "../src/lib/db/providers.ts"
     );
     const { getAccessToken, getRefreshLeadMs, TOKEN_EXPIRY_BUFFER_MS } = await import(
       "../open-sse/services/tokenRefresh.ts"
+    );
+    const { updateProviderCredentials } = await import(
+      "../src/sse/services/tokenRefresh.ts"
     );
 
     const connections = await getProviderConnections({ authType: "oauth", isActive: true }, 500, 0);
@@ -475,7 +504,8 @@ async function runTokenHealthPass(): Promise<void> {
     let refreshed = 0;
 
     for (const conn of connections as any[]) {
-      const expiresAt = conn.tokenExpiresAt ? new Date(conn.tokenExpiresAt).getTime() : null;
+      const rawExp = conn.tokenExpiresAt ?? conn.expiresAt ?? null;
+      const expiresAt = rawExp ? new Date(rawExp).getTime() : null;
       if (!expiresAt) continue; // non-expiring credentials (api keys, plan keys)
       const lead = getRefreshLeadMs(conn.provider);
       if (Date.now() < expiresAt - lead - TOKEN_EXPIRY_BUFFER_MS) continue;
@@ -484,14 +514,15 @@ async function runTokenHealthPass(): Promise<void> {
       // getAccessToken runs the full pipeline: per-connection mutex, staleness
       // check, provider-specific refresh switch (Google device for antigravity,
       // OpenAI token endpoint for codex, AWS refresh for kiro), and the
-      // circuit-breaker retry wrapper. onPersist writes the rotated tokens back.
+      // circuit-breaker retry wrapper. updateProviderCredentials writes the
+      // rotated tokens AND computes the new expiresAt + tokenExpiresAt ISO timestamp.
       const result = await getAccessToken(
         conn.provider,
         {
           refreshToken: conn.refreshToken,
           connectionId: conn.id,
           accessToken: conn.accessToken,
-          expiresAt: conn.tokenExpiresAt,
+          expiresAt: rawExp,
           providerSpecificData: conn.providerSpecificData,
         },
         {
@@ -500,7 +531,7 @@ async function runTokenHealthPass(): Promise<void> {
         },
         null,
         async (persisted) => {
-          await updateProviderConnection(conn.id, persisted as Record<string, unknown>);
+          await updateProviderCredentials(conn.id, persisted as Record<string, unknown>);
         },
       );
       if (result?.accessToken) refreshed++;

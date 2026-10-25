@@ -59,6 +59,7 @@ export function collectBackupFamilies(backupDir: string): BackupFamily[] {
   for (const name of fs.readdirSync(backupDir)) {
     if (!name.startsWith("db_")) continue;
     const base = getBackupFamilyBase(name);
+    if (base.endsWith("_manual.sqlite") || base.endsWith("_scheduled.sqlite")) continue;
     const filePath = path.join(backupDir, name);
 
     let stat;

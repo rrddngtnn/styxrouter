@@ -70,7 +70,7 @@ export const codebuddyIntl = {
     };
   },
 
-  pollForToken: async (
+  pollToken: async (
     config: CodeBuddyConfig,
     deviceCode: string
   ): Promise<CodeBuddyPollResult> => {
@@ -87,9 +87,9 @@ export const codebuddyIntl = {
         "X-Product": "SaaS",
       },
     });
-    if (!response.ok) return { ok: false, data: {} };
+    if (!response.ok) return { ok: false, data: { error: "request_failed" } };
     const result = await response.json();
-    if (result.code === 11217) return { ok: false, data: result.data || {} };
+    if (result.code === 11217) return { ok: false, data: { error: "authorization_pending" } };
     if (result.code === 0 && result.data?.accessToken) {
       return {
         ok: true,
@@ -103,4 +103,10 @@ export const codebuddyIntl = {
     }
     return { ok: false, data: result.data || {} };
   },
+
+  mapTokens: (tokens: CodeBuddyTokens) => ({
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    expiresIn: tokens.expires_in,
+  }),
 };

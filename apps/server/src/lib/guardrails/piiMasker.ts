@@ -193,6 +193,9 @@ export class PIIMaskerGuardrail extends BaseGuardrail {
   }
 
   async preCall(payload: unknown, _context: GuardrailContext): Promise<GuardrailResult<unknown>> {
+    if (!isRequestPiiMaskingEnabled()) {
+      return { block: false };
+    }
     const result = cloneAndMaskRequestPayload(payload);
     if (!result.modified) {
       return {
@@ -209,6 +212,9 @@ export class PIIMaskerGuardrail extends BaseGuardrail {
   }
 
   async postCall(response: unknown, _context: GuardrailContext): Promise<GuardrailResult<unknown>> {
+    if (!isRequestPiiMaskingEnabled()) {
+      return { block: false };
+    }
     if (!response || typeof response !== "object" || Array.isArray(response)) {
       return { block: false };
     }

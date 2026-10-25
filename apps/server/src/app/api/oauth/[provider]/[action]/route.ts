@@ -64,6 +64,7 @@ const NO_PKCE_DEVICE_CODE_PROVIDERS = new Set([
   "kimi-coding",
   "kilocode",
   "codebuddy-cn",
+  "codebuddy-intl",
   "grok-cli",
   "ghe-copilot",
 ]);
@@ -549,6 +550,7 @@ export async function POST(
           connection = await updateProviderConnection(matchId, {
             ...tokenData,
             expiresAt,
+            tokenExpiresAt: expiresAt,
             testStatus: degradedProject?.testStatus ?? "active",
             ...(degradedProject ?? {}),
             isActive: true,
@@ -641,6 +643,7 @@ export async function POST(
             connection = await updateProviderConnection(matchId, {
               ...result.tokens,
               expiresAt,
+              tokenExpiresAt: expiresAt,
               testStatus: "active",
               isActive: true,
             });
@@ -850,6 +853,7 @@ export async function POST(
             connection = await updateProviderConnection(matchId, {
               ...tokenData,
               expiresAt,
+              tokenExpiresAt: expiresAt,
               testStatus: "active",
               isActive: true,
             });

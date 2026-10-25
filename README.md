@@ -6,14 +6,7 @@ Ported and lean-refactored from an upstream lean-router line (see **Credits & li
 
 ## Project status
 
-Operational rename is **in progress, not complete**. The package name, CLI bin,
-and encryption salt have been renamed to `styx*`, but the environment namespace
-(`OMNIROUTE_*`), `.env.example`, and a large share of the ported source still
-carry the upstream identifier. Treat the upstream name as a structural
-identifier that is still being migrated out — not as a shipped rename. Do not
-rely on this tree being free of upstream identifiers until the rename cutover
-lands and the public-hygiene gate (`scripts/public-hygiene-gate.py`) reports
-zero hits.
+The router runs as a native **Hono + Bun** server (`apps/server/server/styx.ts`) paired with a standalone **React 19 + Vite 6** administration panel (`apps/panel/`). The package name (`@styxrouter/server`), environment namespace (`STYX_*`), database migration tracking table (`_styx_migrations`), and field-encryption salt use the `styx` namespace. Run the pre-publish hygiene gate (`python3 scripts/public-hygiene-gate.py --repo-root . --panel-dist-dir apps/panel/dist`) before any public push.
 
 ## Workspace layout
 
@@ -22,8 +15,7 @@ styxrouter/
 ├── apps/
 │   ├── server/        # Hono + Bun host, executors, OAuth, DB, scripts, tests
 │   └── panel/         # React 19 + Vite 6 administration SPA
-├── docs/              # Operational docs (local-only runbooks)
-├── evidence/          # Local-only forensics (gitignored)
+├── scripts/           # Pre-publish hygiene gate and pattern catalog
 └── package.json       # Bun workspace root
 ```
 
@@ -33,12 +25,12 @@ Retained from upstream and verified end-to-end live in this repo:
 
 | Provider | Transport | Fingerprint |
 |---|---|---|
-| Codex (OpenAI) | OAuth device flow | codex_cli_rs identity, live version drift |
-| Antigravity (Google) | OAuth code flow | 3 UA profiles + X-Stainless-* + loadCodeAssist bootstrap |
-| Kiro (AWS) | AWS SSO desktop | native AWS SDK |
-| CodeBuddy Intl (Tencent) | API key + session | 11 context headers (X-Conversation-*, X-B3-*, Edge-Tracker, X-Request-From) |
-| Z.ai GLM | OAuth CLI poll + API key | 13 ZCode-CLI identity headers + plan family discovery |
-| Muse (muse.ai) | API key via bridge | bridge translation layer |
+| Codex (OpenAI) | OAuth PKCE browser flow | codex_cli_rs identity, live version drift |
+| Antigravity (Google) | OAuth code flow | Hub/IDE/CLI UA profiles + X-Stainless-* + loadCodeAssist bootstrap |
+| Kiro (AWS) | AWS SSO device flow | native AWS SDK |
+| CodeBuddy Intl (Tencent) | OAuth device flow | CodeBuddy IDE identity headers |
+| Z.ai GLM | ZCode OAuth CLI poll + API key | ZCode Start-Plan / Coding-Plan routing + plan family discovery |
+| OpenAI-Compatible Nodes | API key / custom baseUrl | Dynamic compatible connectors (e.g. Muse bridge) |
 
 Fail-closed dispatch — any provider ID not in the explicit registry whitelist throws 400 `unsupported_provider` before any executor is instantiated.
 
@@ -74,11 +66,11 @@ StyxRouter stands on three upstream projects. Full detail lives in
 
 - **OmniRoute** — the lean AI-model-router line this project was ported and
   refactored from; the server engine (`apps/server/open-sse/`) derives from it.
-  <https://TODO.invalid/omniroute> <!-- operator: replace with real URL -->
+  <https://github.com/diegosouzapw/OmniRoute>
 - **9Router** — reverse-engineered as a reference for a subset of provider
-  integrations. <https://TODO.invalid/9router> <!-- operator: replace with real URL -->
+  integrations. <https://github.com/decolua/9router>
 - **ZCode** — supplied the CLI client identity and plan-family taxonomy used by
-  the Z.ai / GLM integration. <https://TODO.invalid/zcode> <!-- operator: replace with real URL -->
+  the Z.ai / GLM integration. <https://zcode.z.ai>
 
 ## License
 

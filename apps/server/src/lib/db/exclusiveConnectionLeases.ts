@@ -390,5 +390,5 @@ export function getExclusiveLeaseOccupancy(connectionIds: readonly string[], now
 export function isExclusiveConnectionActivelyLeased(connectionId: string, now?: string): boolean {
   if (!connectionId) return false;
   reconcileExpiredExclusiveConnectionLeases(now);
-  return active("connection_id", connectionId) !== undefined;
+  return Boolean(active("connection_id", connectionId));
 }

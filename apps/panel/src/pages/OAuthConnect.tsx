@@ -75,6 +75,14 @@ function CodeFlow({ provider, redirectUri, onDone }: { provider: string; redirec
       {auth?.unsupported ? <p className="bad">{String(auth.unsupported)}</p> : null}
       {auth && !auth.unsupported && (
         <form className="stack-form" onSubmit={submit}>
+          {text(auth.authUrl) && (
+            <p>
+              <a href={text(auth.authUrl)} target="_blank" rel="noopener noreferrer">
+                Open login page
+              </a>{" "}
+              (if the tab did not open automatically).
+            </p>
+          )}
           <p className="muted">
             After you sign in, the browser is sent to an address that starts with <code>http://localhost</code> and usually shows an error page.
             That is expected: copy the whole address from the address bar and paste it here.
@@ -107,6 +115,10 @@ function DeviceFlow({ provider, legacy, onDone }: { provider: string; legacy: bo
   const deviceCode = dev ? text(dev.device_code) ?? text(dev.deviceCode) : undefined;
   const userCode = dev ? text(dev.user_code) ?? text(dev.userCode) : undefined;
   const link = dev ? text(dev.verification_uri_complete) ?? text(dev.verificationUriComplete) ?? text(dev.verification_uri) ?? text(dev.verificationUri) : undefined;
+  const extraData = dev
+    ? (dev.extraData ??
+      Object.fromEntries(Object.entries(dev).filter(([k, v]) => k.startsWith("_") && v !== undefined && v !== null)))
+    : undefined;
 
   useEffect(() => {
     if (!dev || !deviceCode) return;
@@ -120,7 +132,7 @@ function DeviceFlow({ provider, legacy, onDone }: { provider: string; legacy: bo
         try {
           const r = legacy
             ? await api.get<Json>(`/api/oauth/${provider}/poll?state=${encodeURIComponent(deviceCode)}`)
-            : await api.post<Json>(`/api/oauth/${provider}/poll`, drop({ deviceCode, codeVerifier: text(dev.codeVerifier), extraData: dev.extraData as never }));
+            : await api.post<Json>(`/api/oauth/${provider}/poll`, drop({ deviceCode, codeVerifier: text(dev.codeVerifier), extraData: (extraData && Object.keys(extraData as object).length ? extraData : undefined) as never }));
           if (r.success || r.ok) return void onDone();
           if (!r.pending && !legacy) return void setStatus(text(r.errorDescription) ?? text(r.error) ?? "The vendor rejected the login.");
           setStatus("Waiting for you to approve...");

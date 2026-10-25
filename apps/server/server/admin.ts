@@ -35,6 +35,7 @@ import { getSettings, updateSettings } from "../src/lib/db/settings.ts";
 import { updateSettingsSchema } from "../src/shared/validation/settingsSchemas.ts";
 import { validateProviderApiKey } from "../src/lib/providers/validation.ts";
 import { TOKEN_EXPIRY_BUFFER_MS, getAccessToken, getRefreshLeadMs } from "../open-sse/services/tokenRefresh.ts";
+import { updateProviderCredentials } from "../src/sse/services/tokenRefresh.ts";
 import {
   getStoredManagementPassword,
   hashManagementPassword,
@@ -314,17 +315,20 @@ export function createAdminApi() {
     let error: string | null = null;
     try {
       if (conn.authType === "oauth") {
-        const expiresAt = conn.tokenExpiresAt ? new Date(conn.tokenExpiresAt).getTime() : null;
+        const rawExp = conn.tokenExpiresAt ?? conn.expiresAt ?? null;
+        const expiresAt = rawExp ? new Date(rawExp).getTime() : null;
         const due = expiresAt !== null && Date.now() >= expiresAt - getRefreshLeadMs(conn.provider) - TOKEN_EXPIRY_BUFFER_MS;
-        if (!due) ok = true;
-        else {
+        if (!due) {
+          ok = conn.testStatus === "active" || !conn.testStatus;
+          if (!ok) error = conn.lastError || `Account status is ${conn.testStatus}`;
+        } else {
           const log = { warn: () => {}, error: () => {} };
           const r = await getAccessToken(
             conn.provider,
-            { refreshToken: conn.refreshToken, connectionId: id, accessToken: conn.accessToken, expiresAt: conn.tokenExpiresAt, providerSpecificData: conn.providerSpecificData },
+            { refreshToken: conn.refreshToken, connectionId: id, accessToken: conn.accessToken, expiresAt: rawExp, providerSpecificData: conn.providerSpecificData },
             log,
             null,
-            async (persisted) => { await updateProviderConnection(id, persisted as Record<string, unknown>); }
+            async (persisted) => { await updateProviderCredentials(id, persisted as Record<string, unknown>); }
           );
           ok = Boolean(r?.accessToken);
           if (!ok) error = "token refresh failed";

@@ -163,6 +163,7 @@ export async function persistOAuthConnection(
       connection = await updateProviderConnection(matchId, {
         ...tokenData,
         expiresAt,
+        tokenExpiresAt: expiresAt,
         testStatus: "active",
         isActive: true,
       });

@@ -78,14 +78,11 @@ function MigrateFromStyxRouter() {
     setBusy(true);
     setResult(null);
     try {
-      const r = await fetch("/api/admin/migrate-from-styx", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ srcDb, srcSecret: secret, dryRun }),
+      const body = await api.post<{ migrated?: number; failed?: number; backup?: string }>("/api/admin/migrate-from-styx", {
+        srcDb,
+        srcSecret: secret,
+        dryRun,
       });
-      const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(body?.error || `http ${r.status}`);
       setResult(
         `${dryRun ? "DRY " : ""}migrated=${body.migrated ?? 0} ` +
           `failed=${body.failed ?? 0} ` +

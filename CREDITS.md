@@ -10,7 +10,7 @@ repository's `LICENSE`.
 
 ## OmniRoute
 
-<https://TODO.invalid/omniroute> <!-- operator: replace with real upstream URL -->
+<https://github.com/diegosouzapw/OmniRoute>
 
 The lean AI-model-router line StyxRouter was ported and lean-refactored from
 (the 3.8.x line). Derived subsystems:
@@ -19,15 +19,14 @@ The lean AI-model-router line StyxRouter was ported and lean-refactored from
   transformer layer.
 - OAuth provider integrations and the credential-rotation / account-failover
   logic.
-- The `.env` configuration contract (currently still carries the upstream
-  namespace pending the rename cutover).
+- The `.env` configuration contract (migrated to the `STYX_*` namespace).
 
 SPDX of derived files: `MIT`. Port date: 2026-10 (see git history of this repo
 for the exact import commit).
 
 ## 9Router
 
-<https://TODO.invalid/9router> <!-- operator: replace with real upstream URL -->
+<https://github.com/decolua/9router>
 
 Reverse-engineered as a reference for a subset of provider integrations
 (provider taxonomy and a downstream `ninerouter` executor). No bulk source was
@@ -35,7 +34,7 @@ copied; this is a behavioural reference, with any retained snippets under `MIT`.
 
 ## ZCode
 
-<https://TODO.invalid/zcode> <!-- operator: replace with real upstream URL -->
+<https://zcode.z.ai>
 
 Supplied the CLI client-identity headers and the plan-family taxonomy used by
 the Z.ai / GLM integration (`apps/server/open-sse/executors/zcode.ts`,
@@ -46,7 +45,3 @@ the Z.ai / GLM integration (`apps/server/open-sse/executors/zcode.ts`,
 Contributor-level attribution from the upstream git histories is preserved in
 file-level SPDX headers where the licence requires it. This document does not
 duplicate that per-file record.
-
-<!-- operator: when the real upstream URLs and licence files are confirmed,
-     replace the TODO.invalid placeholders above and verify each upstream's
-     LICENSE is compatible with MIT redistribution. -->
