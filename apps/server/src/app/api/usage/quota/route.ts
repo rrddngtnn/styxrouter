@@ -29,7 +29,12 @@ function deriveTokenStatus(connection: ProviderConnectionRecord): QuotaTokenStat
   const expiresAtMs = toDateMs(connection.tokenExpiresAt);
   if (expiresAtMs !== null) {
     const msRemaining = expiresAtMs - Date.now();
-    if (msRemaining <= 0) return "expired";
+    // A short-lived access token that has run out is only "expired" when it cannot be renewed. An account that holds
+    // a refresh token and passed its last check (handled above) gets a new access token on first use.
+    if (msRemaining <= 0) {
+      const hasRefreshToken = typeof connection.refreshToken === "string" && connection.refreshToken.length > 0;
+      return hasRefreshToken ? "refreshable" : "expired";
+    }
     if (msRemaining <= 15 * 60 * 1000) return "expiring";
   }
 

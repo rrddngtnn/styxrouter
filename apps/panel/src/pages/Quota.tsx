@@ -64,10 +64,10 @@ export function Quota() {
                   <Fragment key={r.connectionId}>
                     <tr>
                       <td>{r.name}</td>
-                      <td className="grow">{known ? <><Meter value={r.percentRemaining} /> <small>{Math.round(r.percentRemaining)}%</small></> : <span className="muted">no data yet</span>}</td>
+                      <td className="grow">{known ? <><Meter value={r.percentRemaining} /> <small>{Math.round(r.percentRemaining)}%</small></> : <span className="muted">not checked</span>}</td>
                       <td>{r.quotaTotal != null ? `${int(r.quotaUsed)} / ${int(r.quotaTotal)}` : DASH}</td>
                       <td>{resetText(r.resetAt, now)}</td>
-                      <td className={r.tokenStatus === "valid" ? "ok" : "bad"}>{r.tokenStatus}</td>
+                      <td className={tokenTone(r.tokenStatus)} title={r.tokenStatus === "refreshable" ? "The access token has run out; this account renews it on first use." : undefined}>{r.tokenStatus === "refreshable" ? "auto-refresh" : r.tokenStatus}</td>
                       <td className="row-actions"><button type="button" className="btn-ghost" disabled={l?.busy} onClick={() => refresh(r.connectionId)}>{l?.busy ? "..." : "Check now"}</button></td>
                     </tr>
                     {(l?.data !== undefined || l?.error) && (
@@ -124,3 +124,5 @@ function toWindows(data: unknown): Window[] {
     });
 }
 
+
+const tokenTone = (s: string) => (s === "valid" ? "ok" : s === "refreshable" || s === "expiring" || s === "refreshing" ? "muted" : "bad");

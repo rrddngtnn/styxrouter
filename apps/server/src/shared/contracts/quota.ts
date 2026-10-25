@@ -1,4 +1,4 @@
-export type QuotaTokenStatus = "valid" | "expiring" | "expired" | "refreshing";
+export type QuotaTokenStatus = "valid" | "expiring" | "expired" | "refreshing" | "refreshable";
 
 export interface QuotaProviderEntry {
   name: string;
@@ -25,7 +25,7 @@ export interface QuotaResponse {
   meta: QuotaResponseMeta;
 }
 
-const TOKEN_STATUS_VALUES: QuotaTokenStatus[] = ["valid", "expiring", "expired", "refreshing"];
+const TOKEN_STATUS_VALUES: QuotaTokenStatus[] = ["valid", "expiring", "expired", "refreshing", "refreshable"];
 
 function toNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
