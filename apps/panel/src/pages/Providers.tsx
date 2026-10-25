@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ArrowLeft, KeyRound, Layers, Link2, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import {
   accountsForProvider,
   resolveProviderTarget,
@@ -9,7 +11,7 @@ import {
   type BulkResult,
 } from "../lib/account-management.ts";
 import { api, type JsonValue } from "../lib/api.ts";
-import { useAction } from "../lib/actions.tsx";
+import { Modal, useAction } from "../lib/actions.tsx";
 import { DASH } from "../lib/format.ts";
 import { useFetch } from "../lib/useFetch.ts";
 import { OAuthConnect, type FlowType } from "./OAuthConnect.tsx";
@@ -172,20 +174,26 @@ export function Providers() {
               </p>
               <div className="toolbar">
                 <button type="button" className="btn-add" onClick={() => setEditingNode("new")}>
-                  New custom provider
+                  <Plus size={14} />
+                  <span>New custom provider</span>
                 </button>
               </div>
-              {editingNode === "new" && (
-                <section className="editor card" style={{ marginBottom: 16 }}>
-                  <h2>New custom provider</h2>
-                  <NodeForm
-                    onDone={() => {
-                      setEditingNode(null);
-                      refresh();
-                    }}
-                  />
-                </section>
-              )}
+              <Modal
+                open={editingNode === "new"}
+                onOpenChange={(open) => {
+                  if (!open) setEditingNode(null);
+                }}
+                title="New custom provider"
+                description="Register an OpenAI- or Anthropic-compatible upstream endpoint under its own routing prefix."
+              >
+                <NodeForm
+                  onDone={() => {
+                    setEditingNode(null);
+                    toast.success("Custom provider created");
+                    refresh();
+                  }}
+                />
+              </Modal>
               <div className="provider-grid">
                 {nodes.map((n) => (
                   <CustomNodeCard
@@ -464,6 +472,7 @@ export function ProviderDetail() {
       setApiKey("");
       setLabel("");
       setAddingKey(false);
+      toast.success(`Added API key to ${target?.label ?? providerId}`);
     }
   }
 
@@ -474,7 +483,10 @@ export function ProviderDetail() {
       () => api.delete(`/api/provider-nodes/${target.node!.id}`),
       `Delete custom provider "${target.label}"? Its accounts stay but lose their route.`,
     );
-    if (out) navigate("/providers?tab=custom");
+    if (out) {
+      toast.success(`Deleted custom provider "${target.label}"`);
+      navigate("/providers?tab=custom");
+    }
   }
 
   async function bulk(action: BulkAction) {
@@ -494,6 +506,10 @@ export function ProviderDetail() {
       );
       setBulkResults(out);
       setResults(Object.fromEntries(out.map((r) => [r.id, r.message])));
+      const okCount = out.filter((r) => r.ok).length;
+      const failCount = out.length - okCount;
+      if (failCount === 0) toast.success(`Bulk ${action}: ${okCount}/${out.length} succeeded`);
+      else toast.warning(`Bulk ${action}: ${okCount} succeeded, ${failCount} failed`);
       if (action === "delete") {
         setSelected((s) => new Set([...s].filter((id) => !out.some((r) => r.id === id && r.ok))));
       }
@@ -505,7 +521,11 @@ export function ProviderDetail() {
 
   async function test(id: string) {
     const out = await run(`test-${id}`, () => api.post<{ ok: boolean; error: string | null }>(`/api/connections/${id}/test`));
-    if (out) setResults((r) => ({ ...r, [id]: out.ok ? "key works ✓" : `failed: ${out.error ?? "rejected"}` }));
+    if (out) {
+      setResults((r) => ({ ...r, [id]: out.ok ? "key works ✓" : `failed: ${out.error ?? "rejected"}` }));
+      if (out.ok) toast.success("Account test passed");
+      else toast.error(out.error ?? "Account test failed");
+    }
   }
 
   async function rotate(e: React.FormEvent, id: string) {
@@ -515,6 +535,7 @@ export function ProviderDetail() {
       setRotatingId(null);
       setNewKey("");
       setResults((r) => ({ ...r, [id]: "key rotated ✓" }));
+      toast.success("API key rotated");
     }
   }
 
@@ -539,16 +560,21 @@ export function ProviderDetail() {
 
   const ids = selectedAccounts(providerAccounts, selected);
   const status = activeCount > 0 ? "ok" : providerAccounts.length === 0 ? "disabled" : "down";
+  const rotatingAccount = useMemo(
+    () => (rotatingId ? providerAccounts.find((a) => a.id === rotatingId) ?? null : null),
+    [rotatingId, providerAccounts],
+  );
 
   return (
     <div className="page">
-      <p style={{ marginBottom: 8 }}>
-        <Link to={backHref} className="muted" style={{ textDecoration: "none" }}>
-          ← All Providers
+      <p style={{ marginBottom: 12 }}>
+        <Link to={backHref} className="back-link">
+          <ArrowLeft size={14} />
+          <span>All Providers</span>
         </Link>
       </p>
 
-      <div className="section-head" style={{ alignItems: "flex-start", marginBottom: 16 }}>
+      <div className="section-head" style={{ alignItems: "flex-start", marginBottom: 20 }}>
         <div>
           <h1 style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 10 }}>
             {target.label}
@@ -570,39 +596,49 @@ export function ProviderDetail() {
 
         <div className="row-actions">
           {target.canOauth && flow?.flowType && (
-            <button type="button" className="btn-add" onClick={() => setConnecting((v) => !v)}>
-              {connecting ? "Close OAuth" : "Connect OAuth account"}
+            <button type="button" className="btn-add" onClick={() => setConnecting(true)}>
+              <Link2 size={14} />
+              <span>Connect OAuth</span>
             </button>
           )}
           {target.canApiKey && (
             <>
-              <button type="button" className="btn-add" onClick={() => { setAddingKey((v) => !v); setBulkOpen(false); }}>
-                {addingKey ? "Cancel Add Key" : "Add API key"}
+              <button type="button" className="btn-add" onClick={() => setAddingKey(true)}>
+                <KeyRound size={14} />
+                <span>Add API key</span>
               </button>
-              <button type="button" className="btn-ghost" onClick={() => { setBulkOpen((v) => !v); setAddingKey(false); }}>
-                {bulkOpen ? "Close Bulk Import" : "Bulk import keys"}
+              <button type="button" className="btn-ghost" onClick={() => setBulkOpen(true)}>
+                <Layers size={14} />
+                <span>Bulk import</span>
               </button>
             </>
           )}
           {target.isCustomNode && (
             <>
-              <button type="button" className="btn-ghost" onClick={() => setEditingNode((v) => !v)}>
-                {editingNode ? "Close Edit" : "Edit endpoint"}
+              <button type="button" className="btn-ghost" onClick={() => setEditingNode(true)}>
+                <Settings2 size={14} />
+                <span>Edit endpoint</span>
               </button>
               <button type="button" className="btn-danger" disabled={locked} onClick={deleteNode}>
-                Delete provider
+                <Trash2 size={14} />
+                <span>Delete provider</span>
               </button>
             </>
           )}
           <button type="button" className="btn-ghost" onClick={refresh}>
-            Reload
+            <RefreshCw size={14} />
+            <span>Reload</span>
           </button>
         </div>
       </div>
 
-      {connecting && flow?.flowType && (
-        <section className="editor card" style={{ marginBottom: 16 }}>
-          <h2>Connect {target.label} via OAuth</h2>
+      {flow?.flowType && (
+        <Modal
+          open={connecting}
+          onOpenChange={setConnecting}
+          title={`Connect ${target.label} via OAuth`}
+          description="Authorize an account with the upstream provider and store its encrypted OAuth credentials."
+        >
           <OAuthConnect
             provider={providerId}
             flow={flow.flowType}
@@ -610,58 +646,144 @@ export function ProviderDetail() {
             redirectUri={flow.redirectUri}
             onDone={() => {
               setConnecting(false);
+              toast.success(`Connected ${target.label} OAuth account`);
               refresh();
             }}
             onClose={() => setConnecting(false)}
           />
-        </section>
+        </Modal>
       )}
 
-      {addingKey && (
-        <section className="editor card" style={{ marginBottom: 16 }}>
-          <h2>Add API key to {target.label}</h2>
-          <form className="stack-form" onSubmit={addSingleKey}>
-            <label>Account label (optional)
-              <input type="text" placeholder={`${target.label} account`} value={label} maxLength={200} onChange={(e) => setLabel(e.target.value)} />
-            </label>
-            <label>API key / token
-              <input type="password" placeholder="API key (min 8 chars)" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} required minLength={8} />
-            </label>
-            {actionError && <div className="bad">{actionError}</div>}
-            <div className="row-actions">
-              <button type="submit" className="btn-add" disabled={locked || apiKey.trim().length < 8}>
-                {busy === "add-key" ? "…" : "Save key"}
-              </button>
-              <button type="button" className="btn-ghost" onClick={() => { setAddingKey(false); setApiKey(""); }}>
-                Cancel
-              </button>
-            </div>
-          </form>
-        </section>
-      )}
+      <Modal
+        open={addingKey}
+        onOpenChange={(open) => {
+          setAddingKey(open);
+          if (!open) setApiKey("");
+        }}
+        title={`Add API key — ${target.label}`}
+        description="Credentials are encrypted with AES-256-GCM before being written to SQLite."
+      >
+        <form className="stack-form" onSubmit={addSingleKey}>
+          <label>
+            Account label (optional)
+            <input
+              type="text"
+              placeholder={`${target.label} account`}
+              value={label}
+              maxLength={200}
+              onChange={(e) => setLabel(e.target.value)}
+            />
+          </label>
+          <label>
+            API key / token
+            <input
+              type="password"
+              placeholder="API key (min 8 chars)"
+              autoComplete="off"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              required
+              minLength={8}
+            />
+          </label>
+          {actionError && <div className="bad">{actionError}</div>}
+          <div className="row-actions">
+            <button type="submit" className="btn-add" disabled={locked || apiKey.trim().length < 8}>
+              {busy === "add-key" ? "…" : "Save key"}
+            </button>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => {
+                setAddingKey(false);
+                setApiKey("");
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
 
-      {bulkOpen && (
+      <Modal
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        title={`Bulk import API keys — ${target.label}`}
+        description="Paste one API key per line. Append |label to assign a custom account name."
+        maxWidth="580px"
+      >
         <BulkAddForProvider
           providerId={providerId}
-          providerLabel={target.label}
           onDone={() => {
             refresh();
           }}
+          onClose={() => setBulkOpen(false)}
         />
-      )}
+      </Modal>
 
-      {editingNode && target.node && (
-        <section className="editor card" style={{ marginBottom: 16 }}>
-          <h2>Edit {target.label} endpoint</h2>
+      {target.node && (
+        <Modal
+          open={editingNode}
+          onOpenChange={setEditingNode}
+          title={`Edit ${target.label} endpoint`}
+          description="Update the upstream base URL, API type, or path overrides."
+        >
           <NodeForm
             node={target.node}
             onDone={() => {
               setEditingNode(false);
+              toast.success(`Updated ${target.label}`);
               refresh();
             }}
           />
-        </section>
+        </Modal>
       )}
+
+      <Modal
+        open={rotatingAccount !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRotatingId(null);
+            setNewKey("");
+          }
+        }}
+        title={`Rotate API key — ${rotatingAccount?.name ?? rotatingAccount?.id.slice(0, 8) ?? ""}`}
+        description="Replaces the stored key in place while keeping the account's priority, ID, and usage history."
+      >
+        {rotatingAccount && (
+          <form className="stack-form" onSubmit={(e) => rotate(e, rotatingAccount.id)}>
+            <label>
+              New API key
+              <input
+                type="password"
+                placeholder="New API key (min 8 chars)"
+                value={newKey}
+                minLength={8}
+                required
+                autoComplete="off"
+                autoFocus
+                onChange={(e) => setNewKey(e.target.value)}
+              />
+            </label>
+            {actionError && <div className="bad">{actionError}</div>}
+            <div className="row-actions">
+              <button type="submit" className="btn-add" disabled={locked || newKey.trim().length < 8}>
+                {busy === `rot-${rotatingAccount.id}` ? "…" : "Rotate key"}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  setRotatingId(null);
+                  setNewKey("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
 
       <section className="accounts card" style={{ marginTop: 16 }}>
         <div className="section-head" style={{ marginBottom: 12 }}>
@@ -764,25 +886,6 @@ export function ProviderDetail() {
                     </td>
                     <td>
                       <div>{labelText}</div>
-                      {rotatingId === a.id && (
-                        <form className="inline-form" onSubmit={(e) => rotate(e, a.id)} style={{ marginTop: 6 }}>
-                          <input
-                            type="password"
-                            placeholder="New API key (min 8 chars)"
-                            value={newKey}
-                            minLength={8}
-                            required
-                            autoComplete="off"
-                            onChange={(e) => setNewKey(e.target.value)}
-                          />
-                          <button type="submit" className="btn-add" disabled={locked || newKey.trim().length < 8}>
-                            Save
-                          </button>
-                          <button type="button" className="btn-ghost" onClick={() => { setRotatingId(null); setNewKey(""); }}>
-                            Cancel
-                          </button>
-                        </form>
-                      )}
                     </td>
                     <td>
                       <span className="auth-type">{isApiKey ? "apikey" : a.authType ?? "oauth"}</span>
@@ -804,7 +907,7 @@ export function ProviderDetail() {
                           className="btn-ghost"
                           disabled={locked}
                           onClick={() => {
-                            setRotatingId(rotatingId === a.id ? null : a.id);
+                            setRotatingId(a.id);
                             setNewKey("");
                           }}
                         >
@@ -865,12 +968,12 @@ function cmp(a: Provider, b: Provider): number {
 /** Paste many keys at once into this specific provider — one per line, "key|name" for a custom label. */
 function BulkAddForProvider({
   providerId,
-  providerLabel,
   onDone,
+  onClose,
 }: {
   providerId: string;
-  providerLabel: string;
   onDone: () => void;
+  onClose: () => void;
 }) {
   const [text, setText] = useState("");
   const [result, setResult] = useState<{ created: { name: string }[]; skipped: { line: string; reason: string }[] } | null>(null);
@@ -891,36 +994,37 @@ function BulkAddForProvider({
     if (out) {
       setResult(out);
       setText("");
+      toast.success(`Imported ${out.created.length} key(s)`);
     }
   }
 
   return (
-    <section className="editor card" style={{ marginBottom: 16 }}>
-      <h2>Bulk import API keys — {providerLabel}</h2>
-      <form className="stack-form" onSubmit={submit}>
-        <label>
-          Keys — one per line, <code>key|name</code> for a label
-          <textarea
-            rows={6}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder={"sk-...|farm-account-1\nsk-...|farm-account-2"}
-            required
-          />
-        </label>
-        {error && <div className="bad">{error}</div>}
-        {result && (
-          <div className="ok">
-            Added {result.created.length} account{result.created.length === 1 ? "" : "s"}
-            {result.skipped.length > 0 ? `, skipped ${result.skipped.length} (first: ${result.skipped[0].reason})` : ""}.
-          </div>
-        )}
-        <div className="row-actions">
-          <button type="submit" className="btn-add" disabled={busy !== null || !text.trim()}>
-            {busy === "bulk" ? "…" : "Import keys"}
-          </button>
+    <form className="stack-form" onSubmit={submit}>
+      <label>
+        Keys — one per line, <code>key|name</code> for a label
+        <textarea
+          rows={6}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={"sk-...|farm-account-1\nsk-...|farm-account-2"}
+          required
+        />
+      </label>
+      {error && <div className="bad">{error}</div>}
+      {result && (
+        <div className="ok">
+          Added {result.created.length} account{result.created.length === 1 ? "" : "s"}
+          {result.skipped.length > 0 ? `, skipped ${result.skipped.length} (first: ${result.skipped[0].reason})` : ""}.
         </div>
-      </form>
-    </section>
+      )}
+      <div className="row-actions">
+        <button type="submit" className="btn-add" disabled={busy !== null || !text.trim()}>
+          {busy === "bulk" ? "…" : "Import keys"}
+        </button>
+        <button type="button" className="btn-ghost" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </form>
   );
 }

@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 import { api } from "../lib/api.ts";
 import { useAction } from "../lib/actions.tsx";
 import { BarChart, Meter, Stat } from "../lib/charts.tsx";
@@ -112,8 +113,16 @@ export function Dashboard() {
           <p>{lastBackup ? <>Last backup {ago(lastBackup.createdAt, now)} <span className="muted">({lastBackup.reason})</span></> : "No backups yet."}</p>
           <p className="muted">A scheduled backup runs daily. The newest scheduled copies are kept; other snapshots are never deleted automatically.</p>
           {error && <p className="bad">{error}</p>}
-          <button type="button" className="btn-add" disabled={busy !== null} onClick={() => run("backup", () => api.post("/api/backups"))}>
-            {busy ? "..." : "Back up now"}
+          <button
+            type="button"
+            className="btn-add"
+            disabled={busy !== null}
+            onClick={async () => {
+              const out = await run("backup", () => api.post("/api/backups"));
+              if (out) toast.success("Database snapshot created");
+            }}
+          >
+            {busy ? "…" : "Back up now"}
           </button>
         </section>
       </div>

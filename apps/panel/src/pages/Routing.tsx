@@ -1,6 +1,8 @@
-import { Fragment, useState } from "react";
+import { useState } from "react";
+import { Plus } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "../lib/api.ts";
-import { useAction } from "../lib/actions.tsx";
+import { Modal, useAction } from "../lib/actions.tsx";
 import { useFetch } from "../lib/useFetch.ts";
 
 type Step = string | { id?: string; model?: string; comboName?: string; name?: string; [k: string]: unknown };
@@ -19,9 +21,10 @@ interface ComboRow {
 export function Routing() {
   const state = useFetch<{ combos?: ComboRow[] }>("/api/routing/combos");
   const rows = state.status === "ok" ? state.data.combos ?? [] : [];
+  const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [models, setModels] = useState("");
-  const [editing, setEditing] = useState<string | null>(null);
+  const [editing, setEditing] = useState<ComboRow | null>(null);
   const { busy, error, run } = useAction(state.reload);
 
   async function create(e: React.FormEvent) {
@@ -29,8 +32,10 @@ export function Routing() {
     const list = models.split("\n").map((m) => m.trim()).filter(Boolean);
     const made = await run("create", () => api.post("/api/routing/combos", { name: name.trim(), models: list }));
     if (made) {
+      toast.success(`Created combo “${name.trim()}”`);
       setName("");
       setModels("");
+      setCreating(false);
     }
   }
 
@@ -44,98 +49,163 @@ export function Routing() {
 
   return (
     <div className="page">
-      <h1>Routing</h1>
-      <p className="muted">
-        A combo is a named list of models tried in order; clients call it by name as the model.
-      </p>
-
-      <form className="stack-form" onSubmit={create}>
-        <input
-          type="text"
-          placeholder="Combo name"
-          value={name}
-          maxLength={100}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-        <textarea
-          placeholder={"One model per line, in fallback order\nprovider/model-id"}
-          rows={3}
-          value={models}
-          onChange={(e) => setModels(e.target.value)}
-          required
-        />
+      <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
-          <button type="submit" className="btn-add" disabled={busy !== null || !name.trim() || !models.trim()}>
-            {busy === "create" ? "…" : "Create combo"}
-          </button>
+          <h1 style={{ marginBottom: 4 }}>Routing Combos</h1>
+          <p className="muted" style={{ margin: 0 }}>
+            A combo is a named fallback chain of models tried in order; clients call it by name as the model ID.
+          </p>
         </div>
-      </form>
-      {error && <p className="bad">{error}</p>}
+        <button type="button" className="btn-add" onClick={() => setCreating(true)}>
+          <Plus size={14} />
+          <span>New combo</span>
+        </button>
+      </div>
+
+      <Modal
+        open={creating}
+        onOpenChange={(open) => {
+          setCreating(open);
+          if (!open) {
+            setName("");
+            setModels("");
+          }
+        }}
+        title="Create routing combo"
+        description="Define a virtual model name and the ordered list of provider/model targets to try on fallback."
+      >
+        <form className="stack-form" onSubmit={create}>
+          <label>
+            Combo name
+            <input
+              type="text"
+              placeholder="e.g. coding-primary, fast-fallback"
+              value={name}
+              maxLength={100}
+              autoFocus
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Target models (one per line, in fallback order)
+            <textarea
+              placeholder={"antigravity/gemini-4-argon-high\ncodex/gpt-5.3-codex\nglm/glm-5.3"}
+              rows={5}
+              value={models}
+              onChange={(e) => setModels(e.target.value)}
+              required
+            />
+          </label>
+          {error && <p className="bad">{error}</p>}
+          <div className="row-actions">
+            <button type="submit" className="btn-add" disabled={busy !== null || !name.trim() || !models.trim()}>
+              {busy === "create" ? "…" : "Create combo"}
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => setCreating(false)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={editing !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditing(null);
+        }}
+        title={`Edit combo steps — ${editing?.name ?? ""}`}
+        description="Reorder, remove, or append fallback targets for this combo."
+        maxWidth="560px"
+      >
+        {editing && (
+          <StepsEditor
+            row={editing}
+            onSaved={() => {
+              toast.success(`Updated combo “${editing.name}”`);
+              state.reload();
+            }}
+            onClose={() => setEditing(null)}
+          />
+        )}
+      </Modal>
 
       {state.status === "loading" && <p>Loading…</p>}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
-      {state.status === "ok" && rows.length === 0 && <p className="muted">No combos configured.</p>}
+      {state.status === "ok" && rows.length === 0 && <p className="muted">No combos configured yet.</p>}
       {state.status === "ok" && rows.length > 0 && (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Strategy</th>
-              <th>Steps</th>
-              <th>Enabled</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <Fragment key={r.id}>
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <table className="table">
+            <thead>
               <tr>
-                <td>{r.name ?? "—"}</td>
-                <td>{r.strategy ?? "—"}</td>
-                <td>{r.steps ?? 0}</td>
-                <td className={r.enabled ? "ok" : "bad"}>{r.enabled ? "yes" : "no"}</td>
-                <td className="row-actions">
-                  <button type="button" className="btn-ghost" disabled={busy !== null || i === 0} onClick={() => move(i, -1)} aria-label="Move up">↑</button>
-                  <button type="button" className="btn-ghost" disabled={busy !== null || i === rows.length - 1} onClick={() => move(i, 1)} aria-label="Move down">↓</button>
-                  <button type="button" className="btn-ghost" disabled={busy !== null} onClick={() => setEditing(editing === r.id ? null : r.id)}>
-                    {editing === r.id ? "Close" : "Edit steps"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    disabled={busy !== null}
-                    onClick={() => run(`toggle-${r.id}`, () => api.put(`/api/routing/combos/${r.id}`, { isActive: !r.enabled }))}
-                  >
-                    {r.enabled ? "Disable" : "Enable"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-danger"
-                    disabled={busy !== null}
-                    onClick={() => run(`delete-${r.id}`, () => api.delete(`/api/routing/combos/${r.id}`), `Delete combo “${r.name}”?`)}
-                  >
-                    Delete
-                  </button>
-                </td>
+                <th>Name</th>
+                <th>Strategy</th>
+                <th>Chain</th>
+                <th>Status</th>
+                <th />
               </tr>
-              {editing === r.id && (
-                <tr>
-                  <td colSpan={5}>
-                    <StepsEditor row={r} onSaved={state.reload} onClose={() => setEditing(null)} />
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.id}>
+                  <td>
+                    <code>{r.name ?? "—"}</code>
+                  </td>
+                  <td className="muted">{r.strategy ?? "priority"}</td>
+                  <td>
+                    <span className="tab-count">{r.steps ?? 0} steps</span>{" "}
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      {(r.models ?? []).slice(0, 3).map(stepLabel).join(" → ")}
+                      {(r.models?.length ?? 0) > 3 ? " …" : ""}
+                    </span>
+                  </td>
+                  <td className={r.enabled ? "ok" : "muted"}>{r.enabled ? "enabled" : "disabled"}</td>
+                  <td className="row-actions">
+                    <button type="button" className="btn-ghost" disabled={busy !== null || i === 0} onClick={() => move(i, -1)} aria-label="Move up">
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      disabled={busy !== null || i === rows.length - 1}
+                      onClick={() => move(i, 1)}
+                      aria-label="Move down"
+                    >
+                      ↓
+                    </button>
+                    <button type="button" className="btn-ghost" disabled={busy !== null} onClick={() => setEditing(r)}>
+                      Edit steps
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      disabled={busy !== null}
+                      onClick={() => run(`toggle-${r.id}`, () => api.put(`/api/routing/combos/${r.id}`, { isActive: !r.enabled }))}
+                    >
+                      {r.enabled ? "Disable" : "Enable"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-danger"
+                      disabled={busy !== null}
+                      onClick={async () => {
+                        const out = await run(`delete-${r.id}`, () => api.delete(`/api/routing/combos/${r.id}`), `Delete combo “${r.name}”?`);
+                        if (out) toast.success(`Deleted combo “${r.name}”`);
+                      }}
+                    >
+                      Delete
+                    </button>
                   </td>
                 </tr>
-              )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
 }
 
-/** Reorder, remove or append steps. Existing steps are sent back untouched (they pin a provider connection). */
 function StepsEditor({ row, onSaved, onClose }: { row: ComboRow; onSaved: () => void; onClose: () => void }) {
   const [steps, setSteps] = useState<Step[]>(row.models ?? []);
   const [added, setAdded] = useState("");
@@ -160,27 +230,50 @@ function StepsEditor({ row, onSaved, onClose }: { row: ComboRow; onSaved: () => 
   }
 
   return (
-    <div className="editor">
+    <div className="stack-form" style={{ maxWidth: "100%" }}>
       <ol className="step-list">
         {steps.map((s, i) => (
           <li key={`${i}-${stepLabel(s)}`}>
             <code>{stepLabel(s)}</code>
             <span className="row-actions">
-              <button type="button" className="btn-ghost" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move step up">up</button>
-              <button type="button" className="btn-ghost" disabled={i === steps.length - 1} onClick={() => move(i, 1)} aria-label="Move step down">down</button>
-              <button type="button" className="btn-danger" disabled={steps.length === 1} onClick={() => setSteps((cur) => cur.filter((_, j) => j !== i))}>Remove</button>
+              <button type="button" className="btn-ghost" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move step up">
+                ↑
+              </button>
+              <button type="button" className="btn-ghost" disabled={i === steps.length - 1} onClick={() => move(i, 1)} aria-label="Move step down">
+                ↓
+              </button>
+              <button type="button" className="btn-danger" disabled={steps.length === 1} onClick={() => setSteps((cur) => cur.filter((_, j) => j !== i))}>
+                Remove
+              </button>
             </span>
           </li>
         ))}
       </ol>
-      <div className="inline-form">
-        <input type="text" placeholder="provider/model-id or another combo's name" value={added} onChange={(e) => setAdded(e.target.value)} />
-        <button type="button" className="btn-ghost" disabled={!added.trim()} onClick={add}>Add step</button>
+      <div className="inline-form" style={{ maxWidth: "100%" }}>
+        <input
+          type="text"
+          placeholder="provider/model-id or another combo name"
+          value={added}
+          onChange={(e) => setAdded(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+        />
+        <button type="button" className="btn-ghost" disabled={!added.trim()} onClick={add}>
+          Add step
+        </button>
       </div>
       {error && <p className="bad">{error}</p>}
       <div className="row-actions">
-        <button type="button" className="btn-add" disabled={busy !== null || steps.length === 0} onClick={save}>{busy ? "..." : "Save steps"}</button>
-        <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn-add" disabled={busy !== null || steps.length === 0} onClick={save}>
+          {busy ? "…" : "Save steps"}
+        </button>
+        <button type="button" className="btn-ghost" onClick={onClose}>
+          Cancel
+        </button>
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { api } from "../lib/api.ts";
 import { Meter } from "../lib/charts.tsx";
 import { DASH, ago, int, providerLabel, resetText } from "../lib/format.ts";
@@ -66,8 +67,11 @@ export function Quota() {
       const data = await api.get<unknown>(`/api/usage/${id}`);
       setLive((l) => ({ ...l, [id]: { data } }));
       state.reload();
+      toast.success("Account quota refreshed");
     } catch (e) {
-      setLive((l) => ({ ...l, [id]: { error: e instanceof Error ? e.message : String(e) } }));
+      const msg = e instanceof Error ? e.message : String(e);
+      setLive((l) => ({ ...l, [id]: { error: msg } }));
+      toast.error(msg);
     }
   }
 
@@ -82,10 +86,14 @@ export function Quota() {
     setSyncSummary(null);
     try {
       const res = await api.post<{ succeeded?: number; total?: number; failed?: number }>("/api/usage/provider-limits");
-      setSyncSummary(`Synced ${res?.succeeded ?? 0}/${res?.total ?? 0} accounts${res?.failed ? ` (${res.failed} failed)` : ""}.`);
+      const msg = `Synced ${res?.succeeded ?? 0}/${res?.total ?? 0} accounts${res?.failed ? ` (${res.failed} failed)` : ""}.`;
+      setSyncSummary(msg);
+      toast.success(msg);
       state.reload();
     } catch (e) {
-      setSyncSummary(`Sync failed: ${e instanceof Error ? e.message : String(e)}`);
+      const msg = `Sync failed: ${e instanceof Error ? e.message : String(e)}`;
+      setSyncSummary(msg);
+      toast.error(msg);
     } finally {
       setSyncingAll(false);
     }

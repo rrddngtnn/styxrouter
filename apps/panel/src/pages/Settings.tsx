@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { api, type JsonValue } from "../lib/api.ts";
 import { useAction } from "../lib/actions.tsx";
 import { useFetch } from "../lib/useFetch.ts";
@@ -62,6 +63,7 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
   const [savedBanner, setSavedBanner] = useState(false);
   const { busy, error, run } = useAction(() => {
     setSavedBanner(true);
+    toast.success("Runtime settings saved");
     onSaved();
   });
 
@@ -230,6 +232,7 @@ function ChangePassword() {
       setCurrent("");
       setNext("");
       setAgain("");
+      toast.success("Management password updated");
     }
   }
 
@@ -272,13 +275,16 @@ function MigrateFromStyxRouter() {
         srcSecret: secret,
         dryRun,
       });
-      setResult(
+      const msg =
         `${dryRun ? "DRY " : ""}migrated=${body.migrated ?? 0} ` +
-          `failed=${body.failed ?? 0} ` +
-          (body.backup ? `backup=${body.backup}` : ""),
-      );
+        `failed=${body.failed ?? 0} ` +
+        (body.backup ? `backup=${body.backup}` : "");
+      setResult(msg);
+      toast.success(msg);
     } catch (e: any) {
-      setResult(`err: ${e?.message || e}`);
+      const msg = `err: ${e?.message || e}`;
+      setResult(msg);
+      toast.error(e?.message || "Migration failed");
     } finally {
       setBusy(false);
     }

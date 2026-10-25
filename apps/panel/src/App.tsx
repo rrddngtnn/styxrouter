@@ -1,10 +1,41 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import {
+  Activity as ActivityIcon,
+  BarChart3,
+  Cpu,
+  Database,
+  Gauge,
+  GitBranch,
+  KeyRound,
+  LayoutDashboard,
+  LogOut,
+  Settings as SettingsIcon,
+  ShieldCheck,
+  Terminal,
+} from "lucide-react";
 import { api, ApiError } from "./lib/api.ts";
 
 interface AuthStatus {
   authenticated: boolean;
   user?: { username?: string };
+}
+
+/**
+ * Brand header with a pre-allocated `.brand-logo-slot`. Right now it renders the
+ * pure "StyxRouter" wordmark side-by-side; when a logo image is dropped into
+ * `.brand-logo-slot`, it aligns next to the text without layout changes.
+ */
+export function BrandMark() {
+  return (
+    <div className="brand">
+      <span className="brand-logo-slot" aria-hidden="true" />
+      <div className="brand-wordmark">
+        <strong>Styx</strong>
+        <span>Router</span>
+      </div>
+    </div>
+  );
 }
 
 export function App() {
@@ -40,24 +71,68 @@ export function App() {
 
   return (
     <div className="shell">
-      <nav className="sidebar">
-        <div className="brand">
-          <strong>Styx</strong>
-          <span>Router</span>
+      <nav className="sidebar" aria-label="Main navigation">
+        <BrandMark />
+
+        <div className="nav-section">
+          <div className="nav-section-label">Gateway</div>
+          <NavLink to="/" end className={navClass}>
+            <LayoutDashboard size={15} />
+            <span>Overview</span>
+          </NavLink>
+          <NavLink to="/providers" className={navClass}>
+            <Database size={15} />
+            <span>Providers</span>
+          </NavLink>
+          <NavLink to="/models" className={navClass}>
+            <Cpu size={15} />
+            <span>Models</span>
+          </NavLink>
+          <NavLink to="/routing" className={navClass}>
+            <GitBranch size={15} />
+            <span>Routing</span>
+          </NavLink>
+          <NavLink to="/keys" className={navClass}>
+            <KeyRound size={15} />
+            <span>API Keys</span>
+          </NavLink>
         </div>
-        <NavLink to="/" end className={navClass}>Dashboard</NavLink>
-        <NavLink to="/providers" className={navClass}>Providers</NavLink>
-        <NavLink to="/models" className={navClass}>Models</NavLink>
-        <NavLink to="/routing" className={navClass}>Routing</NavLink>
-        <NavLink to="/keys" className={navClass}>API Keys</NavLink>
-        <NavLink to="/activity" className={navClass}>Activity</NavLink>
-        <NavLink to="/usage" className={navClass}>Usage</NavLink>
-        <NavLink to="/quota" className={navClass}>Quota</NavLink>
-        <NavLink to="/tools" className={navClass}>Connect tools</NavLink>
-        <NavLink to="/audit" className={navClass}>Audit log</NavLink>
-        <NavLink to="/settings" className={navClass}>Settings</NavLink>
+
+        <div className="nav-section">
+          <div className="nav-section-label">Observability</div>
+          <NavLink to="/quota" className={navClass}>
+            <Gauge size={15} />
+            <span>Quota</span>
+          </NavLink>
+          <NavLink to="/usage" className={navClass}>
+            <BarChart3 size={15} />
+            <span>Usage</span>
+          </NavLink>
+          <NavLink to="/activity" className={navClass}>
+            <ActivityIcon size={15} />
+            <span>Activity</span>
+          </NavLink>
+        </div>
+
+        <div className="nav-section">
+          <div className="nav-section-label">System</div>
+          <NavLink to="/tools" className={navClass}>
+            <Terminal size={15} />
+            <span>Connect tools</span>
+          </NavLink>
+          <NavLink to="/audit" className={navClass}>
+            <ShieldCheck size={15} />
+            <span>Audit log</span>
+          </NavLink>
+          <NavLink to="/settings" className={navClass}>
+            <SettingsIcon size={15} />
+            <span>Settings</span>
+          </NavLink>
+        </div>
+
         <button type="button" className="logout" onClick={logout}>
-          Logout
+          <LogOut size={14} />
+          <span>Sign out</span>
         </button>
       </nav>
       <main className="content">

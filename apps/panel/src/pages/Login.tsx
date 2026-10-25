@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Lock } from "lucide-react";
+import { toast } from "sonner";
 import { api, ApiError } from "../lib/api.ts";
+import { BrandMark } from "../App.tsx";
 
 export function Login() {
   const [password, setPassword] = useState("");
@@ -14,9 +17,12 @@ export function Login() {
     setSubmitting(true);
     try {
       await api.post("/api/auth/login", { password });
+      toast.success("Signed in to StyxRouter");
       navigate("/", { replace: true });
     } catch (err: unknown) {
-      setError(err instanceof ApiError ? err.message : "Login failed");
+      const msg = err instanceof ApiError ? err.message : "Login failed";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setSubmitting(false);
     }
@@ -25,12 +31,18 @@ export function Login() {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={onSubmit}>
-        <h1>StyxRouter</h1>
+        <div className="login-head">
+          <BrandMark />
+          <p className="muted" style={{ margin: "6px 0 0", fontSize: "13px" }}>
+            Sign in with your administrator passphrase to manage providers, routing, and keys.
+          </p>
+        </div>
         <label>
           <span>Management password</span>
           <input
             type="password"
             autoComplete="current-password"
+            placeholder="••••••••••••"
             autoFocus
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -39,7 +51,8 @@ export function Login() {
         </label>
         {error && <div className="error">{error}</div>}
         <button type="submit" disabled={submitting}>
-          {submitting ? "Signing in…" : "Sign in"}
+          <Lock size={14} />
+          <span>{submitting ? "Signing in…" : "Sign in"}</span>
         </button>
       </form>
     </div>

@@ -1,6 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { Theme } from "@radix-ui/themes";
+import { Toaster } from "sonner";
+import "@radix-ui/themes/styles.css";
+import "./main.css";
 import { App } from "./App.tsx";
 import { Login } from "./pages/Login.tsx";
 import { Dashboard } from "./pages/Dashboard.tsx";
@@ -14,7 +18,6 @@ import { Settings } from "./pages/Settings.tsx";
 import { Quota } from "./pages/Quota.tsx";
 import { Tools } from "./pages/Tools.tsx";
 import { Audit } from "./pages/Audit.tsx";
-import "./main.css";
 
 const router = createBrowserRouter(
   [
@@ -46,6 +49,27 @@ if (!root) throw new Error("missing #root");
 
 createRoot(root).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <Theme
+      appearance="dark"
+      accentColor="indigo"
+      grayColor="slate"
+      panelBackground="translucent"
+      radius="medium"
+      scaling="100%"
+    >
+      <RouterProvider router={router} />
+      <Toaster
+        theme="dark"
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: "#191a1b",
+            border: "1px solid rgba(255, 255, 255, 0.08)",
+            color: "#f7f8f8",
+            fontFamily: "var(--default-font-family)",
+          },
+        }}
+      />
+    </Theme>
   </StrictMode>,
 );

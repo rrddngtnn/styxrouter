@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { api } from "../lib/api.ts";
 import { SecretBanner, useAction } from "../lib/actions.tsx";
 import { useFetch } from "../lib/useFetch.ts";
@@ -59,6 +60,7 @@ export function Tools() {
     if (made) {
       setKey(made.key);
       setFresh({ title: `New key "${made.name}"`, key: made.key });
+      toast.success(`Created key "${made.name}"`);
     }
   }
 
@@ -112,7 +114,21 @@ function Snippet({ file, body }: { file?: string; body: string }) {
     <section className="snippet">
       <div className="section-head">
         <small className="muted">{file ?? ""}</small>
-        <button type="button" className="btn-ghost" onClick={() => navigator.clipboard?.writeText(body).then(() => setCopied(true), () => setCopied(false))}>{copied ? "Copied" : "Copy"}</button>
+        <button
+          type="button"
+          className="btn-ghost"
+          onClick={() =>
+            navigator.clipboard?.writeText(body).then(
+              () => {
+                setCopied(true);
+                toast.success("Snippet copied");
+              },
+              () => setCopied(false),
+            )
+          }
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
       </div>
       <pre className="json">{body}</pre>
     </section>
