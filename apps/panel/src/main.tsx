@@ -11,6 +11,8 @@ import { Activity } from "./pages/Activity.tsx";
 import { Usage } from "./pages/Usage.tsx";
 import { Models } from "./pages/Models.tsx";
 import { Settings } from "./pages/Settings.tsx";
+import { Quota } from "./pages/Quota.tsx";
+import { Tools } from "./pages/Tools.tsx";
 import "./main.css";
 
 const router = createBrowserRouter(
@@ -25,6 +27,8 @@ const router = createBrowserRouter(
         { path: "keys", element: <Keys /> },
         { path: "activity", element: <Activity /> },
         { path: "usage", element: <Usage /> },
+        { path: "quota", element: <Quota /> },
+        { path: "tools", element: <Tools /> },
         { path: "models", element: <Models /> },
         { path: "settings", element: <Settings /> },
       ],

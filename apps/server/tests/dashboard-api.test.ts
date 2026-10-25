@@ -87,6 +87,11 @@ describe("dashboard data", () => {
     }
   });
 
+  test("analytics is upstream's full report (summary, daily trend, breakdowns), not just totals", async () => {
+    const j: any = await (await call("GET", "/api/usage/analytics?range=7d")).json();
+    for (const k of ["summary", "dailyTrend", "byModel", "byProvider", "byAccount", "byApiKey", "errorBreakdown"]) expect(j).toHaveProperty(k);
+  });
+
   test("a route that is not on the allow-list is not served", async () => {
     expect((await call("GET", "/api/context/rtk/filters")).status).toBe(404);
     expect((await call("GET", "/api/compression/engines")).status).toBe(404);

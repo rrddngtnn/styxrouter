@@ -108,68 +108,7 @@ app.get("/api/settings", async (c) => {
   }
 });
 
-// Usage analytics: real aggregation over usage_history (raw) UNION
-// daily_usage_summary (aggregated). Mirrors the upstream route's
-// buildUnifiedSource contract — retention cutoff from DB settings, last-30d
-// window by default (range query param: 7d/30d/90d/all).
-app.get("/api/usage/analytics", async (c) => {
-  try {
-    const range = c.req.query("range") ?? "30d";
-    const days = range === "7d" ? 7 : range === "90d" ? 90 : range === "all" ? null : 30;
-    const sinceIso = days
-      ? new Date(Date.now() - days * 86400_000).toISOString()
-      : null;
-
-    const { buildUnifiedSource, getUsageSummary } = await import(
-      "../src/lib/db/usageAnalytics.ts"
-    );
-    const { getUserDatabaseSettings } = await import("../src/lib/db/databaseSettings.ts");
-
-    const dbSettings = getUserDatabaseSettings();
-    const rawRetentionDays = dbSettings?.retention?.usageHistory ?? 30;
-    const rawCutoff = new Date();
-    rawCutoff.setDate(rawCutoff.getDate() - rawRetentionDays);
-    const rawCutoffDate = rawCutoff.toISOString().split("T")[0];
-
-    const { unifiedSource, unifiedParams } = buildUnifiedSource({
-      sinceIso,
-      untilIso: null,
-      rawCutoffDate,
-      apiKeyWhere: "",
-      apiKeyParams: {},
-    });
-
-    const row = getUsageSummary(unifiedSource, unifiedParams);
-    return c.json({
-      range,
-      totals: {
-        requests: row.totalRequests,
-        input_tokens: row.promptTokens,
-        output_tokens: row.completionTokens,
-        total_tokens: row.totalTokens,
-        successful_requests: row.successfulRequests,
-        avg_latency_ms: Math.round(row.avgLatencyMs),
-        unique_models: row.uniqueModels,
-        unique_accounts: row.uniqueAccounts,
-        unique_api_keys: row.uniqueApiKeys,
-        first_request: row.firstRequest,
-        last_request: row.lastRequest,
-      },
-    });
-  } catch (e: any) {
-    return c.json(
-      {
-        totals: {
-          requests: 0,
-          input_tokens: 0,
-          output_tokens: 0,
-          total_tokens: 0,
-        },
-        error: String(e?.message || e),
-      },
-    );
-  }
-});
+// /api/usage/analytics is served by the upstream route module (see ./upstream.ts): summary, daily trend and breakdowns.
 
 // Routing/Keys/Activity readers backed by real DB queries. Shape matches the
 // panel's useFetch<Row>() interfaces. Credentials never leave the server.

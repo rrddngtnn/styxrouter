@@ -46,6 +46,8 @@ export function App() {
         <NavLink to="/keys" className={navClass}>API Keys</NavLink>
         <NavLink to="/activity" className={navClass}>Activity</NavLink>
         <NavLink to="/usage" className={navClass}>Usage</NavLink>
+        <NavLink to="/quota" className={navClass}>Quota</NavLink>
+        <NavLink to="/tools" className={navClass}>Connect tools</NavLink>
         <NavLink to="/settings" className={navClass}>Settings</NavLink>
         <button type="button" className="logout" onClick={logout}>
           Logout

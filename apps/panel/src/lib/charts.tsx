@@ -1,0 +1,60 @@
+import type { ReactNode } from "react";
+
+export interface Bar {
+  label: string;
+  value: number;
+  title?: string;
+}
+
+/** Plain SVG bar chart: no dependency, scales to its container, labels thinned when there are many bars. */
+export function BarChart({ data, format = (n: number) => String(n), height = 140 }: { data: Bar[]; format?: (n: number) => string; height?: number }): ReactNode {
+  if (data.length === 0) return <p className="muted">No data in this range.</p>;
+  const max = Math.max(...data.map((d) => d.value), 1);
+  if (data.every((d) => d.value === 0)) return <p className="muted">Nothing to chart: every value in this range is 0.</p>;
+  const w = 600;
+  const pad = 22;
+  // A bar never gets wider than 48 units, so a range with two days of data does not draw two giant blocks.
+  const bw = Math.min(w / data.length, 48);
+  const x0 = (w - bw * data.length) / 2;
+  const every = Math.ceil(data.length / 8);
+  return (
+    <svg className="chart" viewBox={`0 0 ${w} ${height + pad}`} role="img" aria-label="bar chart">
+      {data.map((d, i) => {
+        const h = Math.max(d.value > 0 ? 2 : 0, (d.value / max) * height);
+        return (
+          <g key={`${d.label}-${i}`}>
+            <rect x={x0 + i * bw + bw * 0.12} y={height - h} width={bw * 0.76} height={h} rx={2} className="bar">
+              <title>{d.title ?? `${d.label}: ${format(d.value)}`}</title>
+            </rect>
+            {i % every === 0 && (
+              <text x={x0 + i * bw + bw / 2} y={height + 15} textAnchor="middle" className="chart-label">
+                {d.label}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/** Horizontal meter, `value` 0-100. */
+export function Meter({ value, tone }: { value: number; tone?: "ok" | "warn" | "bad" }) {
+  const v = Math.max(0, Math.min(100, value));
+  const t = tone ?? (v < 15 ? "bad" : v < 40 ? "warn" : "ok");
+  return (
+    <div className="meter" role="progressbar" aria-valuenow={Math.round(v)} aria-valuemin={0} aria-valuemax={100}>
+      <div className={`meter-fill ${t}`} style={{ width: `${v}%` }} />
+    </div>
+  );
+}
+
+export function Stat({ label, value, sub, tone }: { label: string; value: ReactNode; sub?: ReactNode; tone?: "ok" | "bad" }) {
+  return (
+    <div className="card">
+      <h3>{label}</h3>
+      <p className={tone}>{value}</p>
+      {sub ? <small className="muted">{sub}</small> : null}
+    </div>
+  );
+}
