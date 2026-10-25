@@ -9,6 +9,8 @@ interface Provider {
   name?: string;
   enabled?: boolean;
   healthy?: boolean;
+  accounts?: number;
+  activeAccounts?: number;
   authType?: "oauth" | "apikey" | "none" | string;
   authModes?: string[];
   vendor?: string;
@@ -171,9 +173,9 @@ function ProviderCard({ provider, tab, accounts, flow, legacyDevice, redirectUri
       <div className="provider-body">
         <div className="provider-name">{name}</div>
         <div className="provider-meta">
-          <span className={`health ${status}`}>{status}</span>
+          <span className={`health ${status}`}>{status === "disabled" ? "no accounts" : status}</span>
           <span className="auth-type">{provider.authType ?? "—"}</span>
-          <span className="muted">{accounts} account{accounts === 1 ? "" : "s"}</span>
+          <span className="muted" title="Accounts whose last check passed, out of all accounts for this provider">{accounts > 0 ? `${provider.activeAccounts ?? 0}/${accounts} active` : "0 accounts"}</span>
         </div>
         {tab === "oauth" && connecting && flow && (
           <OAuthConnect provider={provider.id} flow={flow} legacyDevice={legacyDevice} redirectUri={redirectUri} onDone={onChanged} onClose={() => setConnecting(false)} />

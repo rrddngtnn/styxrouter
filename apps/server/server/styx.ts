@@ -60,15 +60,16 @@ app.post("/api/auth/login", authLogin);
 // Providers list: joins registry metadata with live DB connections.
 // Shape matches spike/styx-panel's Provider interface. No credentials returned.
 app.get("/api/providers", async (c) => {
+  // The column list is applied as camelCase keys (testStatus), which is what /api/connections returns too.
   const rows = (await getProviderConnections({}, undefined, undefined, [
     "provider",
     "test_status",
-  ])) as Array<{ provider: string; test_status: string | null }>;
+  ])) as Array<{ provider: string; testStatus?: string | null; test_status?: string | null }>;
   const liveByProvider = new Map<string, { active: number; total: number }>();
   for (const r of rows) {
     const slot = liveByProvider.get(r.provider) ?? { active: 0, total: 0 };
     slot.total += 1;
-    if (r.test_status === "active") slot.active += 1;
+    if ((r.testStatus ?? r.test_status) === "active") slot.active += 1;
     liveByProvider.set(r.provider, slot);
   }
   const providers = Object.entries(REGISTRY)
@@ -93,6 +94,8 @@ app.get("/api/providers", async (c) => {
         authModes,
         enabled: !!live && live.total > 0,
         healthy: !!live && live.active > 0,
+        accounts: live?.total ?? 0,
+        activeAccounts: live?.active ?? 0,
       };
     });
   return c.json({ providers });
