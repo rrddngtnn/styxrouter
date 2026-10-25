@@ -4,7 +4,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { App } from "./App.tsx";
 import { Login } from "./pages/Login.tsx";
 import { Dashboard } from "./pages/Dashboard.tsx";
-import { Providers } from "./pages/Providers.tsx";
+import { Providers, ProviderDetail } from "./pages/Providers.tsx";
 import { Routing } from "./pages/Routing.tsx";
 import { Keys } from "./pages/Keys.tsx";
 import { Activity } from "./pages/Activity.tsx";
@@ -24,6 +24,7 @@ const router = createBrowserRouter(
       children: [
         { index: true, element: <Dashboard /> },
         { path: "providers", element: <Providers /> },
+        { path: "providers/:providerId", element: <ProviderDetail /> },
         { path: "routing", element: <Routing /> },
         { path: "keys", element: <Keys /> },
         { path: "activity", element: <Activity /> },

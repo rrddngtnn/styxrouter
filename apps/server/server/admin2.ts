@@ -51,9 +51,9 @@ const createNodeSchema = z
       .enum(["chat", "responses", "embeddings", "rerank", "audio-transcriptions", "audio-speech", "images-generations"])
       .optional(),
     baseUrl: z.string().trim().min(1).max(2000),
-    chatPath: z.string().trim().startsWith("/").max(500).optional().or(z.literal("")),
-    modelsPath: z.string().trim().startsWith("/").max(500).optional().or(z.literal("")),
-    iconUrl: z.string().trim().url().max(1000).optional().or(z.literal("")),
+    chatPath: z.string().trim().startsWith("/").max(500).optional().or(z.literal("")).nullable(),
+    modelsPath: z.string().trim().startsWith("/").max(500).optional().or(z.literal("")).nullable(),
+    iconUrl: z.string().trim().url().max(1000).optional().or(z.literal("")).nullable(),
     customHeaders: z.record(z.string(), z.string()).optional(),
   })
   .strict()
@@ -78,8 +78,8 @@ const updateNodeSchema = z
       .enum(["chat", "responses", "embeddings", "rerank", "audio-transcriptions", "audio-speech", "images-generations"])
       .optional(),
     baseUrl: z.string().trim().min(1).max(2000).optional(),
-    chatPath: z.string().trim().startsWith("/").max(500).optional().or(z.literal("")),
-    modelsPath: z.string().trim().startsWith("/").max(500).optional().or(z.literal("")),
+    chatPath: z.string().trim().startsWith("/").max(500).optional().or(z.literal("")).nullable(),
+    modelsPath: z.string().trim().startsWith("/").max(500).optional().or(z.literal("")).nullable(),
     iconUrl: z.string().trim().url().max(1000).optional().or(z.literal("")).nullable(),
     customHeaders: z.record(z.string(), z.string()).nullable().optional(),
   })
