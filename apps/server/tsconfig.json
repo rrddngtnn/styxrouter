@@ -20,6 +20,7 @@
     "paths": {
       "@/*": ["./src/*"],
       "next/server": ["./server/shims/next-server.ts"],
+      "next/headers": ["./server/shims/next-headers.ts"],
       "@styxrouter/open-sse": ["./open-sse"],
       "@styxrouter/open-sse/*": ["./open-sse/*"]
     }
