@@ -31,6 +31,7 @@ import {
   getMiniMaxErrorSummary,
 } from "./usage/minimax.ts";
 import { getGlmUsage } from "./usage/glm.ts";
+import { getGlmUsageWithStartPlan } from "./usage/glmStartPlan.ts";
 // Re-exported para o teste glm-coding-plan-monthly (importa de services/usage).
 export { glmMonthlyRemainingPercentage } from "./usage/glm.ts";
 import {
@@ -196,7 +197,7 @@ export async function getUsageForProvider(
     case "glm-cn":
     case "zai":
     case "glmt":
-      return await getGlmUsage(apiKey || "", {
+      return await getGlmUsageWithStartPlan(apiKey, {
         ...(providerSpecificData || {}),
         ...(provider === "glm-cn" ? { apiRegion: "china" } : {}),
       });
