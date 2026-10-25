@@ -18,7 +18,7 @@ import json
 from pathlib import Path
 from collections import deque
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parent.parent
 
 COMMENT_RE = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/")
 IMPORT_RE = re.compile(
