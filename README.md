@@ -85,3 +85,7 @@ StyxRouter stands on three upstream projects. Full detail lives in
 MIT (see `LICENSE`). Portions are ported from the upstream projects listed under
 **Credits & lineage**; see [`CREDITS.md`](CREDITS.md) for the per-subsystem
 attribution and SPDX detail.
+
+## Docker
+
+A `Dockerfile` and `docker-compose.yml` are included; see [DOCKER.md](DOCKER.md) for the four settings you need and how to run it.

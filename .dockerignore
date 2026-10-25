@@ -1,0 +1,12 @@
+# Keep the build context small and keep local state out of the image.
+**/node_modules
+.git
+**/.env
+**/*.sqlite*
+**/*.log
+apps/panel/dist
+# a symlink to the panel build in the working tree; the image gets the freshly built panel instead
+apps/server/panel
+apps/server/tests
+tests
+scripts

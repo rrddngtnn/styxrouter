@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+
+# 1) Build the panel (static files)
+FROM node:24-slim AS panel
+WORKDIR /build
+COPY apps/panel/package.json apps/panel/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY apps/panel/ ./
+RUN npm run build
+
+# 2) Production dependencies only, exactly as locked
+FROM oven/bun:1.4.3 AS deps
+WORKDIR /app/apps/server
+COPY apps/server/package.json apps/server/bun.lock ./
+RUN bun install --production --frozen-lockfile --ignore-scripts
+
+# 3) Runtime
+FROM oven/bun:1.4.3
+ENV NODE_ENV=production \
+    PORT=20128 \
+    DATA_DIR=/data
+WORKDIR /app/apps/server
+COPY --from=deps /app/apps/server/node_modules ./node_modules
+COPY apps/server/ ./
+COPY --from=panel /build/dist ./panel
+RUN mkdir -p /data && chown -R bun:bun /data /app
+USER bun
+VOLUME /data
+EXPOSE 20128
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD bun -e "fetch('http://127.0.0.1:'+(process.env.PORT||20128)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["bun", "server/styx.ts"]

@@ -1,0 +1,14 @@
+services:
+  styx:
+    build: .
+    image: styxrouter:local
+    restart: unless-stopped
+    env_file: .env
+    # Loopback only: put a reverse proxy with TLS in front of it. Inference endpoints need an API key regardless.
+    ports:
+      - "127.0.0.1:20128:20128"
+    volumes:
+      - styx-data:/data
+
+volumes:
+  styx-data:
