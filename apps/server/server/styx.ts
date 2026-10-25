@@ -18,6 +18,7 @@ import { getUnifiedModelsResponse } from "../src/app/api/v1/models/catalog.ts";
 import { createModelMetadataApi, type ModelMetadataEnv } from "./modelMetadata.ts";
 import { authLogin, authLogout, authStatus, requireAuth } from "./auth.ts";
 import { createAdminApi } from "./admin.ts";
+import { createOAuthApi } from "./oauth.ts";
 import { createV1Api } from "./v1.ts";
 
 const app = new Hono<ModelMetadataEnv>();
@@ -469,6 +470,10 @@ function toOauthKey(providerId: string): string {
   // registry id "codebuddy-intl" -> oauth map key "codebuddyIntl" (kebab -> camel)
   return providerId.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 }
+
+// Registered after the device-flow routes above on purpose: those win for /init and /poll; every other
+// /api/oauth/* path is served by the upstream route modules.
+app.route("/api", createOAuthApi());
 
 app.use(
   "/panel/*",

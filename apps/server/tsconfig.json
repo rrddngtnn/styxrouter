@@ -19,6 +19,7 @@
     "disableSizeLimit": false,
     "paths": {
       "@/*": ["./src/*"],
+      "next/server": ["./server/shims/next-server.ts"],
       "@styxrouter/open-sse": ["./open-sse"],
       "@styxrouter/open-sse/*": ["./open-sse/*"]
     }

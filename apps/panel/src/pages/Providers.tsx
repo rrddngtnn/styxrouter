@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { api } from "../lib/api.ts";
 import { useAction } from "../lib/actions.tsx";
 import { useFetch } from "../lib/useFetch.ts";
+import { OAuthConnect, type FlowType } from "./OAuthConnect.tsx";
 
 interface Provider {
   id: string;
@@ -33,6 +34,8 @@ type Tab = "oauth" | "apikey";
 export function Providers() {
   const state = useFetch<ProvidersResponse>("/api/providers");
   const accountsState = useFetch<{ connections?: Account[] }>("/api/connections");
+  const flowsState = useFetch<{ providers?: { id: string; flowType: FlowType; legacyDevice?: boolean }[] }>("/api/oauth/providers");
+  const flows = useMemo(() => new Map((flowsState.status === "ok" ? flowsState.data.providers ?? [] : []).map((f) => [f.id, f])), [flowsState]);
   const [tab, setTab] = useState<Tab>("oauth");
 
   const providers = state.status === "ok" ? state.data.providers ?? [] : [];
@@ -99,7 +102,7 @@ export function Providers() {
 
           <div className="provider-grid">
             {list.map((p) => (
-              <ProviderCard key={p.id + "-" + tab} provider={p} tab={tab} accounts={counts[p.id] ?? 0} onChanged={refresh} />
+              <ProviderCard key={p.id + "-" + tab} provider={p} tab={tab} accounts={counts[p.id] ?? 0} flow={flows.get(p.id)?.flowType} legacyDevice={flows.get(p.id)?.legacyDevice} onChanged={refresh} />
             ))}
             {list.length === 0 && <p className="muted">No providers in this bucket.</p>}
           </div>
@@ -131,53 +134,20 @@ interface CardProps {
   provider: Provider;
   tab: Tab;
   accounts: number;
+  flow?: FlowType;
+  legacyDevice?: boolean;
   onChanged: () => void;
 }
 
-function ProviderCard({ provider, tab, accounts, onChanged }: CardProps) {
+function ProviderCard({ provider, tab, accounts, flow, legacyDevice, onChanged }: CardProps) {
   const name = provider.name ?? provider.id;
   const vendor = provider.vendor ?? "—";
   const status = provider.healthy ? "ok" : provider.enabled === false ? "disabled" : "down";
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
   const [adding, setAdding] = useState(false);
   const [label, setLabel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const { busy: saving, error, run } = useAction(onChanged);
-
-  async function startOauth() {
-    setBusy(true);
-    setMsg(null);
-    try {
-      const init = await fetch(`/api/oauth/${provider.id}/init`, { method: "POST", credentials: "include" });
-      if (!init.ok) throw new Error(`init failed: ${init.status}`);
-      const { authUrl, state, userCode } = await init.json();
-      if (!authUrl || !state) throw new Error("no authUrl/state returned");
-      window.open(authUrl, "_blank", "noopener");
-      setMsg(userCode ? `code: ${userCode} — polling…` : "polling…");
-      // poll every 5s, max 10 min
-      const deadline = Date.now() + 10 * 60 * 1000;
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 5000));
-        const r = await fetch(
-          `/api/oauth/${provider.id}/poll?state=${encodeURIComponent(state)}`,
-          { credentials: "include" },
-        );
-        const body = await r.json().catch(() => ({}));
-        if (body?.ok) {
-          setMsg("linked ✓");
-          onChanged();
-          return;
-        }
-        if (body?.error) throw new Error(body.error);
-      }
-      throw new Error("timed out");
-    } catch (e: any) {
-      setMsg(`err: ${e?.message || e}`);
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function addKey(e: React.FormEvent) {
     e.preventDefault();
@@ -204,7 +174,9 @@ function ProviderCard({ provider, tab, accounts, onChanged }: CardProps) {
           <span className="auth-type">{provider.authType ?? "—"}</span>
           <span className="muted">{accounts} account{accounts === 1 ? "" : "s"}</span>
         </div>
-        {msg && <div className="muted" style={{ marginTop: 8 }}>{msg}</div>}
+        {tab === "oauth" && connecting && flow && (
+          <OAuthConnect provider={provider.id} flow={flow} legacyDevice={legacyDevice} onDone={onChanged} onClose={() => setConnecting(false)} />
+        )}
         {tab === "apikey" && adding && (
           <form className="stack-form" onSubmit={addKey}>
             <input type="text" placeholder="Account label (optional)" value={label} maxLength={200} onChange={(e) => setLabel(e.target.value)} />
@@ -223,9 +195,15 @@ function ProviderCard({ provider, tab, accounts, onChanged }: CardProps) {
       </div>
       <footer>
         {tab === "oauth" ? (
-          <button type="button" className="btn-add" disabled={busy} onClick={startOauth}>
-            {busy ? "…" : "Start Flow"}
-          </button>
+          flow ? (
+            !connecting && (
+              <button type="button" className="btn-add" onClick={() => setConnecting(true)}>
+                Connect account
+              </button>
+            )
+          ) : (
+            <span className="muted">No in-panel login for this provider</span>
+          )
         ) : (
           !adding && (
             <button type="button" className="btn-add" onClick={() => setAdding(true)}>
@@ -270,7 +248,7 @@ function AccountsTable({
       {loading && <p>Loading…</p>}
       {error && <p className="bad">{error}</p>}
       {actionError && <p className="bad">{actionError}</p>}
-      {!loading && !error && accounts.length === 0 && <p className="muted">No accounts connected yet. Use “Add Key” or “Start Flow” above.</p>}
+      {!loading && !error && accounts.length === 0 && <p className="muted">No accounts connected yet. Use “Add Key” or “Connect account” above.</p>}
       {accounts.length > 0 && (
         <table className="table">
           <thead>
