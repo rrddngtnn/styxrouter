@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
+import { appendModelLine } from "../lib/model-selection.ts";
 import { api } from "../lib/api.ts";
 import { Modal, useAction } from "../lib/actions.tsx";
+import { EmptyState, LoadingState } from "../components/PageStates.tsx";
+import { ModelPicker } from "../components/ModelPicker.tsx";
 import { useFetch } from "../lib/useFetch.ts";
 
 type Step = string | { id?: string; model?: string; comboName?: string; name?: string; [k: string]: unknown };
@@ -24,6 +27,7 @@ export function Routing() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [models, setModels] = useState("");
+  const [addedModel, setAddedModel] = useState("");
   const [editing, setEditing] = useState<ComboRow | null>(null);
   const { busy, error, run } = useAction(state.reload);
 
@@ -35,6 +39,7 @@ export function Routing() {
       toast.success(`Created combo “${name.trim()}”`);
       setName("");
       setModels("");
+      setAddedModel("");
       setCreating(false);
     }
   }
@@ -69,6 +74,7 @@ export function Routing() {
           if (!open) {
             setName("");
             setModels("");
+            setAddedModel("");
           }
         }}
         title="Create routing combo"
@@ -87,6 +93,21 @@ export function Routing() {
               required
             />
           </label>
+          <div className="inline-form" style={{ alignItems: "start" }}>
+            <ModelPicker label="Find target model" value={addedModel} onChange={setAddedModel} onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                if (addedModel.trim()) {
+                  setModels((current) => appendModelLine(current, addedModel));
+                  setAddedModel("");
+                }
+              }
+            }} />
+            <button type="button" className="btn-ghost" disabled={!addedModel.trim()} onClick={() => {
+              setModels((current) => appendModelLine(current, addedModel));
+              setAddedModel("");
+            }}>Add target</button>
+          </div>
           <label>
             Target models (one per line, in fallback order)
             <textarea
@@ -130,9 +151,10 @@ export function Routing() {
         )}
       </Modal>
 
-      {state.status === "loading" && <p>Loading…</p>}
+      {state.status === "loading" && <LoadingState label="Loading routing combos" />}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
-      {state.status === "ok" && rows.length === 0 && <p className="muted">No combos configured yet.</p>}
+      {state.status === "ok" && rows.length === 0 && <EmptyState title="No routing combos" description="Create an ordered fallback chain for clients to call by name."
+        action={<button type="button" className="btn-add" onClick={() => setCreating(true)}>New combo</button>} />}
       {state.status === "ok" && rows.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <table className="table">
@@ -250,11 +272,10 @@ function StepsEditor({ row, onSaved, onClose }: { row: ComboRow; onSaved: () => 
         ))}
       </ol>
       <div className="inline-form" style={{ maxWidth: "100%" }}>
-        <input
-          type="text"
-          placeholder="provider/model-id or another combo name"
+        <ModelPicker
+          label="Add fallback target"
           value={added}
-          onChange={(e) => setAdded(e.target.value)}
+          onChange={setAdded}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();

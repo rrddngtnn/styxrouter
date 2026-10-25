@@ -4,6 +4,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
+import { extendQuotaSyncTimeout } from "./quotaSyncTimeout.ts";
 import { serveStatic } from "hono/bun";
 import { handleChat } from "../src/sse/handlers/chat.ts";
 import { initTranslators } from "../open-sse/translator/index.ts";
@@ -586,7 +587,8 @@ void (async () => {
 // addresses when IPv6 is enabled on the host).
 export default {
   port, hostname: "0.0.0.0",
-  fetch(request: Request, server?: { requestIP?(request: Request): { address: string } | null }) {
+  fetch(request: Request, server?: { requestIP?(request: Request): { address: string } | null; timeout?(request: Request, seconds: number): void }) {
+    extendQuotaSyncTimeout(request, server);
     return app.fetch(request, { peerAddress: server?.requestIP?.(request)?.address });
   },
 };

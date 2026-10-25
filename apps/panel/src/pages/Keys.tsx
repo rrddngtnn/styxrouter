@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
+import { appendModelLine } from "../lib/model-selection.ts";
 import { api } from "../lib/api.ts";
 import { Modal, SecretBanner, useAction } from "../lib/actions.tsx";
+import { EmptyState, LoadingState } from "../components/PageStates.tsx";
+import { ModelPicker } from "../components/ModelPicker.tsx";
 import { useFetch } from "../lib/useFetch.ts";
 
 interface KeyRow {
@@ -109,9 +112,10 @@ export function Keys() {
         )}
       </Modal>
 
-      {state.status === "loading" && <p>Loading…</p>}
+      {state.status === "loading" && <LoadingState label="Loading API keys" />}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
-      {state.status === "ok" && rows.length === 0 && <p className="muted">No API keys issued yet.</p>}
+      {state.status === "ok" && rows.length === 0 && <EmptyState title="No API keys" description="Create a key to authenticate clients with this router."
+        action={<button type="button" className="btn-add" onClick={() => setCreating(true)}>Create key</button>} />}
       {state.status === "ok" && rows.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <table className="table">
@@ -133,7 +137,7 @@ export function Keys() {
                 const limits = [
                   r.maxRequestsPerMinute ? `${r.maxRequestsPerMinute}/min` : null,
                   r.maxRequestsPerDay ? `${r.maxRequestsPerDay}/day` : null,
-                  r.allowedModels?.length ? `${r.allowedModels.length} models` : null,
+                  r.allowedModels?.length ? `${r.allowedModels.length} ${r.allowedModels.length === 1 ? "model" : "models"}` : null,
                 ]
                   .filter(Boolean)
                   .join(" · ");
@@ -214,6 +218,7 @@ function KeyEditor({ row, onSaved, onClose }: { row: KeyRow; onSaved: () => void
   const [perDay, setPerDay] = useState(row.maxRequestsPerDay ? String(row.maxRequestsPerDay) : "");
   const [perMinute, setPerMinute] = useState(row.maxRequestsPerMinute ? String(row.maxRequestsPerMinute) : "");
   const [models, setModels] = useState((row.allowedModels ?? []).join("\n"));
+  const [addedModel, setAddedModel] = useState("");
   const { busy, error, run } = useAction(onSaved);
 
   async function save(e: React.FormEvent) {
@@ -244,6 +249,21 @@ function KeyEditor({ row, onSaved, onClose }: { row: KeyRow; onSaved: () => void
           Max requests / minute
           <input type="number" min={1} step={1} placeholder="unlimited" value={perMinute} onChange={(e) => setPerMinute(e.target.value)} />
         </label>
+      </div>
+      <div className="inline-form" style={{ alignItems: "start" }}>
+        <ModelPicker label="Find allowed model" value={addedModel} onChange={setAddedModel} onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            if (addedModel.trim()) {
+              setModels((current) => appendModelLine(current, addedModel, true));
+              setAddedModel("");
+            }
+          }
+        }} />
+        <button type="button" className="btn-ghost" disabled={!addedModel.trim()} onClick={() => {
+          setModels((current) => appendModelLine(current, addedModel, true));
+          setAddedModel("");
+        }}>Add model</button>
       </div>
       <label>
         Allowed models (one per line, empty = all models)

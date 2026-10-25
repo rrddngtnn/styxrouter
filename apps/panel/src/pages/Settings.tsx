@@ -120,24 +120,26 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
         Account failover strategy, retry limits, prompt-cache affinity, and wildcard model aliases (persisted in SQLite).
       </p>
       <form className="stack-form" onSubmit={submit}>
-        <label>
-          Account fallback strategy
-          <select value={fallbackStrategy} onChange={(e) => setFallbackStrategy(e.target.value)}>
-            {FALLBACK_STRATEGIES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Combo expansion strategy
-          <select value={comboStrategy} onChange={(e) => setComboStrategy(e.target.value)}>
-            <option value="fallback">fallback (in order)</option>
-            <option value="round-robin">round-robin</option>
-          </select>
-        </label>
         <div className="two-col" style={{ gap: 12 }}>
+          <label>
+            Account fallback strategy
+            <select value={fallbackStrategy} onChange={(e) => setFallbackStrategy(e.target.value)}>
+              {FALLBACK_STRATEGIES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Combo expansion strategy
+            <select value={comboStrategy} onChange={(e) => setComboStrategy(e.target.value)}>
+              <option value="fallback">fallback (in order)</option>
+              <option value="round-robin">round-robin</option>
+            </select>
+          </label>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
           <label>
             Request retries (0–10)
             <input
@@ -158,45 +160,49 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
               onChange={(e) => setMaxRetryIntervalSec(Number(e.target.value))}
             />
           </label>
+          <label>
+            Sticky round-robin limit (0 = off)
+            <input
+              type="number"
+              min={0}
+              max={1000}
+              value={stickyLimit}
+              onChange={(e) => setStickyLimit(Number(e.target.value))}
+            />
+          </label>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "8px 16px" }}>
+          <label className="check">
+            <input type="checkbox" checked={promptCacheAffinity} onChange={(e) => setPromptCacheAffinity(e.target.checked)} />
+            <span>Keep combo targets close to provider prompt cache</span>
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={disableStickiness} onChange={(e) => setDisableStickiness(e.target.checked)} />
+            <span>Disable session stickiness globally</span>
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={lkgpEnabled} onChange={(e) => setLkgpEnabled(e.target.checked)} />
+            <span>Enable Last Known Good Provider (LKGP) memory</span>
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={autoRefreshQuota} onChange={(e) => setAutoRefreshQuota(e.target.checked)} />
+            <span>Auto-refresh provider quota in background</span>
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={hideHealthLogs} onChange={(e) => setHideHealthLogs(e.target.checked)} />
+            <span>Hide health-check requests from call logs</span>
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={debugMode} onChange={(e) => setDebugMode(e.target.checked)} />
+            <span>Debug logging mode</span>
+          </label>
         </div>
         <label>
-          Sticky round-robin limit (0 = off)
-          <input
-            type="number"
-            min={0}
-            max={1000}
-            value={stickyLimit}
-            onChange={(e) => setStickyLimit(Number(e.target.value))}
-          />
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={promptCacheAffinity} onChange={(e) => setPromptCacheAffinity(e.target.checked)} />
-          Keep combo targets close to provider prompt cache (promptCacheAffinityEnabled)
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={disableStickiness} onChange={(e) => setDisableStickiness(e.target.checked)} />
-          Disable session stickiness globally
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={lkgpEnabled} onChange={(e) => setLkgpEnabled(e.target.checked)} />
-          Enable Last Known Good Provider (LKGP) memory
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={autoRefreshQuota} onChange={(e) => setAutoRefreshQuota(e.target.checked)} />
-          Auto-refresh provider quota in background
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={hideHealthLogs} onChange={(e) => setHideHealthLogs(e.target.checked)} />
-          Hide health-check requests from call logs
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={debugMode} onChange={(e) => setDebugMode(e.target.checked)} />
-          Debug logging mode
-        </label>
-        <label>
-          Wildcard model aliases — one per line (<code>pattern = provider/model</code>)
+          <span>
+            Wildcard model aliases — one per line (<code>pattern = provider/model</code>)
+          </span>
           <textarea
-            rows={4}
+            rows={3}
             value={aliasesText}
             onChange={(e) => setAliasesText(e.target.value)}
             placeholder={"gpt-4o* = codex/gpt-5.3-codex\nclaude-sonnet* = antigravity/claude-sonnet-4-6"}

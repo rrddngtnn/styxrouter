@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DASH, int, ms, when } from "../lib/format.ts";
 import { useFetch } from "../lib/useFetch.ts";
 
@@ -20,9 +21,17 @@ interface CallLog {
 }
 
 export function Activity() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [limit, setLimit] = useState(100);
-  const [onlyErrors, setOnlyErrors] = useState(false);
-  const [q, setQ] = useState("");
+  const [onlyErrors, setOnlyErrors] = useState(() => searchParams.get("errors") === "true");
+  const [q, setQ] = useState(() => searchParams.get("q") ?? "");
+  const toggleErrors = (checked: boolean) => {
+    setOnlyErrors(checked);
+    const next = new URLSearchParams(searchParams);
+    if (checked) next.set("errors", "true");
+    else next.delete("errors");
+    setSearchParams(next, { replace: true });
+  };
   const state = useFetch<CallLog[]>(`/api/usage/call-logs?limit=${limit}`);
   const rows = useMemo(() => {
     const all = state.status === "ok" && Array.isArray(state.data) ? state.data : [];
@@ -40,7 +49,7 @@ export function Activity() {
       <p className="muted">Recent requests (metadata only; bodies are not shown).</p>
       <div className="toolbar">
         <input type="search" placeholder="Filter by model, provider, account or key" value={q} onChange={(e) => setQ(e.target.value)} />
-        <label className="check"><input type="checkbox" checked={onlyErrors} onChange={(e) => setOnlyErrors(e.target.checked)} /> errors only</label>
+        <label className="check"><input type="checkbox" checked={onlyErrors} onChange={(e) => toggleErrors(e.target.checked)} /> errors only</label>
         <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} aria-label="Rows">
           {[50, 100, 250, 500].map((n) => <option key={n} value={n}>{n} rows</option>)}
         </select>

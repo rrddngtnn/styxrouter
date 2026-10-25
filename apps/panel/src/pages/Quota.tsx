@@ -1,11 +1,14 @@
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { Pagination } from "../components/Pagination.tsx";
+import { paginationState } from "../lib/pagination.ts";
 import { api } from "../lib/api.ts";
 import { Meter } from "../lib/charts.tsx";
 import { DASH, ago, int, providerLabel, resetText } from "../lib/format.ts";
 import type { ProviderInfo, QuotaRow, QuotaWindow } from "../lib/types.ts";
 import { useFetch } from "../lib/useFetch.ts";
 import { useNow } from "../lib/useNow.ts";
+import "./quota.css";
 
 interface NodeInfo {
   id: string;
@@ -53,18 +56,10 @@ export function Quota() {
     return m;
   }, [provs, nodes]);
 
-  const groups = useMemo(() => {
-    const by = new Map<string, QuotaRow[]>();
-    for (const r of state.status === "ok" ? state.data.providers ?? [] : []) {
-      by.set(r.provider, [...(by.get(r.provider) ?? []), r]);
-    }
-    return [...by.entries()].sort(([a], [b]) => providerLabel(a, names).localeCompare(providerLabel(b, names)));
-  }, [state, names]);
-
   async function refresh(id: string) {
     setLive((l) => ({ ...l, [id]: { busy: true } }));
     try {
-      const data = await api.get<unknown>(`/api/usage/${id}`);
+      const data = await api.get<unknown>(`/api/usage/${encodeURIComponent(id)}`);
       setLive((l) => ({ ...l, [id]: { data } }));
       state.reload();
       toast.success("Account quota refreshed");
@@ -100,11 +95,10 @@ export function Quota() {
   }
 
   return (
-    <div className="page">
+    <div className="page quota-page">
       <h1>Quota</h1>
       <p className="muted">
-        Every quota window per account (model family, 5-hour session, weekly, or billing allowance) with live reset countdowns.
-        <b> Sync all quotas</b> refreshes every supported account; <b>Check now</b> queries one account on demand.
+        Choose a provider to explore account allowances, model windows, and reset times. Quotas are cached until refreshed.
       </p>
       <div className="toolbar">
         <button type="button" className="btn-add" disabled={syncingAll} onClick={syncAllNow}>
@@ -115,153 +109,72 @@ export function Quota() {
       </div>
       {state.status === "loading" && <p>Loading...</p>}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
-      {state.status === "ok" && groups.length === 0 && <p className="muted">No accounts connected.</p>}
-      {groups.map(([provider, rows]) => {
-        const anySupported = rows.some((r) => r.quotaSupported !== false && r.isActive !== false);
-        return (
-          <section className="panel-section" key={provider}>
-            <div className="section-head">
-              <h2>{providerLabel(provider, names)} <span className="tab-count">{rows.length}</span></h2>
-              {anySupported && (
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  disabled={Object.values(live).some((l) => l.busy) || syncingAll}
-                  onClick={() => checkGroup(rows)}
-                >
-                  Check all {rows.filter((r) => r.quotaSupported !== false && r.isActive !== false).length}
-                </button>
-              )}
-            </div>
-            <table className="table fixed">
-              <colgroup>
-                <col style={{ width: "22%" }} />
-                <col style={{ width: "44%" }} />
-                <col style={{ width: "13%" }} />
-                <col style={{ width: "11%" }} />
-                <col style={{ width: "10%" }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>Account</th>
-                  <th>Quota windows (remaining · used / limit · resets in)</th>
-                  <th>Last synced</th>
-                  <th>Login</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => {
-                  const l = live[r.connectionId];
-                  const liveWindows = l?.data !== undefined ? toWindows(r.provider, l.data) : null;
-                  const windows = liveWindows && liveWindows.length > 0 ? liveWindows : r.windows ?? [];
-                  const supported = r.quotaSupported !== false;
-                  const disabled = r.isActive === false;
-                  return (
-                    <Fragment key={r.connectionId}>
-                      <tr className={disabled ? "row-off" : ""}>
-                        <td>
-                          <div>{r.name}</div>
-                          <div className="row-actions" style={{ marginTop: 4 }}>
-                            {r.plan && <span className="vendor-badge">{r.plan}</span>}
-                            {disabled && <span className="bad">disabled</span>}
-                          </div>
-                        </td>
-                        <td>
-                          {!supported ? (
-                            <span className="muted">Custom / local endpoint — no upstream quota API</span>
-                          ) : windows.length > 0 ? (
-                            <div style={{ display: "grid", gap: "6px" }}>
-                              {windows.map((w) => {
-                                const pct = w.percentRemaining;
-                                const modelList = w.models ?? [];
-                                return (
-                                  <div
-                                    key={w.key}
-                                    style={{
-                                      display: "grid",
-                                      gridTemplateColumns: "minmax(115px, 1.1fr) minmax(90px, 1fr) minmax(110px, 1.1fr) minmax(85px, 0.8fr)",
-                                      gap: "8px",
-                                      alignItems: "center",
-                                      fontSize: "12px",
-                                    }}
-                                  >
-                                    <span title={modelList.length > 0 ? modelList.join(", ") : undefined}>
-                                      <code>{w.label}</code>
-                                      {modelList.length > 1 && (
-                                        <details style={{ marginTop: 2 }}>
-                                          <summary className="muted" style={{ cursor: "pointer", fontSize: "11px" }}>
-                                            {modelList.length} models
-                                          </summary>
-                                          <div className="muted" style={{ fontSize: "10px", lineHeight: 1.4, marginTop: 2 }}>
-                                            {modelList.join(", ")}
-                                          </div>
-                                        </details>
-                                      )}
-                                    </span>
-                                    <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                      {pct != null ? (
-                                        <>
-                                          <Meter value={pct} />
-                                          <small style={{ minWidth: "36px", textAlign: "right" }}>{fmtPct(pct)}</small>
-                                        </>
-                                      ) : (
-                                        <span className="muted">{DASH}</span>
-                                      )}
-                                    </span>
-                                    <span className="muted">{fmtUsedLimit(w)}</span>
-                                    <span className="muted">{resetText(w.resetAt, now)}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : r.message ? (
-                            <span className="bad">{r.message}</span>
-                          ) : r.quotaTotal != null || r.percentRemaining < 100 ? (
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                              <Meter value={r.percentRemaining} />
-                              <small>{fmtPct(r.percentRemaining)}</small>
-                              <span className="muted">
-                                {r.quotaTotal != null ? `${int(r.quotaUsed)} / ${int(r.quotaTotal)}` : ""}
-                                {r.resetAt ? ` · ${resetText(r.resetAt, now)}` : ""}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="muted">not synced yet — click Check now</span>
-                          )}
-                          {l?.error && <div className="bad" style={{ marginTop: 4 }}>{l.error}</div>}
-                        </td>
-                        <td className="muted" title={r.fetchedAt ?? undefined}>
-                          {r.fetchedAt ? ago(r.fetchedAt, now) : DASH}
-                        </td>
-                        <td
-                          className={tokenTone(r.tokenStatus)}
-                          title={
-                            r.tokenStatus === "refreshable"
-                              ? "The access token has run out; this account renews it on first use."
-                              : undefined
-                          }
-                        >
-                          {r.tokenStatus === "refreshable" ? "auto-refresh" : r.tokenStatus}
-                        </td>
-                        <td className="row-actions">
-                          {supported ? (
-                            <button type="button" className="btn-ghost" disabled={l?.busy || syncingAll} onClick={() => refresh(r.connectionId)}>
-                              {l?.busy ? "..." : "Check now"}
-                            </button>
-                          ) : null}
-                        </td>
-                      </tr>
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </section>
-        );
-      })}
+      {state.status === "ok" && !state.data.providers?.length && <p className="muted">No accounts connected.</p>}
+      {state.status === "ok" && <QuotaBrowser rows={state.data.providers ?? []} names={names} now={now} live={live} syncingAll={syncingAll} onRefresh={refresh} onCheckGroup={checkGroup} />}
     </div>
   );
+}
+
+export function quotaPage(rows: QuotaRow[], search: string, requestedPage: number, pageSize = 8) {
+  const query = search.trim().toLowerCase();
+  const filtered = rows.filter(r => !query || `${r.name} ${r.plan ?? ""}`.toLowerCase().includes(query));
+  const { page, pages, total, pageSize: size } = paginationState(filtered.length, pageSize, requestedPage);
+  return { rows: filtered.slice((page - 1) * size, page * size), total, pages, page };
+}
+
+export function QuotaBrowser({ rows, names, now, live, syncingAll, onRefresh, onCheckGroup }: {
+  rows: QuotaRow[]; names: Map<string, string>; now: number; live: Record<string, Live>; syncingAll: boolean;
+  onRefresh: (id: string) => void; onCheckGroup: (rows: QuotaRow[]) => void;
+}) {
+  const [selected, setSelected] = useState(rows[0]?.provider ?? "");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(8);
+  const providers = [...new Set(rows.map(r => r.provider))];
+  const current = providers.includes(selected) ? selected : providers[0];
+  const pool = rows.filter(r => r.provider === current);
+  const result = quotaPage(pool, search, page, pageSize);
+  // Keep controlled state in sync when cached data removes pages or providers.
+  if (page !== result.page) setPage(result.page);
+  if (current && current !== selected) { setSelected(current); setPage(1); }
+  const busy = syncingAll || Object.values(live).some(l => l.busy);
+  return <>
+    <div className="quota-provider-grid" aria-label="Provider categories">
+      {providers.map(provider => {
+        const count = rows.filter(r => r.provider === provider).length;
+        return <button key={provider} className="quota-provider" aria-pressed={provider === current} onClick={() => { setSelected(provider); setPage(1); setSearch(""); }}>
+          <strong>{providerLabel(provider, names)}</strong>
+          <small>{count} {count === 1 ? "account" : "accounts"}</small>
+        </button>;
+      })}
+    </div>
+    <div className="toolbar">
+      <input aria-label="Search accounts" type="search" placeholder="Search accounts" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+      <span className="muted">{result.total} {result.total === 1 ? "account" : "accounts"}</span>
+      <button className="btn-ghost" disabled={busy || !pool.some(r => r.quotaSupported !== false && r.isActive !== false)} onClick={() => onCheckGroup(pool)}>Refresh provider</button>
+    </div>
+    <div className="quota-account-grid">
+      {result.rows.map(row => {
+        const status = live[row.connectionId];
+        const fresh = status?.data !== undefined ? toWindows(row.provider, status.data) : [];
+        const windows = fresh.length ? fresh : row.windows ?? [];
+        return <article className="quota-account" key={row.connectionId}>
+          <header><h3>{row.name}</h3><span className="vendor-badge">{row.plan ?? "Plan unknown"}</span></header>
+          <div className={tokenTone(row.tokenStatus)}>{row.isActive === false ? "Disabled · " : ""}{row.tokenStatus}</div>
+          {row.quotaSupported === false ? <p className="muted">Upstream quota API unavailable</p> : windows.length === 0 ? <p className="muted">{row.message ?? "Not synced yet"}</p> : windows.map(w => <section className="quota-window" key={w.key}>
+            <div className="quota-window-head"><strong>{w.label}</strong><span>{w.unlimited ? "Unlimited" : `${fmtPct(w.percentRemaining)} left`}</span></div>
+            {w.percentRemaining !== null && !w.unlimited && <Meter value={w.percentRemaining} />}
+            <div className="quota-window-head"><span>{w.used != null && w.total != null ? `${fmtUsedLimit(w)} used` : fmtUsedLimit(w)}</span><span>{resetText(w.resetAt, now)}</span></div>
+            {!!w.models?.length && <details><summary>Models ({w.models.length})</summary>{w.models.join(", ")}</details>}
+          </section>)}
+          {(status?.error || row.message) && <p className="bad">{status?.error ?? row.message}</p>}
+          <footer><small className="muted">{row.fetchedAt ? ago(row.fetchedAt, now) : "Never synced"}</small>{row.quotaSupported !== false && <button className="btn-ghost" disabled={busy} onClick={() => onRefresh(row.connectionId)}>{status?.busy ? "Checking…" : "Check now"}</button>}</footer>
+        </article>;
+      })}
+    </div>
+    {!result.total && <p className="muted">No matching accounts.</p>}
+    <Pagination total={result.total} page={result.page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} itemLabel="accounts" />
+  </>;
 }
 
 function toWindows(provider: string, data: unknown): QuotaWindow[] {

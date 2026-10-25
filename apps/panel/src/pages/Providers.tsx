@@ -14,6 +14,8 @@ import { api, type JsonValue } from "../lib/api.ts";
 import { Modal, useAction } from "../lib/actions.tsx";
 import { DASH } from "../lib/format.ts";
 import { useFetch } from "../lib/useFetch.ts";
+import { EmptyState, LoadingState } from "../components/PageStates.tsx";
+import { filterProviders } from "../lib/provider-search.ts";
 import { OAuthConnect, type FlowType } from "./OAuthConnect.tsx";
 
 interface Provider {
@@ -71,6 +73,7 @@ export function Providers() {
   const accountsState = useFetch<{ connections?: Account[] }>("/api/connections");
   const nodesState = useFetch<{ nodes?: Node[] }>("/api/provider-nodes");
   const [editingNode, setEditingNode] = useState<"new" | null>(null);
+  const [search, setSearch] = useState("");
 
   const providers = state.status === "ok" ? state.data.providers ?? [] : [];
   const accounts = accountsState.status === "ok" ? accountsState.data.connections ?? [] : [];
@@ -109,7 +112,8 @@ export function Providers() {
     return c;
   }, [accounts]);
 
-  const list = tab === "oauth" ? oauthList : apikeyList;
+  const list = filterProviders(tab === "oauth" ? oauthList : apikeyList, search);
+  const filteredNodes = filterProviders(nodes, search);
 
   return (
     <div className="page">
@@ -118,7 +122,7 @@ export function Providers() {
         Select any provider card to open its dedicated page — connect OAuth accounts, add or bulk-import API keys, and run bulk actions on that provider’s accounts.
       </p>
 
-      {state.status === "loading" && <p>Loading…</p>}
+      {state.status === "loading" && <LoadingState label="Loading providers" />}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
 
       {state.status === "ok" && (
@@ -153,6 +157,14 @@ export function Providers() {
             </button>
           </div>
 
+          <div className="panel-provider-search">
+            <label>Search providers
+              <input type="search" aria-label="Search providers" placeholder="ID, name, vendor or custom prefix"
+                value={search} onChange={(event) => setSearch(event.target.value)} />
+            </label>
+            {search && <button type="button" className="btn-ghost" onClick={() => setSearch("")}>Clear search</button>}
+            <small className="muted" role="status">{tab === "custom" ? filteredNodes.length : list.length} results</small>
+          </div>
           {tab !== "custom" ? (
             <div className="provider-grid">
               {list.map((p) => (
@@ -164,7 +176,9 @@ export function Providers() {
                   activeAccounts={counts[p.id]?.active ?? 0}
                 />
               ))}
-              {list.length === 0 && <p className="muted">No providers in this bucket.</p>}
+              {list.length === 0 && <EmptyState title={search.trim() ? "No matching providers" : "No providers in this category"}
+                description={search.trim() ? "Try another ID, name or vendor." : "Select another authentication category."}
+                action={search.trim() ? <button type="button" className="btn-ghost" onClick={() => setSearch("")}>Clear search</button> : undefined} />}
             </div>
           ) : (
             <section>
@@ -195,7 +209,7 @@ export function Providers() {
                 />
               </Modal>
               <div className="provider-grid">
-                {nodes.map((n) => (
+                {filteredNodes.map((n) => (
                   <CustomNodeCard
                     key={n.id}
                     node={n}
@@ -203,7 +217,13 @@ export function Providers() {
                     activeAccounts={counts[n.id]?.active ?? 0}
                   />
                 ))}
-                {nodes.length === 0 && editingNode === null && <p className="muted">No custom providers yet.</p>}
+                {nodesState.status === "loading" && <LoadingState label="Loading custom providers" />}
+                {nodesState.status === "error" && <p className="bad" role="alert">{nodesState.error.message}</p>}
+                {nodesState.status === "ok" && filteredNodes.length === 0 && editingNode === null && <EmptyState
+                  title={search.trim() ? "No matching custom providers" : "No custom providers"}
+                  description={search.trim() ? "Try another name, ID or prefix." : "Add an OpenAI- or Anthropic-compatible endpoint to route models through your own prefix."}
+                  action={search.trim() ? <button type="button" className="btn-ghost" onClick={() => setSearch("")}>Clear search</button>
+                    : <button type="button" className="btn-add" onClick={() => setEditingNode("new")}>New custom provider</button>} />}
               </div>
             </section>
           )}
@@ -257,10 +277,12 @@ function ProviderCard({ provider, tab, accounts, activeAccounts }: CardProps) {
         <div className="provider-name">{name}</div>
         <div className="provider-meta">
           <span className={`health ${status}`}>{status === "disabled" ? "no accounts" : status}</span>
-          <span className="auth-type">{provider.authType ?? "—"}</span>
-          <span className="muted" title="Accounts whose last check passed, out of all accounts for this provider">
-            {accounts > 0 ? `${activeAccounts}/${accounts} active` : "0 accounts"}
-          </span>
+          <span className="auth-type">{tab === "oauth" ? "oauth" : tab === "apikey" ? "apikey" : provider.authType ?? "—"}</span>
+          {accounts > 0 && (
+            <span className="muted" title="Accounts whose last check passed, out of all accounts for this provider">
+              {`${activeAccounts}/${accounts} active`}
+            </span>
+          )}
         </div>
       </div>
       <footer>
@@ -458,6 +480,10 @@ export function ProviderDetail() {
 
   const { busy, error: actionError, run } = useAction(refresh);
   const locked = busy !== null || bulkBusy;
+  const rotatingAccount = useMemo(
+    () => (rotatingId ? providerAccounts.find((a) => a.id === rotatingId) ?? null : null),
+    [rotatingId, providerAccounts],
+  );
 
   async function addSingleKey(e: React.FormEvent) {
     e.preventDefault();
@@ -543,7 +569,7 @@ export function ProviderDetail() {
     return (
       <div className="page">
         <p><Link to={backHref}>← All Providers</Link></p>
-        <p>Loading…</p>
+        <LoadingState label="Loading provider" />
       </div>
     );
   }
@@ -560,10 +586,6 @@ export function ProviderDetail() {
 
   const ids = selectedAccounts(providerAccounts, selected);
   const status = activeCount > 0 ? "ok" : providerAccounts.length === 0 ? "disabled" : "down";
-  const rotatingAccount = useMemo(
-    () => (rotatingId ? providerAccounts.find((a) => a.id === rotatingId) ?? null : null),
-    [rotatingId, providerAccounts],
-  );
 
   return (
     <div className="page">
@@ -845,9 +867,7 @@ export function ProviderDetail() {
         {actionError && !addingKey && <p className="bad">{actionError}</p>}
 
         {providerAccounts.length === 0 ? (
-          <p className="muted">
-            No accounts connected to {target.label} yet. Use the buttons above to connect an OAuth login or add API keys.
-          </p>
+          <EmptyState title="No connected accounts" description={`Connect an OAuth login or add an API key to ${target.label} using the actions above.`} />
         ) : (
           <table className="table">
             <thead>
