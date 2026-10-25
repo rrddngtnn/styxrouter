@@ -22,6 +22,7 @@ import { createOAuthApi } from "./oauth.ts";
 import { createUpstreamApi } from "./upstream.ts";
 import { createBackupsApi, startBackupScheduler } from "./backups.ts";
 import { createV1Api } from "./v1.ts";
+import { startProviderLimitsAutoSync } from "./providerLimitsSync.ts";
 
 const app = new Hono<ModelMetadataEnv>();
 // Registered first so it runs before every route below, including the mounted sub-app.
@@ -447,6 +448,7 @@ app.route("/api", await createOAuthApi());
 app.route("/api", await createUpstreamApi());
 app.route("/api", createBackupsApi());
 startBackupScheduler();
+startProviderLimitsAutoSync();
 
 app.use(
   "/panel/*",
