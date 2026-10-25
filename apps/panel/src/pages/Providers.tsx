@@ -34,7 +34,7 @@ type Tab = "oauth" | "apikey";
 export function Providers() {
   const state = useFetch<ProvidersResponse>("/api/providers");
   const accountsState = useFetch<{ connections?: Account[] }>("/api/connections");
-  const flowsState = useFetch<{ providers?: { id: string; flowType: FlowType; legacyDevice?: boolean }[] }>("/api/oauth/providers");
+  const flowsState = useFetch<{ providers?: { id: string; flowType: FlowType; legacyDevice?: boolean; redirectUri?: string }[] }>("/api/oauth/providers");
   const flows = useMemo(() => new Map((flowsState.status === "ok" ? flowsState.data.providers ?? [] : []).map((f) => [f.id, f])), [flowsState]);
   const [tab, setTab] = useState<Tab>("oauth");
 
@@ -102,7 +102,7 @@ export function Providers() {
 
           <div className="provider-grid">
             {list.map((p) => (
-              <ProviderCard key={p.id + "-" + tab} provider={p} tab={tab} accounts={counts[p.id] ?? 0} flow={flows.get(p.id)?.flowType} legacyDevice={flows.get(p.id)?.legacyDevice} onChanged={refresh} />
+              <ProviderCard key={p.id + "-" + tab} provider={p} tab={tab} accounts={counts[p.id] ?? 0} flow={flows.get(p.id)?.flowType} legacyDevice={flows.get(p.id)?.legacyDevice} redirectUri={flows.get(p.id)?.redirectUri} onChanged={refresh} />
             ))}
             {list.length === 0 && <p className="muted">No providers in this bucket.</p>}
           </div>
@@ -136,10 +136,11 @@ interface CardProps {
   accounts: number;
   flow?: FlowType;
   legacyDevice?: boolean;
+  redirectUri?: string;
   onChanged: () => void;
 }
 
-function ProviderCard({ provider, tab, accounts, flow, legacyDevice, onChanged }: CardProps) {
+function ProviderCard({ provider, tab, accounts, flow, legacyDevice, redirectUri, onChanged }: CardProps) {
   const name = provider.name ?? provider.id;
   const vendor = provider.vendor ?? "—";
   const status = provider.healthy ? "ok" : provider.enabled === false ? "disabled" : "down";
@@ -175,7 +176,7 @@ function ProviderCard({ provider, tab, accounts, flow, legacyDevice, onChanged }
           <span className="muted">{accounts} account{accounts === 1 ? "" : "s"}</span>
         </div>
         {tab === "oauth" && connecting && flow && (
-          <OAuthConnect provider={provider.id} flow={flow} legacyDevice={legacyDevice} onDone={onChanged} onClose={() => setConnecting(false)} />
+          <OAuthConnect provider={provider.id} flow={flow} legacyDevice={legacyDevice} redirectUri={redirectUri} onDone={onChanged} onClose={() => setConnecting(false)} />
         )}
         {tab === "apikey" && adding && (
           <form className="stack-form" onSubmit={addKey}>

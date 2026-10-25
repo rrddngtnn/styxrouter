@@ -38,6 +38,8 @@ export function createOAuthApi() {
           flowType: p.flowType as string,
           // Served by the device-flow routes in styx.ts (zai -> glm mapping, ZCode secrets kept server-side).
           legacyDevice: Boolean(p.requestDeviceCode && p.pollToken),
+          // Some vendors register exactly one loopback address for their public client; the panel must send it.
+          redirectUri: p.fixedPort ? `http://${p.callbackHost || "localhost"}:${p.fixedPort}${p.callbackPath || "/callback"}` : undefined,
         };
       })
       .sort((x, y) => x.name.localeCompare(y.name));

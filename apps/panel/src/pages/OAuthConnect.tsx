@@ -9,7 +9,7 @@ const text = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 const drop = (o: Json) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null)) as never;
 
 /** Connect one OAuth account. The flow depends on the provider; all of them end in a saved account. */
-export function OAuthConnect({ provider, flow, legacyDevice, onDone, onClose }: { provider: string; flow: FlowType; legacyDevice?: boolean; onDone: () => void; onClose: () => void }) {
+export function OAuthConnect({ provider, flow, legacyDevice, redirectUri, onDone, onClose }: { provider: string; flow: FlowType; legacyDevice?: boolean; redirectUri?: string; onDone: () => void; onClose: () => void }) {
   const finish = () => {
     onDone();
     onClose();
@@ -21,7 +21,7 @@ export function OAuthConnect({ provider, flow, legacyDevice, onDone, onClose }: 
       ) : flow === "import_token" ? (
         <TokenImport provider={provider} onDone={finish} />
       ) : (
-        <CodeFlow provider={provider} onDone={finish} />
+        <CodeFlow provider={provider} redirectUri={redirectUri} onDone={finish} />
       )}
       <div>
         <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
@@ -31,13 +31,13 @@ export function OAuthConnect({ provider, flow, legacyDevice, onDone, onClose }: 
 }
 
 /** Sign in at the vendor, then paste back the address the browser lands on (it points at localhost and will not load). */
-function CodeFlow({ provider, onDone }: { provider: string; onDone: () => void }) {
+function CodeFlow({ provider, redirectUri, onDone }: { provider: string; redirectUri?: string; onDone: () => void }) {
   const [auth, setAuth] = useState<Json | null>(null);
   const [pasted, setPasted] = useState("");
   const { busy, error, run } = useAction();
 
   async function start() {
-    const d = await run("start", () => api.get<Json>(`/api/oauth/${provider}/authorize`));
+    const d = await run("start", () => api.get<Json>(`/api/oauth/${provider}/authorize${redirectUri ? `?redirect_uri=${encodeURIComponent(redirectUri)}` : ""}`));
     if (!d) return;
     const url = text(d.authUrl);
     if (!url) return void setAuth({ unsupported: text(d.error) ?? "This provider cannot start a browser login." });

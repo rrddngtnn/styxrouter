@@ -92,6 +92,8 @@ describe("/api/oauth", () => {
     expect(list.every((p) => p.id === p.id.toLowerCase())).toBe(true);
     expect(list.some((p) => p.id === "codebuddy-intl")).toBe(true);
     // providers served by the older device-flow endpoints (zai -> glm mapping, ZCode secrets kept server-side) say so
+    // a provider whose OAuth client only accepts one registered loopback address must be sent exactly that address
+    expect(list.find((p) => p.id === "codex")?.redirectUri).toMatch(/^http:\/\/localhost:1455\//);
     expect(list.find((p) => p.id === "glm")?.legacyDevice).toBe(true);
     expect(list.find((p) => p.id === "codex")?.legacyDevice).toBe(false);
     expect((await call("GET", "/api/oauth/providers", undefined, false)).status).toBe(401);
