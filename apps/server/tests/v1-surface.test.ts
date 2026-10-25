@@ -90,3 +90,23 @@ describe.each([
     expect(((await r.json()) as any).error).toBeTruthy();
   });
 });
+
+describe("/v1/messages/count_tokens", () => {
+  const body = { model: "no-such-provider/no-such-model", messages: [{ role: "user", content: "hello there, how many tokens am I?" }], system: "be brief" };
+
+  test("needs an API key", async () => {
+    expect((await post("/v1/messages/count_tokens", body)).status).toBe(401);
+  });
+
+  test("falls back to a local estimate for a model it cannot reach", async () => {
+    const r = await post("/v1/messages/count_tokens", body, authed());
+    expect(r.status).toBe(200);
+    const j: any = await r.json();
+    expect(j.source).toBe("local");
+    expect(j.input_tokens).toBeGreaterThan(3);
+  });
+
+  test("rejects a body that is not JSON with 400", async () => {
+    expect((await post("/v1/messages/count_tokens", "{nope", authed())).status).toBe(400);
+  });
+});

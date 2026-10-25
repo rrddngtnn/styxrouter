@@ -16,6 +16,7 @@ import {
 import { resolveKeepaliveThreshold } from "../open-sse/utils/keepaliveThreshold.ts";
 import { OPENAI_RESPONSES_IN_PROGRESS_FRAME } from "../open-sse/utils/sseHeartbeat.ts";
 import { generateRequestId } from "../src/shared/utils/requestId.ts";
+import { POST as countTokens } from "../src/app/api/v1/messages/count_tokens/route.ts";
 
 const invalid = (c: Context, message: string, status: 400 | 500 = 400) =>
   c.json({ error: { message, type: status === 400 ? "invalid_request_error" : "internal_error" } }, status);
@@ -40,6 +41,9 @@ export function createV1Api(ensureTranslators: () => Promise<unknown>) {
       return invalid(c, String(e?.message || e), 500);
     }
   });
+
+  // Provider-side count when the connection supports it, local estimate otherwise (handled by the route).
+  api.post("/messages/count_tokens", (c) => countTokens(c.req.raw));
 
   api.post("/responses", async (c) => {
     await ensureTranslators();
