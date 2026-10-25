@@ -7,11 +7,11 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { scryptSync, createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import Database from "better-sqlite3";
 
 // ---------------------------------------------------------------------------
 // WebSocket — real server + client round-trip on Bun
@@ -70,17 +70,18 @@ describe("bun websocket round-trip (codex transport shape)", () => {
 // SQLite — transaction/busy/reopen + concurrent writers
 // ---------------------------------------------------------------------------
 
-describe("sqlite concurrency under bun (better-sqlite3)", () => {
+describe("sqlite concurrency under bun (bun:sqlite)", () => {
   test("100 concurrent insert transactions all persist after reopen", () => {
     const dir = mkdtempSync(join(tmpdir(), "styx-sql-"));
     const dbPath = join(dir, "t.sqlite");
     try {
       const db = new Database(dbPath);
-      db.pragma("journal_mode = WAL");
+      db.exec("PRAGMA journal_mode = WAL");
       db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)");
 
+      const stmt = db.prepare("INSERT INTO t (v) VALUES (?)");
       const insert = db.transaction((i: number) => {
-        db.prepare("INSERT INTO t (v) VALUES (?)").run(`row-${i}`);
+        stmt.run(`row-${i}`);
       });
 
       // Serial-run many transactions quickly (WAL single-writer semantics)
@@ -106,7 +107,7 @@ describe("sqlite concurrency under bun (better-sqlite3)", () => {
       a.prepare("INSERT INTO t VALUES (1)").run();
 
       const b = new Database(dbPath);
-      b.pragma("busy_timeout = 2000");
+      b.exec("PRAGMA busy_timeout = 2000");
       const rows = b.prepare("SELECT x FROM t").all() as { x: number }[];
       expect(rows.length).toBe(1);
       a.close();

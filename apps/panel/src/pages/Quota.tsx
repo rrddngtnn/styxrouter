@@ -166,6 +166,7 @@ export function Quota() {
                             <div style={{ display: "grid", gap: "6px" }}>
                               {windows.map((w) => {
                                 const pct = w.percentRemaining;
+                                const modelList = w.models ?? [];
                                 return (
                                   <div
                                     key={w.key}
@@ -177,7 +178,19 @@ export function Quota() {
                                       fontSize: "12px",
                                     }}
                                   >
-                                    <span><code>{w.label}</code></span>
+                                    <span title={modelList.length > 0 ? modelList.join(", ") : undefined}>
+                                      <code>{w.label}</code>
+                                      {modelList.length > 1 && (
+                                        <details style={{ marginTop: 2 }}>
+                                          <summary className="muted" style={{ cursor: "pointer", fontSize: "11px" }}>
+                                            {modelList.length} models
+                                          </summary>
+                                          <div className="muted" style={{ fontSize: "10px", lineHeight: 1.4, marginTop: 2 }}>
+                                            {modelList.join(", ")}
+                                          </div>
+                                        </details>
+                                      )}
+                                    </span>
                                     <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                                       {pct != null ? (
                                         <>
@@ -279,8 +292,12 @@ function toWindows(provider: string, data: unknown): QuotaWindow[] {
             ? { id: "flash", label: "Gemini 3 Flash" }
             : { id: rawKey, label: rawKey };
       const groupKey = `${fam.id}:${total ?? -1}:${used ?? -1}:${resetAt ?? ""}`;
-      if (out.some((w) => w.key === groupKey)) continue;
-      out.push({ key: groupKey, label: fam.label, used, total, remaining, percentRemaining: pct, resetAt, unlimited });
+      const existing = out.find((w) => w.key === groupKey);
+      if (existing) {
+        existing.models = [...(existing.models ?? []), rawKey];
+        continue;
+      }
+      out.push({ key: groupKey, label: fam.label, models: [rawKey], used, total, remaining, percentRemaining: pct, resetAt, unlimited });
     } else {
       const label =
         rawKey === "session"
@@ -290,7 +307,7 @@ function toWindows(provider: string, data: unknown): QuotaWindow[] {
             : typeof o.displayName === "string" && o.displayName.trim()
               ? o.displayName.trim()
               : rawKey;
-      out.push({ key: rawKey, label, used, total, remaining, percentRemaining: pct, resetAt, unlimited });
+      out.push({ key: rawKey, label, models: [rawKey], used, total, remaining, percentRemaining: pct, resetAt, unlimited });
     }
   }
   return out;

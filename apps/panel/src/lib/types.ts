@@ -78,6 +78,7 @@ export interface ProviderInfo {
 export interface QuotaWindow {
   key: string;
   label: string;
+  models?: string[];
   used: number | null;
   total: number | null;
   remaining: number | null;

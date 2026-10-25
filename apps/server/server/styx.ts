@@ -458,9 +458,14 @@ app.use(
     root: "./panel",
     rewriteRequestPath: (p) => {
       const stripped = p.replace(/^\/panel/, "");
-      // Single-page app: any path without a file extension is a client-side route, so serve the shell.
-      // A path WITH an extension is an asset and must stay a 404 when it is missing.
-      return stripped === "" || stripped === "/" || !/\.[A-Za-z0-9]+$/.test(stripped) ? "/index.html" : stripped;
+      const lastSegment = stripped.split("/").pop() ?? "";
+      // Single-page app: only static asset paths (under /assets/ or ending in a common static file extension)
+      // are served as files; every client-side route (including `/panel/providers/:id` where `:id` may contain
+      // dots) serves `/index.html`.
+      const isStaticAsset =
+        stripped.startsWith("/assets/") ||
+        /\.(?:js|mjs|css|map|html|json|svg|png|jpe?g|gif|webp|ico|woff2?|ttf)$/i.test(lastSegment);
+      return isStaticAsset ? stripped : "/index.html";
     },
   })
 );

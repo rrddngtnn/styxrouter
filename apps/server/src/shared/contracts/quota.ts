@@ -3,6 +3,7 @@ export type QuotaTokenStatus = "valid" | "expiring" | "expired" | "refreshing" |
 export interface QuotaWindowEntry {
   key: string;
   label: string;
+  models: string[];
   used: number | null;
   total: number | null;
   remaining: number | null;
@@ -71,6 +72,9 @@ function sanitizeQuotaWindow(input: unknown): QuotaWindowEntry | null {
   const key = typeof src.key === "string" && src.key.trim() ? src.key.trim() : "";
   if (!key) return null;
   const label = typeof src.label === "string" && src.label.trim() ? src.label.trim() : key;
+  const models = Array.isArray(src.models)
+    ? src.models.filter((m): m is string => typeof m === "string" && m.trim().length > 0)
+    : [];
   const used = toNumber(src.used);
   const total = toNumber(src.total);
   const remaining = toNumber(src.remaining);
@@ -80,6 +84,7 @@ function sanitizeQuotaWindow(input: unknown): QuotaWindowEntry | null {
   return {
     key,
     label,
+    models,
     used: used !== null && used >= 0 ? used : null,
     total: total !== null && total >= 0 ? total : null,
     remaining: remaining !== null && remaining >= 0 ? remaining : null,

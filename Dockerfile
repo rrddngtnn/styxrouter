@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# 1) Build the panel (static files)
+# 1) Build the panel (static SPA bundle)
 FROM node:24-slim AS panel
 WORKDIR /build
 COPY apps/panel/package.json apps/panel/package-lock.json ./
@@ -8,10 +8,12 @@ RUN npm ci --no-audit --no-fund
 COPY apps/panel/ ./
 RUN npm run build
 
-# 2) Production dependencies only, exactly as locked
+# 2) Production dependencies from the workspace root lockfile
 FROM oven/bun:1.4.3 AS deps
-WORKDIR /app/apps/server
-COPY apps/server/package.json apps/server/bun.lock ./
+WORKDIR /app
+COPY package.json bun.lock ./
+COPY apps/panel/package.json ./apps/panel/package.json
+COPY apps/server/package.json ./apps/server/package.json
 RUN bun install --production --frozen-lockfile --ignore-scripts
 
 # 3) Runtime
@@ -20,6 +22,7 @@ ENV NODE_ENV=production \
     PORT=20128 \
     DATA_DIR=/data
 WORKDIR /app/apps/server
+COPY --from=deps /app/node_modules /app/node_modules
 COPY --from=deps /app/apps/server/node_modules ./node_modules
 COPY apps/server/ ./
 COPY --from=panel /build/dist ./panel

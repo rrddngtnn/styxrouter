@@ -116,6 +116,7 @@ describe("/api/usage/quota tokenStatus", () => {
       "Claude / GPT-OSS",
       "Gemini 3 Flash",
     ]);
+    expect(agRow.windows[0].models).toEqual(["gemini-4-argon-low", "gemini-4-argon-high"]);
     expect(agRow.percentRemaining).toBe(25);
 
     const cxRow = byName["cx@example.test"];

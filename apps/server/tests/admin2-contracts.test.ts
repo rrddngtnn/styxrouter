@@ -97,6 +97,8 @@ describe("provider nodes", () => {
       prefix: "muse-test",
       apiType: "chat",
       baseUrl: "https://bridge.example/v1",
+      chatPath: null,
+      modelsPath: null,
       customHeaders: { "X-Bridge": "on" },
     });
     expect(created.status).toBe(201);
@@ -106,7 +108,11 @@ describe("provider nodes", () => {
     const listed: any = await (await call("GET", "/api/provider-nodes")).json();
     expect(listed.nodes.some((n: any) => n.id === node.id)).toBe(true);
 
-    const updated = await call("PATCH", `/api/provider-nodes/${node.id}`, { name: "Muse Test 2" });
+    const updated = await call("PATCH", `/api/provider-nodes/${node.id}`, {
+      name: "Muse Test 2",
+      chatPath: null,
+      modelsPath: null,
+    });
     expect(updated.status).toBe(200);
     const updatedBody = (await updated.json()) as any;
     expect(updatedBody.node.name).toBe("Muse Test 2");

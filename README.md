@@ -34,26 +34,33 @@ Retained from upstream and verified end-to-end live in this repo:
 
 Fail-closed dispatch — any provider ID not in the explicit registry whitelist throws 400 `unsupported_provider` before any executor is instantiated.
 
-## Quick start
+## Quick start (from a fresh clone)
 
 ```bash
-# Install dependencies for the server workspace
-cd apps/server && ~/.bun/bin/bun install
+# 1. Install workspace dependencies (server + panel) from the repository root
+bun install
 
-# Install dependencies for the panel workspace
-cd apps/panel && npm install
+# 2. Build the administration panel SPA
+npm --prefix apps/panel run build
 
-# Start the server (listens on :20128 by default)
-cd apps/server && ~/.bun/bin/bun server/styx.ts
+# 3. Create apps/server/.env with your secrets (generate each 32-byte hex secret with: openssl rand -hex 32)
+cp docker.env.example apps/server/.env
 
-# Open the panel at http://localhost:20128/panel/
+# 4. Start the server (listens on :20128 by default)
+cd apps/server && bun server/styx.ts
+
+# 5. Open the panel at http://127.0.0.1:20128/panel/ and sign in with INITIAL_PASSWORD
 ```
 
 ## Testing
 
 ```bash
 # TypeScript contract and routing tests (Bun test runner)
-cd apps/server && ~/.bun/bin/bun test tests/
+cd apps/server && bun test tests/
+
+# Panel unit tests + typecheck
+bun test apps/panel/tests/
+npm --prefix apps/panel run typecheck
 
 # Python-side tooling tests (stdlib unittest)
 cd apps/server && python3 -m unittest discover -s tests -p 'test_*.py' -v

@@ -1,9 +1,21 @@
-import { useState } from "react";
-import { api } from "../lib/api.ts";
+import { useEffect, useState } from "react";
+import { api, type JsonValue } from "../lib/api.ts";
 import { useAction } from "../lib/actions.tsx";
 import { useFetch } from "../lib/useFetch.ts";
 
 type SettingsBag = Record<string, unknown>;
+
+const FALLBACK_STRATEGIES = [
+  "priority",
+  "weighted",
+  "fill-first",
+  "round-robin",
+  "p2c",
+  "random",
+  "least-used",
+  "cost-optimized",
+  "strict-random",
+] as const;
 
 export function Settings() {
   const state = useFetch<SettingsBag>("/api/settings");
@@ -11,15 +23,192 @@ export function Settings() {
   return (
     <div className="page">
       <h1>Settings</h1>
+      {state.status === "ok" && <RoutingAndRuntimeSettings initial={state.data} onSaved={state.reload} />}
       <ChangePassword />
-      <h2>Current values</h2>
-      {state.status === "loading" && <p>Loading…</p>}
-      {state.status === "error" && <p className="bad">{state.error.message}</p>}
-      {state.status === "ok" && (
-        <pre className="json">{JSON.stringify(state.data, null, 2)}</pre>
-      )}
       <MigrateFromStyxRouter />
+      <details style={{ marginTop: 24 }}>
+        <summary className="muted" style={{ cursor: "pointer" }}>
+          Raw settings JSON (read-only snapshot)
+        </summary>
+        {state.status === "loading" && <p>Loading…</p>}
+        {state.status === "error" && <p className="bad">{state.error.message}</p>}
+        {state.status === "ok" && <pre className="json">{JSON.stringify(state.data, null, 2)}</pre>}
+      </details>
     </div>
+  );
+}
+
+interface WildcardAlias {
+  pattern: string;
+  target: string;
+}
+
+function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag; onSaved: () => void }) {
+  const [fallbackStrategy, setFallbackStrategy] = useState<string>(String(initial.fallbackStrategy ?? "priority"));
+  const [comboStrategy, setComboStrategy] = useState<string>(String(initial.comboStrategy ?? "fallback"));
+  const [requestRetry, setRequestRetry] = useState<number>(Number(initial.requestRetry ?? 2));
+  const [maxRetryIntervalSec, setMaxRetryIntervalSec] = useState<number>(Number(initial.maxRetryIntervalSec ?? 30));
+  const [stickyLimit, setStickyLimit] = useState<number>(Number(initial.stickyRoundRobinLimit ?? 0));
+  const [disableStickiness, setDisableStickiness] = useState<boolean>(Boolean(initial.disableSessionStickiness));
+  const [promptCacheAffinity, setPromptCacheAffinity] = useState<boolean>(initial.promptCacheAffinityEnabled !== false);
+  const [lkgpEnabled, setLkgpEnabled] = useState<boolean>(Boolean(initial.lkgpEnabled));
+  const [autoRefreshQuota, setAutoRefreshQuota] = useState<boolean>(initial.autoRefreshProviderQuota !== false);
+  const [hideHealthLogs, setHideHealthLogs] = useState<boolean>(Boolean(initial.hideHealthCheckLogs));
+  const [debugMode, setDebugMode] = useState<boolean>(Boolean(initial.debugMode));
+  const [aliasesText, setAliasesText] = useState<string>(() => {
+    const arr = Array.isArray(initial.wildcardAliases) ? (initial.wildcardAliases as WildcardAlias[]) : [];
+    return arr.map((a) => `${a.pattern} = ${a.target}`).join("\n");
+  });
+  const [savedBanner, setSavedBanner] = useState(false);
+  const { busy, error, run } = useAction(() => {
+    setSavedBanner(true);
+    onSaved();
+  });
+
+  useEffect(() => {
+    setFallbackStrategy(String(initial.fallbackStrategy ?? "priority"));
+    setComboStrategy(String(initial.comboStrategy ?? "fallback"));
+    setRequestRetry(Number(initial.requestRetry ?? 2));
+    setMaxRetryIntervalSec(Number(initial.maxRetryIntervalSec ?? 30));
+    setStickyLimit(Number(initial.stickyRoundRobinLimit ?? 0));
+    setDisableStickiness(Boolean(initial.disableSessionStickiness));
+    setPromptCacheAffinity(initial.promptCacheAffinityEnabled !== false);
+    setLkgpEnabled(Boolean(initial.lkgpEnabled));
+    setAutoRefreshQuota(initial.autoRefreshProviderQuota !== false);
+    setHideHealthLogs(Boolean(initial.hideHealthCheckLogs));
+    setDebugMode(Boolean(initial.debugMode));
+    const arr = Array.isArray(initial.wildcardAliases) ? (initial.wildcardAliases as WildcardAlias[]) : [];
+    setAliasesText(arr.map((a) => `${a.pattern} = ${a.target}`).join("\n"));
+  }, [initial]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSavedBanner(false);
+    const wildcardAliases: { pattern: string; target: string }[] = [];
+    for (const raw of aliasesText.split("\n")) {
+      const line = raw.trim();
+      if (!line) continue;
+      const eq = line.indexOf("=");
+      if (eq <= 0) continue;
+      const pattern = line.slice(0, eq).trim();
+      const target = line.slice(eq + 1).trim();
+      if (pattern && target) wildcardAliases.push({ pattern, target });
+    }
+    const payload: Record<string, JsonValue> = {
+      fallbackStrategy,
+      comboStrategy,
+      requestRetry: Math.max(0, Math.min(10, Math.round(requestRetry))),
+      maxRetryIntervalSec: Math.max(0, Math.min(300, Math.round(maxRetryIntervalSec))),
+      stickyRoundRobinLimit: Math.max(0, Math.min(1000, Math.round(stickyLimit))),
+      disableSessionStickiness: disableStickiness,
+      promptCacheAffinityEnabled: promptCacheAffinity,
+      lkgpEnabled,
+      autoRefreshProviderQuota: autoRefreshQuota,
+      hideHealthCheckLogs: hideHealthLogs,
+      debugMode,
+      wildcardAliases,
+    };
+    await run("save-settings", () => api.patch("/api/settings", payload));
+  }
+
+  return (
+    <section className="settings-card">
+      <h2>Routing & runtime</h2>
+      <p className="muted">
+        Account failover strategy, retry limits, prompt-cache affinity, and wildcard model aliases (persisted in SQLite).
+      </p>
+      <form className="stack-form" onSubmit={submit}>
+        <label>
+          Account fallback strategy
+          <select value={fallbackStrategy} onChange={(e) => setFallbackStrategy(e.target.value)}>
+            {FALLBACK_STRATEGIES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Combo expansion strategy
+          <select value={comboStrategy} onChange={(e) => setComboStrategy(e.target.value)}>
+            <option value="fallback">fallback (in order)</option>
+            <option value="round-robin">round-robin</option>
+          </select>
+        </label>
+        <div className="two-col" style={{ gap: 12 }}>
+          <label>
+            Request retries (0–10)
+            <input
+              type="number"
+              min={0}
+              max={10}
+              value={requestRetry}
+              onChange={(e) => setRequestRetry(Number(e.target.value))}
+            />
+          </label>
+          <label>
+            Max retry interval sec (0–300)
+            <input
+              type="number"
+              min={0}
+              max={300}
+              value={maxRetryIntervalSec}
+              onChange={(e) => setMaxRetryIntervalSec(Number(e.target.value))}
+            />
+          </label>
+        </div>
+        <label>
+          Sticky round-robin limit (0 = off)
+          <input
+            type="number"
+            min={0}
+            max={1000}
+            value={stickyLimit}
+            onChange={(e) => setStickyLimit(Number(e.target.value))}
+          />
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={promptCacheAffinity} onChange={(e) => setPromptCacheAffinity(e.target.checked)} />
+          Keep combo targets close to provider prompt cache (promptCacheAffinityEnabled)
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={disableStickiness} onChange={(e) => setDisableStickiness(e.target.checked)} />
+          Disable session stickiness globally
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={lkgpEnabled} onChange={(e) => setLkgpEnabled(e.target.checked)} />
+          Enable Last Known Good Provider (LKGP) memory
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={autoRefreshQuota} onChange={(e) => setAutoRefreshQuota(e.target.checked)} />
+          Auto-refresh provider quota in background
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={hideHealthLogs} onChange={(e) => setHideHealthLogs(e.target.checked)} />
+          Hide health-check requests from call logs
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={debugMode} onChange={(e) => setDebugMode(e.target.checked)} />
+          Debug logging mode
+        </label>
+        <label>
+          Wildcard model aliases — one per line (<code>pattern = provider/model</code>)
+          <textarea
+            rows={4}
+            value={aliasesText}
+            onChange={(e) => setAliasesText(e.target.value)}
+            placeholder={"gpt-4o* = codex/gpt-5.3-codex\nclaude-sonnet* = antigravity/claude-sonnet-4-6"}
+          />
+        </label>
+        {error && <div className="bad">{error}</div>}
+        {savedBanner && <div className="ok">Settings saved.</div>}
+        <div>
+          <button type="submit" className="btn-add" disabled={busy !== null}>
+            {busy === "save-settings" ? "…" : "Save settings"}
+          </button>
+        </div>
+      </form>
+    </section>
   );
 }
 
@@ -96,11 +285,10 @@ function MigrateFromStyxRouter() {
   }
 
   return (
-    <section style={{ marginTop: 32, padding: 16, border: "1px solid #333", borderRadius: 6 }}>
-      <h2 style={{ marginTop: 0 }}>Migrate from StyxRouter</h2>
-      <p className="muted" style={{ marginTop: 0 }}>
-        Re-encrypts credential fields in an StyxRouter SQLite DB under the
-        StyxRouter salt. A backup is created before any write.
+    <section className="settings-card">
+      <h2>Migrate from StyxRouter</h2>
+      <p className="muted">
+        Re-encrypts credential fields in an external SQLite DB under the StyxRouter salt. A backup is created before any write.
       </p>
       <div style={{ display: "grid", gap: 8, maxWidth: 640 }}>
         <label>

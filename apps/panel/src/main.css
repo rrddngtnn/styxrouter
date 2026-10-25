@@ -279,7 +279,12 @@ td.row-actions { justify-content: flex-end; }
 .inline-form { display: flex; gap: 8px; margin: 16px 0; max-width: 560px; }
 .inline-form input { flex: 1; }
 .stack-form { display: grid; gap: 8px; margin: 12px 0; max-width: 560px; }
-.stack-form input,
+.stack-form label { display: grid; gap: 4px; font-size: 13px; }
+.stack-form label.check { display: inline-flex; gap: 8px; align-items: center; }
+.stack-form input[type="text"],
+.stack-form input[type="password"],
+.stack-form input[type="number"],
+.stack-form select,
 .stack-form textarea,
 .inline-form input {
   background: #141414;

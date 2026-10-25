@@ -120,10 +120,15 @@ function extractCachedWindows(
       const sigTotal = total ?? -1;
       const sigUsed = used ?? -1;
       const groupKey = `${fam.id}:${sigTotal}:${sigUsed}:${sigReset}`;
-      if (rawEntries.some((w) => w.key === groupKey)) continue;
+      const existing = rawEntries.find((w) => w.key === groupKey);
+      if (existing) {
+        if (!existing.models.includes(key)) existing.models.push(key);
+        continue;
+      }
       rawEntries.push({
         key: groupKey,
         label: fam.label,
+        models: [key],
         used,
         total,
         remaining,
@@ -142,6 +147,7 @@ function extractCachedWindows(
       rawEntries.push({
         key,
         label: niceLabel,
+        models: [key],
         used,
         total,
         remaining,
