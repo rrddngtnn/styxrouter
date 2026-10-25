@@ -1,0 +1,30 @@
+[Unit]
+Description=StyxRouter — lean AI model router (Hono + Bun on :20128)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=styx
+Group=styx
+WorkingDirectory=/home/styx/styxrouter/apps/server
+EnvironmentFile=/home/styx/styxrouter/apps/server/.env
+Environment=PORT=20128
+Environment=NODE_OPTIONS=--max-old-space-size=1024
+Environment=PATH=/home/styx/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/styx/.bun/bin/bun server/styx.ts
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Example account and paths: create the service account and review storage access.
+# Bun must be installed at the ExecStart path; keep the server environment private.
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=no
+NoNewPrivileges=yes
+MemoryHigh=800M
+
+[Install]
+WantedBy=multi-user.target
