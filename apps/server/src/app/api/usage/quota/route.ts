@@ -3,6 +3,7 @@ import {
   getLearnedLimits,
   getRateLimitStatus,
 } from "@styxrouter/open-sse/services/rateLimitManager.ts";
+import { getSanitizedCachedProviderLimitsMap } from "@/lib/usage/providerLimits.ts";
 import {
   normalizeQuotaResponse,
   sanitizeQuotaProvider,
@@ -124,11 +125,58 @@ function buildQuotaEntry(
 }
 
 /**
+ * Fold the freshest provider-limits cache entry into a quota row. The cache is
+ * kept warm by the scheduled limits sync; without this fold the quota page only
+ * showed learned header limits, which are empty until real traffic flows — the
+ * "not checked on first open" gap. Prefers the cache's most-restrictive live
+ * window (lowest remaining percentage with a reset time), keeping the learned
+ * signal as fallback.
+ */
+function applyCachedLimits(
+  entry: QuotaProviderEntry,
+  cached: { quotas?: Record<string, unknown> | null } | undefined
+): QuotaProviderEntry {
+  const quotas = cached?.quotas;
+  if (!quotas || typeof quotas !== "object") return entry;
+
+  let best: { pct: number; used: number | null; total: number | null; resetAt: string | null } | null = null;
+  for (const quota of Object.values(quotas)) {
+    if (!quota || typeof quota !== "object" || Array.isArray(quota)) continue;
+    const q = quota as Record<string, unknown>;
+    const pct = typeof q.remainingPercentage === "number" && Number.isFinite(q.remainingPercentage)
+      ? q.remainingPercentage
+      : null;
+    if (pct === null) continue;
+    const unlimited = q.unlimited === true;
+    const resetAt = typeof q.resetAt === "string" && q.resetAt ? q.resetAt : null;
+    // Unlimited / no-reset windows (tab models) never describe the paid window.
+    if (unlimited && !resetAt) continue;
+    if (!best || pct < best.pct) {
+      best = {
+        pct,
+        used: typeof q.used === "number" && Number.isFinite(q.used) ? q.used : null,
+        total: typeof q.total === "number" && Number.isFinite(q.total) ? q.total : null,
+        resetAt,
+      };
+    }
+  }
+  if (!best) return entry;
+
+  return {
+    ...entry,
+    quotaTotal: best.total ?? 100,
+    quotaUsed: best.used ?? Math.max(0, Math.round(100 - best.pct)),
+    percentRemaining: best.pct,
+    resetAt: best.resetAt ?? entry.resetAt,
+  };
+}
+
+/**
  * GET /api/usage/quota
  *
  * Query params:
  *   - provider (optional): filter by provider slug
- *   - connectionId (optional): filter by provider connection id
+ *   - connectionId (optional): filter to a provider connection id
  */
 export async function GET(request: Request) {
   try {
@@ -147,10 +195,12 @@ export async function GET(request: Request) {
     }
 
     const learnedLimits = getLearnedLimits();
+    const limitsCache = await getSanitizedCachedProviderLimitsMap();
     const providers = connections.map((conn) => {
       const learnedLimit = learnedLimits?.[`${conn.provider}:${conn.id}`] || null;
       const rateStatus = getRateLimitStatus(conn.provider, conn.id);
-      return buildQuotaEntry(conn, learnedLimit, rateStatus);
+      const entry = buildQuotaEntry(conn, learnedLimit, rateStatus);
+      return applyCachedLimits(entry, limitsCache[conn.id]);
     });
 
     const response = normalizeQuotaResponse(
