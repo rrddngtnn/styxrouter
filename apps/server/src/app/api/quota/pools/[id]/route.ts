@@ -11,7 +11,6 @@
  * Part of: Group B — REST routes for Quota Sharing (plan 22, frente F8).
  */
 
-import { NextResponse } from "next/server";
 import { buildErrorBody } from "@styxrouter/open-sse/utils/error";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { PoolUpdateSchema } from "@/shared/schemas/quota";
@@ -19,7 +18,6 @@ import { getPool, updatePool, deletePool } from "@/lib/localDb";
 import { logAuditEvent, getAuditRequestContext } from "@/lib/compliance/index";
 import { reconcilePoolExclusivity } from "@/lib/quota/quotaKey";
 
-export const dynamic = "force-dynamic";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -31,12 +29,12 @@ export async function GET(request: Request, { params }: RouteParams): Promise<Re
     const { id } = await params;
     const pool = getPool(id);
     if (!pool) {
-      return NextResponse.json(buildErrorBody(404, "Pool not found"), { status: 404 });
+      return Response.json(buildErrorBody(404, "Pool not found"), { status: 404 });
     }
-    return NextResponse.json({ pool });
+    return Response.json({ pool });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get pool";
-    return NextResponse.json(buildErrorBody(500, message), { status: 500 });
+    return Response.json(buildErrorBody(500, message), { status: 500 });
   }
 }
 
@@ -49,7 +47,7 @@ export async function PATCH(request: Request, { params }: RouteParams): Promise<
     const body = await request.json().catch(() => null);
     const parsed = PoolUpdateSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json(buildErrorBody(400, parsed.error.message), { status: 400 });
+      return Response.json(buildErrorBody(400, parsed.error.message), { status: 400 });
     }
 
     // Capture prev allocations BEFORE the update so we know which keys are leaving.
@@ -85,7 +83,7 @@ export async function PATCH(request: Request, { params }: RouteParams): Promise<
 
     const pool = updatePool(id, parsed.data);
     if (!pool) {
-      return NextResponse.json(buildErrorBody(404, "Pool not found"), { status: 404 });
+      return Response.json(buildErrorBody(404, "Pool not found"), { status: 404 });
     }
 
     if (combosNeedResync) {
@@ -117,10 +115,10 @@ export async function PATCH(request: Request, { params }: RouteParams): Promise<
       requestId: ctx.requestId,
     });
 
-    return NextResponse.json({ pool });
+    return Response.json({ pool });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to update pool";
-    return NextResponse.json(buildErrorBody(500, message), { status: 500 });
+    return Response.json(buildErrorBody(500, message), { status: 500 });
   }
 }
 
@@ -132,7 +130,7 @@ export async function DELETE(request: Request, { params }: RouteParams): Promise
     const { id } = await params;
     const existed = await deletePool(id);
     if (!existed) {
-      return NextResponse.json(buildErrorBody(404, "Pool not found"), { status: 404 });
+      return Response.json(buildErrorBody(404, "Pool not found"), { status: 404 });
     }
 
     const ctx = getAuditRequestContext(request);
@@ -146,6 +144,6 @@ export async function DELETE(request: Request, { params }: RouteParams): Promise
     return new Response(null, { status: 204 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to delete pool";
-    return NextResponse.json(buildErrorBody(500, message), { status: 500 });
+    return Response.json(buildErrorBody(500, message), { status: 500 });
   }
 }

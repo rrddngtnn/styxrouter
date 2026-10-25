@@ -1,12 +1,17 @@
-// Serve upstream Next-style route modules ({ GET, POST, ... } taking (request, { params })) from Hono.
-// Modules are imported on first use so they do not slow down or endanger boot.
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
+// Serve web-standard route modules ({ GET, POST, ... } taking (request, { params }))
+// from Hono. Modules are imported on first use so they do not slow down boot.
+// Replaces the former Next-route adapter: the modules are plain Request/Response
+// handlers now, only the params promise shape is preserved.
 import type { Hono } from "hono";
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 
-export function mountNextRoute(app: Hono, path: string, load: () => Promise<Record<string, any>>, methods: readonly string[] = METHODS) {
+export function mountRoute(
+  app: Hono,
+  path: string,
+  load: () => Promise<Record<string, any>>,
+  methods: readonly string[] = METHODS
+) {
   for (const method of methods) {
     app.on(method, path, async (c) => {
       const handler = (await load())[method];
@@ -21,7 +26,9 @@ export function mountNextRoute(app: Hono, path: string, load: () => Promise<Reco
  * (catch-all [...x] folders are skipped). Static paths are registered before parameterised ones so that
  * /usage/budget is not swallowed by /usage/:connectionId.
  */
-export function mountNextTree(app: Hono, root: string, prefixes: readonly string[]) {
+export async function mountTree(app: Hono, root: string, prefixes: readonly string[]) {
+  const { readdirSync } = await import("node:fs");
+  const { join } = await import("node:path");
   const found: { path: string; file: string }[] = [];
   const walk = (dir: string, segments: string[]) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -44,5 +51,5 @@ export function mountNextTree(app: Hono, root: string, prefixes: readonly string
   }
   const dynamism = (p: string) => (p.match(/:/g) ?? []).length;
   found.sort((a, b) => dynamism(a.path) - dynamism(b.path) || a.path.localeCompare(b.path));
-  for (const { path, file } of found) mountNextRoute(app, path, () => import(file));
+  for (const { path, file } of found) mountRoute(app, path, () => import(file));
 }

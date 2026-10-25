@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import {
   getLastProviderLimitsAutoSyncTime,
   getProviderLimitsSyncIntervalMinutes,
@@ -12,14 +11,14 @@ import {
  */
 export async function GET() {
   try {
-    return NextResponse.json({
+    return Response.json({
       caches: await getSanitizedCachedProviderLimitsMap(),
       intervalMinutes: getProviderLimitsSyncIntervalMinutes(),
       lastAutoSyncAt: await getLastProviderLimitsAutoSyncTime(),
     });
   } catch (error) {
     console.error("[API] GET /api/usage/provider-limits error:", error);
-    return NextResponse.json({ error: "Failed to fetch cached provider limits" }, { status: 500 });
+    return Response.json({ error: "Failed to fetch cached provider limits" }, { status: 500 });
   }
 }
 
@@ -31,7 +30,7 @@ export async function POST() {
   try {
     const result = await syncAllProviderLimits({ source: "manual" });
     const caches = await getSanitizedCachedProviderLimitsMap();
-    return NextResponse.json({
+    return Response.json({
       ...result,
       caches,
       intervalMinutes: getProviderLimitsSyncIntervalMinutes(),
@@ -39,6 +38,6 @@ export async function POST() {
     });
   } catch (error) {
     console.error("[API] POST /api/usage/provider-limits error:", error);
-    return NextResponse.json({ error: "Failed to refresh provider limits" }, { status: 500 });
+    return Response.json({ error: "Failed to refresh provider limits" }, { status: 500 });
   }
 }

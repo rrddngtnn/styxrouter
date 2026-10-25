@@ -443,8 +443,8 @@ function toOauthKey(providerId: string): string {
 
 // Registered after the device-flow routes above on purpose: those win for /init and /poll; every other
 // /api/oauth/* path is served by the upstream route modules.
-app.route("/api", createOAuthApi());
-app.route("/api", createUpstreamApi());
+app.route("/api", await createOAuthApi());
+app.route("/api", await createUpstreamApi());
 app.route("/api", createBackupsApi());
 startBackupScheduler();
 

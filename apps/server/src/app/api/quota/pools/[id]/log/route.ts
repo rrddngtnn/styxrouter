@@ -13,12 +13,10 @@
  * Part of: Task 7 — Quota Share UX polish (plan 2026-05-31).
  */
 
-import { NextResponse } from "next/server";
 import { buildErrorBody } from "@styxrouter/open-sse/utils/error";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { listConsumptionForPool } from "@/lib/db/quotaConsumption";
 
-export const dynamic = "force-dynamic";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -37,9 +35,9 @@ export async function GET(request: Request, { params }: RouteParams): Promise<Re
       : 50;
 
     const events = listConsumptionForPool(id, limit);
-    return NextResponse.json({ events });
+    return Response.json({ events });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get pool log";
-    return NextResponse.json(buildErrorBody(500, message), { status: 500 });
+    return Response.json(buildErrorBody(500, message), { status: 500 });
   }
 }

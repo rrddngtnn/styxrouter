@@ -1,5 +1,3 @@
-import { NextResponse } from "next/server";
-export const dynamic = "force-dynamic";
 import { getProviderById } from "@/shared/constants/providers";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { getApiKeys } from "@/lib/db/apiKeys";
@@ -921,14 +919,14 @@ export async function GET(request: Request) {
       analytics.presetSummaries = presetSummaries;
     }
 
-    return NextResponse.json(analytics);
+    return Response.json(analytics);
   } catch (error) {
     console.error("Error computing analytics:", error);
     // Surface the real (sanitized) reason so the dashboard can show it instead of a
     // generic placeholder (#3356). buildErrorBody strips stacks/absolute paths.
     const { buildErrorBody } = await import("@styxrouter/open-sse/utils/error");
     const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json(buildErrorBody(500, message || "Failed to compute analytics"), {
+    return Response.json(buildErrorBody(500, message || "Failed to compute analytics"), {
       status: 500,
     });
   }

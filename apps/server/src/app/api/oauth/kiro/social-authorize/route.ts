@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { isAuthRequired, isAuthenticated } from "@/shared/utils/apiAuth";
 import { KIRO_CONFIG } from "@/lib/oauth/constants/oauth";
 
@@ -9,7 +8,7 @@ import { KIRO_CONFIG } from "@/lib/oauth/constants/oauth";
  */
 export async function GET(request) {
   if ((await isAuthRequired(request)) && !(await isAuthenticated(request))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
@@ -17,7 +16,7 @@ export async function GET(request) {
     const provider = searchParams.get("provider");
 
     if (!provider || !["google", "github"].includes(provider)) {
-      return NextResponse.json(
+      return Response.json(
         { error: "Invalid provider. Use 'google' or 'github'" },
         { status: 400 }
       );
@@ -36,12 +35,12 @@ export async function GET(request) {
 
     if (!response.ok) {
       const error = await response.text();
-      return NextResponse.json({ error: `Device authorization failed: ${error}` }, { status: 502 });
+      return Response.json({ error: `Device authorization failed: ${error}` }, { status: 502 });
     }
 
     const data = await response.json();
 
-    return NextResponse.json({
+    return Response.json({
       authUrl: data.verificationUriComplete,
       deviceCode: data.deviceCode,
       userCode: data.userCode,
@@ -51,6 +50,6 @@ export async function GET(request) {
     });
   } catch (error) {
     console.error("Kiro social authorize error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return Response.json({ error: "Internal server error" }, { status: 500 });
   }
 }

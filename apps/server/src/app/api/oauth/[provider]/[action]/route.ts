@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import {
   getProvider,
@@ -109,7 +108,7 @@ function resolvePublicBaseUrl(request: Request): string {
 async function requireOAuthRouteAuth(request: Request) {
   if (!(await isAuthRequired(request))) return null;
   if (await isAuthenticated(request)) return null;
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  return Response.json({ error: "Unauthorized" }, { status: 401 });
 }
 
 /**
@@ -135,7 +134,7 @@ export async function GET(
         earlyParams.action === "start-callback-server" ||
         earlyParams.action === "poll-callback")
     ) {
-      return NextResponse.json(
+      return Response.json(
         {
           error:
             `Browser OAuth disabled for ${earlyParams.provider} — use import-token via ` +
@@ -166,7 +165,7 @@ export async function GET(
       const redirectUri = resolveBrowserOAuthRedirectUri(provider, requestedRedirectUri);
       const authData = generateAuthData(provider, redirectUri);
       if (provider === "qoder" && !authData.authUrl) {
-        return NextResponse.json({
+        return Response.json({
           ...authData,
           supported: false,
           error:
@@ -177,19 +176,19 @@ export async function GET(
       // buildAuthUrl returns null — surface a clear setup message instead of a 500.
       // Same copy is shown in the OAuthModal setup step *before* authorize (#8688).
       if (provider === "gitlab-duo" && !authData.authUrl) {
-        return NextResponse.json({
+        return Response.json({
           ...authData,
           supported: false,
           error: GITLAB_DUO_OAUTH_SETUP_MESSAGE,
         });
       }
-      return NextResponse.json(authData);
+      return Response.json(authData);
     }
 
     if (action === "device-code") {
       const providerData = getProvider(provider);
       if (providerData.flowType !== "device_code") {
-        return NextResponse.json(
+        return Response.json(
           { error: "Provider does not support device code flow" },
           { status: 400 }
         );
@@ -200,7 +199,7 @@ export async function GET(
       const region = searchParams.get("region") || "us-east-1";
       const gheUrl = searchParams.get("gheUrl");
       if (gheUrl && !isValidGheUrl(gheUrl)) {
-        return NextResponse.json({ error: "gheUrl must be a valid HTTPS URL" }, { status: 400 });
+        return Response.json({ error: "gheUrl must be a valid HTTPS URL" }, { status: 400 });
       }
 
       // Resolve proxy for this provider (provider-level → global → direct)
@@ -229,7 +228,7 @@ export async function GET(
           // canonical AWS region shape before it can steer the outbound host to an
           // attacker-chosen target (userinfo/fragment tricks → SSRF / metadata).
           if (!AWS_REGION_PATTERN.test(region)) {
-            return NextResponse.json(
+            return Response.json(
               { error: "region must be a valid AWS region (e.g. us-east-1)" },
               { status: 400 }
             );
@@ -260,7 +259,7 @@ export async function GET(
         );
       }
 
-      return NextResponse.json({
+      return Response.json({
         ...deviceData,
         codeVerifier: authData.codeVerifier,
       });
@@ -275,13 +274,13 @@ export async function GET(
       // finished the device flow, so it can notify + refresh the connections.
       const token = searchParams.get("token");
       if (!token) {
-        return NextResponse.json({ error: "Missing token" }, { status: 400 });
+        return Response.json({ error: "Missing token" }, { status: 400 });
       }
       const { status, result } = getDeviceFlowTicketStatus(token);
-      return NextResponse.json({ status, connection: result });
+      return Response.json({ status, connection: result });
     }
 
-    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+    return Response.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
     console.error("OAuth GET error:", error);
     // Surface the SANITIZED upstream reason instead of a generic 500 that hides WHY the flow failed.
@@ -289,7 +288,7 @@ export async function GET(
     // message ("Device code request failed: …", "CodeBuddy state request failed (403)") that was being
     // swallowed, so a geo-block / upstream outage looked identical to a real server bug in the UI.
     const detail = sanitizeErrorMessage(error instanceof Error ? error.message : String(error));
-    return NextResponse.json({ error: detail || "Internal server error" }, { status: 500 });
+    return Response.json({ error: detail || "Internal server error" }, { status: 500 });
   }
 }
 
@@ -303,7 +302,7 @@ async function handleStartCallbackServer(
   request?: Request
 ) {
   if (!PKCE_CALLBACK_PROVIDERS.has(provider)) {
-    return NextResponse.json(
+    return Response.json(
       { error: `Callback server not supported for provider: ${provider}` },
       { status: 400 }
     );
@@ -369,7 +368,7 @@ async function handleStartCallbackServer(
       request?.headers.get("x-forwarded-host") || request?.headers.get("host") || null;
     const remoteHint = buildRemoteOAuthHint(hostHeader, port);
 
-    return NextResponse.json({
+    return Response.json({
       authUrl: authData.authUrl,
       codeVerifier: authData.codeVerifier,
       redirectUri,
@@ -378,7 +377,7 @@ async function handleStartCallbackServer(
     });
   } catch (error) {
     console.error("OAuth start-callback-server error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return Response.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
@@ -396,7 +395,7 @@ export async function POST(
       RETIRED_PKCE_PROVIDERS.has(earlyParams.provider) &&
       earlyParams.action === "poll-callback"
     ) {
-      return NextResponse.json(
+      return Response.json(
         {
           error:
             `Browser OAuth disabled for ${earlyParams.provider} — use import-token via ` +
@@ -423,7 +422,7 @@ export async function POST(
     // body parsing. Devin Desktop/CLI `poll-callback` is permanently retired;
     // use /import-token (handled later in this same handler) instead.
     if (RETIRED_PKCE_PROVIDERS.has(provider) && action === "poll-callback") {
-      return NextResponse.json(
+      return Response.json(
         {
           error:
             `Browser OAuth disabled for ${provider} — use import-token via ` +
@@ -439,7 +438,7 @@ export async function POST(
       rawBody = await request.json();
     } catch {
       if (action !== "poll-callback") {
-        return NextResponse.json(
+        return Response.json(
           {
             error: {
               message: "Invalid request",
@@ -455,31 +454,31 @@ export async function POST(
     if (action === "exchange") {
       const validation = validateBody(oauthExchangeSchema, rawBody);
       if (isValidationFailure(validation)) {
-        return NextResponse.json({ error: validation.error }, { status: 400 });
+        return Response.json({ error: validation.error }, { status: 400 });
       }
       body = validation.data;
     } else if (action === "poll") {
       const validation = validateBody(oauthPollSchema, rawBody);
       if (isValidationFailure(validation)) {
-        return NextResponse.json({ error: validation.error }, { status: 400 });
+        return Response.json({ error: validation.error }, { status: 400 });
       }
       body = validation.data;
     } else if (action === "poll-callback") {
       const validation = validateBody(jsonObjectSchema, rawBody || {});
       if (isValidationFailure(validation)) {
-        return NextResponse.json({ error: validation.error }, { status: 400 });
+        return Response.json({ error: validation.error }, { status: 400 });
       }
       body = validation.data;
     } else if (action === "import-token") {
       const validation = validateBody(oauthImportTokenSchema, rawBody);
       if (isValidationFailure(validation)) {
-        return NextResponse.json({ error: validation.error }, { status: 400 });
+        return Response.json({ error: validation.error }, { status: 400 });
       }
       body = validation.data;
     } else if (action === "device-complete") {
       const validation = validateBody(oauthDeviceCompleteSchema, rawBody);
       if (isValidationFailure(validation)) {
-        return NextResponse.json({ error: validation.error }, { status: 400 });
+        return Response.json({ error: validation.error }, { status: 400 });
       }
       body = validation.data;
     }
@@ -498,7 +497,7 @@ export async function POST(
         (providerData.flowType === "authorization_code_pkce" || providerData.supportsBrowserPkce) &&
         !codeVerifier
       ) {
-        return NextResponse.json(
+        return Response.json(
           {
             error: {
               message: "Invalid request",
@@ -566,7 +565,7 @@ export async function POST(
       // Auto sync to Cloud if enabled
       await syncToCloudIfEnabled();
 
-      return NextResponse.json({
+      return Response.json({
         success: true,
         ...(degradedProject ? { warning: degradedProject.warning } : {}),
         connection: {
@@ -591,7 +590,7 @@ export async function POST(
         const gheUrl =
           extraData && typeof extraData === "object" ? (extraData as any).gheUrl : undefined;
         if (typeof gheUrl === "string" && gheUrl && !isValidGheUrl(gheUrl)) {
-          return NextResponse.json({ error: "gheUrl must be a valid HTTPS URL" }, { status: 400 });
+          return Response.json({ error: "gheUrl must be a valid HTTPS URL" }, { status: 400 });
         }
         result = await runWithProxyContextOrDirect(proxy, () =>
           (pollForToken as any)(provider, deviceCode, null, gheUrl ? { gheUrl } : undefined)
@@ -609,7 +608,7 @@ export async function POST(
       } else {
         // Qwen and other providers use PKCE
         if (!codeVerifier) {
-          return NextResponse.json({ error: "Missing code verifier" }, { status: 400 });
+          return Response.json({ error: "Missing code verifier" }, { status: 400 });
         }
         result = await runWithProxyContextOrDirect(proxy, () =>
           (pollForToken as any)(provider, deviceCode, codeVerifier)
@@ -658,7 +657,7 @@ export async function POST(
         // Auto sync to Cloud if enabled
         await syncToCloudIfEnabled();
 
-        return NextResponse.json({
+        return Response.json({
           success: true,
           connection: {
             id: connection.id,
@@ -671,7 +670,7 @@ export async function POST(
       const isPending =
         result.pending || result.error === "authorization_pending" || result.error === "slow_down";
 
-      return NextResponse.json({
+      return Response.json({
         success: false,
         error: result.error,
         errorDescription: result.errorDescription,
@@ -684,7 +683,7 @@ export async function POST(
 
       // poll-callback is supported for all PKCE callback providers
       if (!PKCE_CALLBACK_PROVIDERS.has(provider)) {
-        return NextResponse.json(
+        return Response.json(
           {
             error: `poll-callback only supported for PKCE callback providers: ${[...PKCE_CALLBACK_PROVIDERS].join(", ")}`,
           },
@@ -695,7 +694,7 @@ export async function POST(
       const callbackStates = globalThis.__pkceCallbackStates;
 
       if (!callbackStates[provider]) {
-        return NextResponse.json({
+        return Response.json({
           success: false,
           error: "no_server",
           errorDescription: "Callback server not running",
@@ -703,7 +702,7 @@ export async function POST(
       }
 
       if (!callbackStates[provider].callbackParams) {
-        return NextResponse.json({ success: false, pending: true });
+        return Response.json({ success: false, pending: true });
       }
 
       // Callback received! Extract code and exchange for tokens
@@ -719,7 +718,7 @@ export async function POST(
       delete callbackStates[provider];
 
       if (params.error) {
-        return NextResponse.json({
+        return Response.json({
           success: false,
           error: params.error,
           errorDescription: params.error_description,
@@ -727,7 +726,7 @@ export async function POST(
       }
 
       if (!params.code) {
-        return NextResponse.json({
+        return Response.json({
           success: false,
           error: "no_code",
           errorDescription: "No authorization code received",
@@ -735,7 +734,7 @@ export async function POST(
       }
 
       if (!safeEqual(params.state, state)) {
-        return NextResponse.json({
+        return Response.json({
           success: false,
           error: "invalid_state",
           errorDescription: "OAuth state mismatch",
@@ -795,7 +794,7 @@ export async function POST(
 
         await syncToCloudIfEnabled();
 
-        return NextResponse.json({
+        return Response.json({
           success: true,
           ...(degradedProject ? { warning: degradedProject.warning } : {}),
           connection: {
@@ -807,7 +806,7 @@ export async function POST(
         });
       } catch (exchangeErr: any) {
         console.error("OAuth exchange error:", exchangeErr);
-        return NextResponse.json(
+        return Response.json(
           { success: false, error: "Internal server error" },
           { status: 500 }
         );
@@ -818,7 +817,7 @@ export async function POST(
       const { token, connectionId } = body;
 
       if (!IMPORT_TOKEN_PROVIDERS.has(provider)) {
-        return NextResponse.json(
+        return Response.json(
           {
             error: `import-token not supported for provider: ${provider}. Supported: ${[...IMPORT_TOKEN_PROVIDERS].join(", ")}`,
           },
@@ -867,7 +866,7 @@ export async function POST(
 
         await syncToCloudIfEnabled();
 
-        return NextResponse.json({
+        return Response.json({
           success: true,
           connection: {
             id: connection.id,
@@ -877,7 +876,7 @@ export async function POST(
           },
         });
       } catch (importErr: any) {
-        return NextResponse.json(
+        return Response.json(
           { success: false, error: sanitizeErrorMessage(importErr.message) || "Import failed" },
           { status: 500 }
         );
@@ -888,7 +887,7 @@ export async function POST(
       // Generate a single-use, short-lived public link so a third party can
       // complete the Codex device flow in their own browser (see Fase 6).
       if (!BROWSER_DEVICE_FLOW_PROVIDERS.has(provider)) {
-        return NextResponse.json(
+        return Response.json(
           {
             error: `public-link not supported for provider: ${provider}. Supported: ${[...BROWSER_DEVICE_FLOW_PROVIDERS].join(", ")}`,
           },
@@ -900,7 +899,7 @@ export async function POST(
         rawBody && typeof rawBody.connectionId === "string" ? rawBody.connectionId : undefined;
       const { token, expiresAt } = createDeviceFlowTicket(provider, connectionId);
 
-      return NextResponse.json({
+      return Response.json({
         url: `${resolvePublicBaseUrl(request)}/connect/codex/${token}`,
         token,
         expiresAt: new Date(expiresAt).toISOString(),
@@ -913,7 +912,7 @@ export async function POST(
       // datacenter IP is blocked by Cloudflare, so it cannot). Here we only map
       // the final tokens and persist the connection — no HTTP exchange/poll.
       if (!BROWSER_DEVICE_FLOW_PROVIDERS.has(provider)) {
-        return NextResponse.json(
+        return Response.json(
           {
             error: `device-complete not supported for provider: ${provider}. Supported: ${[...BROWSER_DEVICE_FLOW_PROVIDERS].join(", ")}`,
           },
@@ -938,7 +937,7 @@ export async function POST(
           expires_in: expiresIn,
         });
       } catch (finalizeErr: any) {
-        return NextResponse.json(
+        return Response.json(
           {
             success: false,
             error: sanitizeErrorMessage(finalizeErr?.message) || "Failed to finalize tokens",
@@ -949,7 +948,7 @@ export async function POST(
 
       const connection = await persistOAuthConnection(provider, tokenData, connectionId);
 
-      return NextResponse.json({
+      return Response.json({
         success: true,
         connection: {
           id: connection.id,
@@ -960,10 +959,10 @@ export async function POST(
       });
     }
 
-    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+    return Response.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
     console.error("OAuth POST error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return Response.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 

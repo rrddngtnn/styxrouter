@@ -16,14 +16,12 @@
  * Part of the quota-sharing feature.
  */
 
-import { NextResponse } from "next/server";
 import { buildErrorBody } from "@styxrouter/open-sse/utils/error";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { getApiKeyById, getCombos } from "@/lib/localDb";
 import { resolveQuotaKeyScope } from "@/lib/quota/quotaKey";
 import { filterModelsToQuotaPools } from "@/lib/quota/quotaCombos";
 
-export const dynamic = "force-dynamic";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -36,7 +34,7 @@ export async function GET(request: Request, { params }: RouteParams): Promise<Re
 
     const key = await getApiKeyById(id);
     if (!key) {
-      return NextResponse.json(buildErrorBody(404, "API key not found"), { status: 404 });
+      return Response.json(buildErrorBody(404, "API key not found"), { status: 404 });
     }
 
     const allowedQuotas: string[] = Array.isArray(
@@ -62,9 +60,9 @@ export async function GET(request: Request, { params }: RouteParams): Promise<Re
 
     const models = filterModelsToQuotaPools(candidates, scope.poolSlugs).map((m) => m.id);
 
-    return NextResponse.json({ models });
+    return Response.json({ models });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to resolve key models";
-    return NextResponse.json(buildErrorBody(500, message), { status: 500 });
+    return Response.json(buildErrorBody(500, message), { status: 500 });
   }
 }

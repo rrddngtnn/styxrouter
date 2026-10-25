@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 
 /**
  * Providers that have NO browser OAuth flow at all — their credentials are read
@@ -26,7 +25,7 @@ export const OAUTH_FLOW_ACTIONS = new Set([
 ]);
 
 function keychainImportOnlyResponse(provider: string) {
-  return NextResponse.json(
+  return Response.json(
     {
       error:
         `${provider} has no browser OAuth flow — it imports LLM credentials from the ` +
@@ -42,7 +41,7 @@ function keychainImportOnlyResponse(provider: string) {
  * return the graceful 400 response; otherwise return null so the caller falls
  * through to normal OAuth handling.
  */
-export function keychainImportOnlyGuard(provider: string, action: string): NextResponse | null {
+export function keychainImportOnlyGuard(provider: string, action: string): Response | null {
   if (KEYCHAIN_IMPORT_ONLY_PROVIDERS.has(provider) && OAUTH_FLOW_ACTIONS.has(action)) {
     return keychainImportOnlyResponse(provider);
   }

@@ -1,14 +1,14 @@
 // OAuth account onboarding (authorize / exchange / device flow / paste credentials / token import). The route modules
 // are upstream's; the session gate in ./auth.ts already covers everything under /api. Specific routes first.
 import { Hono } from "hono";
-import { mountNextRoute } from "./nextRoutes.ts";
+import { mountRoute } from "./routeMount.ts";
 import { getProviderLabel } from "../src/shared/constants/providers.ts";
 import { REGISTRY } from "../open-sse/config/providers/index.ts";
 
 export function createOAuthApi() {
   const api = new Hono();
   const r = "../src/app/api/oauth";
-  const specific: [string, () => Promise<any>, string[]?][] = [
+  const specific: [string, () => Promise<any>][] = [
     ["/oauth/kiro/import", () => import(`${r}/kiro/import/route.ts`)],
     ["/oauth/kiro/api-key", () => import(`${r}/kiro/api-key/route.ts`)],
     ["/oauth/kiro/social-authorize", () => import(`${r}/kiro/social-authorize/route.ts`)],
@@ -42,8 +42,8 @@ export function createOAuthApi() {
     return c.json({ providers });
   });
 
-  for (const [path, load] of specific) mountNextRoute(api, path, load);
-  mountNextRoute(api, "/oauth/:provider/paste-credentials", () => import(`${r}/[provider]/paste-credentials/route.ts`));
-  mountNextRoute(api, "/oauth/:provider/:action", () => import(`${r}/[provider]/[action]/route.ts`));
+  for (const [path, load] of specific) mountRoute(api, path, load);
+  mountRoute(api, "/oauth/:provider/paste-credentials", () => import(`${r}/[provider]/paste-credentials/route.ts`));
+  mountRoute(api, "/oauth/:provider/:action", () => import(`${r}/[provider]/[action]/route.ts`));
   return api;
 }
