@@ -72,7 +72,7 @@ export function Keys() {
             Key name
             <input
               type="text"
-              placeholder="e.g. hermes-cli, cursor-workstation, ci"
+              placeholder="e.g. laptop, cursor-workstation, ci"
               value={name}
               maxLength={200}
               autoFocus
