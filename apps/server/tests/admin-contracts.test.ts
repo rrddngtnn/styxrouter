@@ -179,3 +179,72 @@ describe("combos", () => {
     expect((await api("DELETE", `/api/routing/combos/${b}`)).status).toBe(200);
   });
 });
+
+describe("api key limits (PATCH /api/keys/:id)", () => {
+  let id = "";
+  const row = async () => ((await (await api("GET", "/api/keys")).json()) as any).keys.find((k: any) => k.id === id);
+
+  test("setup", async () => {
+    id = ((await (await api("POST", "/api/keys", { name: "limits-key" })).json()) as any).id;
+    expect(id).toBeTruthy();
+  });
+
+  test("needs the session", async () => {
+    const r = await fetch(`${BASE}/api/keys/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: "{}" });
+    expect(r.status).toBe(401);
+  });
+
+  test("sets name, daily and per-minute limits and the model allow-list", async () => {
+    const r = await api("PATCH", `/api/keys/${id}`, { name: "renamed", maxRequestsPerDay: 500, maxRequestsPerMinute: 20, allowedModels: ["muse"] });
+    expect(r.status).toBe(200);
+    const k = await row();
+    expect(k.name).toBe("renamed");
+    expect(k.maxRequestsPerDay).toBe(500);
+    expect(k.maxRequestsPerMinute).toBe(20);
+    expect(k.allowedModels).toEqual(["muse"]);
+  });
+
+  test("null clears a limit", async () => {
+    expect((await api("PATCH", `/api/keys/${id}`, { maxRequestsPerDay: null })).status).toBe(200);
+    expect((await row()).maxRequestsPerDay).toBeNull();
+  });
+
+  test("refuses unknown fields, non-positive limits and an empty body", async () => {
+    expect((await api("PATCH", `/api/keys/${id}`, { scopes: ["admin"] })).status).toBe(400);
+    expect((await api("PATCH", `/api/keys/${id}`, { maxRequestsPerMinute: 0 })).status).toBe(400);
+    expect((await api("PATCH", `/api/keys/${id}`, { maxRequestsPerDay: 1.5 })).status).toBe(400);
+    expect((await api("PATCH", `/api/keys/${id}`, {})).status).toBe(400);
+  });
+
+  test("404 for an unknown key", async () => {
+    expect((await api("PATCH", `/api/keys/does-not-exist`, { name: "x" })).status).toBe(404);
+  });
+});
+
+describe("combo steps (editor contract)", () => {
+  let id = "";
+  const row = async () => (((await (await api("GET", "/api/routing/combos")).json()) as any).combos as any[]).find((c) => c.id === id);
+
+  test("the list carries the full step objects, not just a count", async () => {
+    id = ((await (await api("POST", "/api/routing/combos", { name: "steps-combo", models: ["codex/gpt-5.6-sol-low", "codex/gpt-5.6-sol-high"] })).json()) as any).id;
+    const r = await row();
+    expect(r.steps).toBe(2);
+    expect(r.models.map((m: any) => m.model)).toEqual(["codex/gpt-5.6-sol-low", "codex/gpt-5.6-sol-high"]);
+  });
+
+  test("saving the steps in a new order (as the list returned them) keeps the order and the step objects", async () => {
+    const before = (await row()).models as any[];
+    const swapped = [before[1], before[0]];
+    expect((await api("PUT", `/api/routing/combos/${id}`, { models: swapped })).status).toBe(200);
+    const after = (await row()).models as any[];
+    expect(after.map((m) => m.model)).toEqual(["codex/gpt-5.6-sol-high", "codex/gpt-5.6-sol-low"]);
+    expect(after[0].id).toBe(before[1].id);
+  });
+
+  test("a step can be appended as a plain model string, and the last step cannot be removed", async () => {
+    const cur = (await row()).models as any[];
+    expect((await api("PUT", `/api/routing/combos/${id}`, { models: [...cur, "codex/gpt-5.6-sol-med"] })).status).toBe(200);
+    expect((await row()).steps).toBe(3);
+    expect((await api("PUT", `/api/routing/combos/${id}`, { models: [] })).status).toBe(400);
+  });
+});

@@ -182,6 +182,7 @@ app.get("/api/routing/combos", async (c) => {
         model: cb.modelDefault ?? cb.model ?? null,
         enabled: cb.isActive ?? cb.enabled ?? true,
         steps: Array.isArray(cb.models) ? cb.models.length : 0,
+        models: Array.isArray(cb.models) ? cb.models : [],
       })),
     });
   } catch (e: any) {
@@ -201,6 +202,9 @@ app.get("/api/keys", async (c) => {
         createdAt: k.createdAt ?? null,
         lastUsedAt: k.lastUsedAt ?? null,
         modelRestrictions: k.allowedModels ?? null,
+        allowedModels: k.allowedModels ?? [],
+        maxRequestsPerDay: k.maxRequestsPerDay ?? null,
+        maxRequestsPerMinute: k.maxRequestsPerMinute ?? null,
         isActive: k.isActive !== false && !k.revokedAt,
         revokedAt: k.revokedAt ?? null,
       })),

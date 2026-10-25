@@ -4,6 +4,7 @@ import { Hono, type Context } from "hono";
 import {
   createApiKey,
   deleteApiKey,
+  getApiKeyById,
   regenerateApiKey,
   revokeApiKey,
   updateApiKeyPermissions,
@@ -89,6 +90,29 @@ export function createAdminApi() {
     if (Object.keys(extra).length) await updateApiKeyPermissions(key.id, extra);
     audit(c, "apiKey.create", key.id, { name });
     return c.json({ id: key.id, name: key.name, key: key.key }, 201); // the only time the full key is shown
+  });
+
+  // Editable key settings. Strict on purpose: scopes, bans and expiry stay out of reach of this endpoint.
+  const patchKeySchema = z
+    .object({
+      name: z.string().trim().min(1).max(100),
+      isActive: z.boolean(),
+      allowedModels: z.array(z.string().min(1).max(200)).max(200),
+      maxRequestsPerDay: z.number().int().positive().nullable(),
+      maxRequestsPerMinute: z.number().int().positive().nullable(),
+    })
+    .partial()
+    .strict()
+    .refine((v) => Object.keys(v).length > 0, { message: "Nothing to update" });
+
+  api.patch("/keys/:id", async (c) => {
+    const id = c.req.param("id");
+    const v = validateBody(patchKeySchema, await bodyOf(c));
+    if (isValidationFailure(v)) return bad(c, v.error);
+    if (!(await getApiKeyById(id))) return notFound(c, "Key");
+    await updateApiKeyPermissions(id, v.data);
+    audit(c, "apiKey.update", id, { fields: Object.keys(v.data) });
+    return c.json({ success: true });
   });
 
   api.post("/keys/:id/regenerate", async (c) => {

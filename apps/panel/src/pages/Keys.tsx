@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { api } from "../lib/api.ts";
 import { SecretBanner, useAction } from "../lib/actions.tsx";
 import { useFetch } from "../lib/useFetch.ts";
@@ -10,6 +10,9 @@ interface KeyRow {
   createdAt?: string;
   lastUsedAt?: string | null;
   modelRestrictions?: string[] | null;
+  allowedModels?: string[];
+  maxRequestsPerDay?: number | null;
+  maxRequestsPerMinute?: number | null;
   isActive?: boolean;
 }
 
@@ -17,6 +20,7 @@ export function Keys() {
   const state = useFetch<{ keys?: KeyRow[] }>("/api/keys");
   const rows = state.status === "ok" ? state.data.keys ?? [] : [];
   const [name, setName] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
   const [secret, setSecret] = useState<{ title: string; key: string } | null>(null);
   const { busy, error, run } = useAction(state.reload);
 
@@ -71,7 +75,8 @@ export function Keys() {
               const id = String(r.id);
               const active = r.isActive !== false;
               return (
-                <tr key={id}>
+                <Fragment key={id}>
+                <tr>
                   <td>{r.name ?? "—"}</td>
                   <td><code>{r.prefix ?? "—"}</code></td>
                   <td>{r.createdAt?.slice(0, 10) ?? "—"}</td>
@@ -80,6 +85,9 @@ export function Keys() {
                   <td className="row-actions">
                     {active && (
                       <>
+                        <button type="button" className="btn-ghost" disabled={busy !== null} onClick={() => setEditing(editing === id ? null : id)}>
+                          {editing === id ? "Close" : "Edit"}
+                        </button>
                         <button
                           type="button"
                           className="btn-ghost"
@@ -115,11 +123,59 @@ export function Keys() {
                     </button>
                   </td>
                 </tr>
+                {editing === id && (
+                  <tr>
+                    <td colSpan={6}>
+                      <KeyEditor row={r} onSaved={state.reload} onClose={() => setEditing(null)} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>
         </table>
       )}
     </div>
+  );
+}
+
+const toLimit = (v: string) => (v.trim() === "" ? null : Number(v));
+
+/** Inline editor: name, request limits (empty = unlimited) and the model allow-list (empty = every model). */
+function KeyEditor({ row, onSaved, onClose }: { row: KeyRow; onSaved: () => void; onClose: () => void }) {
+  const [name, setName] = useState(row.name ?? "");
+  const [perDay, setPerDay] = useState(row.maxRequestsPerDay ? String(row.maxRequestsPerDay) : "");
+  const [perMinute, setPerMinute] = useState(row.maxRequestsPerMinute ? String(row.maxRequestsPerMinute) : "");
+  const [models, setModels] = useState((row.allowedModels ?? []).join("\n"));
+  const { busy, error, run } = useAction(onSaved);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    const done = await run("save", () =>
+      api.patch(`/api/keys/${row.id}`, {
+        name: name.trim(),
+        maxRequestsPerDay: toLimit(perDay),
+        maxRequestsPerMinute: toLimit(perMinute),
+        allowedModels: models.split("\n").map((m) => m.trim()).filter(Boolean),
+      }),
+    );
+    if (done) onClose();
+  }
+
+  return (
+    <form className="editor" onSubmit={save}>
+      <label>Name <input type="text" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} required /></label>
+      <label>Max requests / day <input type="number" min={1} step={1} placeholder="unlimited" value={perDay} onChange={(e) => setPerDay(e.target.value)} /></label>
+      <label>Max requests / minute <input type="number" min={1} step={1} placeholder="unlimited" value={perMinute} onChange={(e) => setPerMinute(e.target.value)} /></label>
+      <label>Allowed models (one per line, empty = all)
+        <textarea rows={3} value={models} onChange={(e) => setModels(e.target.value)} />
+      </label>
+      {error && <p className="bad">{error}</p>}
+      <div className="row-actions">
+        <button type="submit" className="btn-add" disabled={busy !== null || !name.trim()}>{busy ? "..." : "Save"}</button>
+        <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
+      </div>
+    </form>
   );
 }
