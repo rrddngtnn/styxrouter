@@ -6,6 +6,16 @@ docker compose up -d --build
 docker compose logs -f styx     # wait for "StyxRouter :20128"
 ```
 
+Or run the pre-built multi-arch image (`linux/amd64`, `linux/arm64`) published by `.github/workflows/release.yml` to GitHub Container Registry:
+
+```sh
+docker run -d --name styxrouter \
+  -p 127.0.0.1:20128:20128 \
+  --env-file .env \
+  -v styx-data:/data \
+  ghcr.io/<your-github-owner>/styxrouter:latest
+```
+
 Open `http://127.0.0.1:20128/panel/` and sign in with `INITIAL_PASSWORD`. The database and backups live in the
 `styx-data` volume (`/data`); a scheduled backup runs daily and the panel has a **Back up now** button.
 

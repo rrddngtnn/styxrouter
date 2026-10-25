@@ -9,7 +9,7 @@ COPY apps/panel/ ./
 RUN npm run build
 
 # 2) Production dependencies from the workspace root lockfile
-FROM oven/bun:1.4.3 AS deps
+FROM oven/bun:1-debian AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 COPY apps/panel/package.json ./apps/panel/package.json
@@ -17,7 +17,7 @@ COPY apps/server/package.json ./apps/server/package.json
 RUN bun install --production --frozen-lockfile --ignore-scripts
 
 # 3) Runtime
-FROM oven/bun:1.4.3
+FROM oven/bun:1-debian
 ENV NODE_ENV=production \
     PORT=20128 \
     DATA_DIR=/data

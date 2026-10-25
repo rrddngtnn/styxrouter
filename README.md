@@ -87,4 +87,17 @@ attribution and SPDX detail.
 
 ## Docker
 
-A `Dockerfile` and `docker-compose.yml` are included; see [DOCKER.md](DOCKER.md) for the four settings you need and how to run it.
+A `Dockerfile`, `docker-compose.yml`, and GitHub Actions multi-arch image publisher (`.github/workflows/release.yml` → `ghcr.io/<owner>/styxrouter:latest`) are included; see [DOCKER.md](DOCKER.md) for the four settings you need and how to run it.
+
+## npm / Bun CLI (`@styxrouter/server`)
+
+`@styxrouter/server` ships a self-contained CLI binary (`styxrouter`) that bundles the compiled administration panel (`prepack` builds `apps/panel/dist` into the tarball):
+
+```bash
+# Install globally with Bun and run from any directory
+bun add -g @styxrouter/server
+DATA_DIR=~/.styx INITIAL_PASSWORD=... JWT_SECRET=... API_KEY_SECRET=... STORAGE_ENCRYPTION_KEY=... styxrouter
+
+# Or publish a new version from apps/server
+cd apps/server && npm publish --access public
+```

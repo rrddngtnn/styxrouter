@@ -1,6 +1,8 @@
 // StyxRouter Hono+Bun entrypoint.
 // Thin HTTP layer; routing/dispatch logic lives in open-sse.
 
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { handleChat } from "../src/sse/handlers/chat.ts";
@@ -452,10 +454,11 @@ app.route("/api", createBackupsApi());
 startBackupScheduler();
 startProviderLimitsAutoSync();
 
+const panelRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../panel");
 app.use(
   "/panel/*",
   serveStatic({
-    root: "./panel",
+    root: panelRoot,
     rewriteRequestPath: (p) => {
       const stripped = p.replace(/^\/panel/, "");
       const lastSegment = stripped.split("/").pop() ?? "";
