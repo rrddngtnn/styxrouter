@@ -6,23 +6,28 @@ Thanks for helping. This is a Bun monorepo: `apps/server` (Hono + Bun host) and
 ## Setup
 
 ```bash
-# server
-cd apps/server && ~/.bun/bin/bun install
-# panel
-cd apps/panel && npm install
+# Install workspace dependencies from the repository root
+bun install
+
+# Build the administration panel SPA
+npm --prefix apps/panel run build
 ```
 
 ## Build & test
 
 ```bash
 # TypeScript contract + routing tests
-cd apps/server && ~/.bun/bin/bun test tests/
+cd apps/server && bun test tests/
+
+# Panel unit tests + typecheck
+bun test apps/panel/tests/
+npm --prefix apps/panel run typecheck
 
 # Python-side tooling tests (stdlib unittest)
 cd apps/server && python3 -m unittest discover -s tests -p 'test_*.py' -v
 
-# Panel build
-cd apps/panel && npm run build
+# Panel production build
+npm --prefix apps/panel run build
 ```
 
 Keep changes minimal and focused. Prefer the standard library and existing

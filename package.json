@@ -8,8 +8,8 @@
     "apps/*"
   ],
   "scripts": {
-    "server:start": "cd apps/server && ~/.bun/bin/bun server/styx.ts",
-    "server:test": "cd apps/server && ~/.bun/bin/bun test tests/",
+    "server:start": "cd apps/server && bun server/styx.ts",
+    "server:test": "cd apps/server && bun test tests/",
     "server:test:py": "cd apps/server && python3 -m unittest discover -s tests -p 'test_*.py' -v",
     "panel:dev": "npm --prefix apps/panel run dev",
     "panel:build": "npm --prefix apps/panel run build",

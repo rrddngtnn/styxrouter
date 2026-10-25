@@ -9,8 +9,8 @@ handling as sensitive.
 Please report security issues **privately**, not through public issues or pull
 requests.
 
-- Open a private vulnerability report via the repository's security advisories, or
-- Email the maintainer (see the repository profile).  <!-- operator: pin a real contact here -->
+- Open a private vulnerability report via the repository's GitHub Security Advisories tab, or
+- Contact the maintainer through the address listed on the repository profile.
 
 Include: affected component, a reproduction, and the impact you observed. You
 will get an acknowledgement; please allow a reasonable window for a fix before

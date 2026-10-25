@@ -44,15 +44,9 @@
     "auto-fallback"
   ],
   "license": "MIT",
-  "author": "",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/youruser/styxrouter"
-  },
-  "homepage": "",
   "scripts": {
-    "start": "~/.bun/bin/bun server/styx.ts",
-    "test": "~/.bun/bin/bun test tests/",
+    "start": "bun server/styx.ts",
+    "test": "bun test tests/",
     "test:py": "python3 -m unittest discover -s tests -p 'test_*.py' -v"
   },
   "dependencies": {
