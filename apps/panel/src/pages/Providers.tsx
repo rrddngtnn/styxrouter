@@ -39,6 +39,7 @@ export function Providers() {
   const flowsState = useFetch<{ providers?: { id: string; flowType: FlowType; legacyDevice?: boolean; redirectUri?: string }[] }>("/api/oauth/providers");
   const flows = useMemo(() => new Map((flowsState.status === "ok" ? flowsState.data.providers ?? [] : []).map((f) => [f.id, f])), [flowsState]);
   const [tab, setTab] = useState<Tab>("oauth");
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const providers = state.status === "ok" ? state.data.providers ?? [] : [];
   const accounts = accountsState.status === "ok" ? accountsState.data.connections ?? [] : [];
@@ -108,6 +109,13 @@ export function Providers() {
             ))}
             {list.length === 0 && <p className="muted">No providers in this bucket.</p>}
           </div>
+
+          <div className="toolbar">
+            <button type="button" className="btn-ghost" onClick={() => setBulkOpen((o) => !o)}>
+              Bulk add keys
+            </button>
+          </div>
+          {bulkOpen && <BulkAdd providers={apikeyList} onDone={refresh} />}
 
           <AccountsTable accounts={accounts} providers={providers} loading={accountsState.status === "loading"} error={accountsState.status === "error" ? accountsState.error.message : null} onChanged={refresh} />
 
@@ -321,4 +329,53 @@ function cmp(a: Provider, b: Provider): number {
   const bv = b.vendor ?? "zzz";
   if (av !== bv) return av.localeCompare(bv);
   return a.id.localeCompare(b.id);
+}
+
+/** Paste many keys at once — one per line, "key|name" for a custom label. */
+function BulkAdd({ providers, onDone }: { providers: Provider[]; onDone: () => void }) {
+  const [provider, setProvider] = useState(providers[0]?.id ?? "");
+  const [text, setText] = useState("");
+  const [result, setResult] = useState<{ created: { name: string }[]; skipped: { line: string; reason: string }[] } | null>(null);
+  const { busy, error, run } = useAction(() => { onDone(); });
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0 || !provider) return;
+    const out = await run("bulk", () =>
+      api.post<{ created: { name: string }[]; skipped: { line: string; reason: string }[] }>("/api/connections/bulk", { provider, lines }),
+    );
+    if (out) {
+      setResult(out);
+      setText("");
+    }
+  }
+
+  return (
+    <section className="editor card">
+      <h2>Bulk add API-key accounts</h2>
+      <form className="stack-form" onSubmit={submit}>
+        <label>Provider
+          <select value={provider} onChange={(e) => setProvider(e.target.value)}>
+            {providers.map((p) => <option key={p.id} value={p.id}>{p.name ?? p.id}</option>)}
+          </select>
+        </label>
+        <label>Keys — one per line, <code>key|name</code> for a label
+          <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={"sk-...|farm-account-1\nsk-...|farm-account-2"} required />
+        </label>
+        {error && <div className="bad">{error}</div>}
+        {result && (
+          <div className="ok">
+            Added {result.created.length} account{result.created.length === 1 ? "" : "s"}
+            {result.skipped.length > 0 ? `, skipped ${result.skipped.length} (first: ${result.skipped[0].reason})` : ""}.
+          </div>
+        )}
+        <div className="row-actions">
+          <button type="submit" className="btn-add" disabled={busy !== null || !text.trim() || !provider}>
+            {busy === "bulk" ? "…" : "Import"}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
 }

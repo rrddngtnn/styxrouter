@@ -18,6 +18,7 @@ import { getUnifiedModelsResponse } from "../src/app/api/v1/models/catalog.ts";
 import { createModelMetadataApi, type ModelMetadataEnv } from "./modelMetadata.ts";
 import { authLogin, authLogout, authStatus, requireAuth } from "./auth.ts";
 import { createAdminApi } from "./admin.ts";
+import { createAdminApi2 } from "./admin2.ts";
 import { createOAuthApi } from "./oauth.ts";
 import { createUpstreamApi } from "./upstream.ts";
 import { createBackupsApi, startBackupScheduler } from "./backups.ts";
@@ -189,6 +190,7 @@ app.get("/api/activity", (c) => {
 
 // Admin writes (keys, combos). GET readers for the same paths stay in this file.
 app.route("/api", createAdminApi());
+app.route("/api", createAdminApi2());
 
 app.get("/v1/models", (c) => {
   const url = new URL(c.req.url);
