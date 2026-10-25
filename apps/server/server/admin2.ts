@@ -167,9 +167,23 @@ export function createAdminApi2() {
     if (isValidationFailure(v)) return bad(c, v.error);
     const { provider, lines } = v.data;
     const entry = (REGISTRY as Record<string, any>)[provider];
-    if (!entry || entry.id !== provider) return bad(c, `Unknown provider '${provider}'`);
-    const modes: string[] = Array.isArray(entry.authModes) ? entry.authModes : [entry.authType];
-    if (!modes.includes("apikey")) return bad(c, `Provider '${provider}' does not use an API key`);
+    let providerSpecificData: Record<string, unknown> | undefined;
+    if (entry && entry.id === provider) {
+      const modes: string[] = Array.isArray(entry.authModes) ? entry.authModes : [entry.authType];
+      if (!modes.includes("apikey")) return bad(c, `Provider '${provider}' does not use an API key`);
+    } else {
+      const node = (await getProviderNodeById(provider)) as any;
+      if (!node) return bad(c, `Unknown provider '${provider}'`);
+      providerSpecificData = {
+        prefix: node.prefix ?? undefined,
+        apiType: node.apiType ?? undefined,
+        baseUrl: node.baseUrl ?? undefined,
+        nodeName: node.name ?? undefined,
+        chatPath: node.chatPath ?? undefined,
+        modelsPath: node.modelsPath ?? undefined,
+        ...(node.customHeaders ? { customHeaders: node.customHeaders } : {}),
+      };
+    }
 
     const created: { id: string; name: string }[] = [];
     const skipped: { line: string; reason: string }[] = [];
@@ -189,6 +203,7 @@ export function createAdminApi2() {
           name: name || `${provider}-${created.length + 1}`,
           apiKey: key,
           isActive: true,
+          ...(providerSpecificData ? { providerSpecificData } : {}),
         })) as any;
         created.push({ id: conn.id, name: conn.name });
       } catch (e) {

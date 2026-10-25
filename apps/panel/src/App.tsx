@@ -54,7 +54,6 @@ export function App() {
         <NavLink to="/usage" className={navClass}>Usage</NavLink>
         <NavLink to="/quota" className={navClass}>Quota</NavLink>
         <NavLink to="/tools" className={navClass}>Connect tools</NavLink>
-        <NavLink to="/connectors" className={navClass}>Connectors</NavLink>
         <NavLink to="/audit" className={navClass}>Audit log</NavLink>
         <NavLink to="/settings" className={navClass}>Settings</NavLink>
         <button type="button" className="logout" onClick={logout}>

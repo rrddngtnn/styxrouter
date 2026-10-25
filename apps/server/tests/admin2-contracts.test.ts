@@ -113,6 +113,20 @@ describe("provider nodes", () => {
     // partial update keeps the stored custom headers
     expect(updatedBody.node.customHeaders).toEqual({ "X-Bridge": "on" });
 
+    // Adding an API-key account directly against a custom provider node id copies
+    // its routing metadata onto the connection.
+    const nodeConn = await call("POST", "/api/connections", {
+      provider: node.id,
+      name: "Muse Bridge Key",
+      apiKey: "sk-custom-node-key-111111",
+    });
+    expect(nodeConn.status).toBe(201);
+    const nodeBulk = await call("POST", "/api/connections/bulk", {
+      provider: node.id,
+      lines: ["sk-custom-node-key-222222|Muse Bulk Key"],
+    });
+    expect(nodeBulk.status).toBe(201);
+
     expect((await call("DELETE", `/api/provider-nodes/${node.id}`)).status).toBe(200);
     expect((await call("DELETE", `/api/provider-nodes/${node.id}`)).status).toBe(404);
   });

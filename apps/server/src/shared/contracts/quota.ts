@@ -1,9 +1,27 @@
 export type QuotaTokenStatus = "valid" | "expiring" | "expired" | "refreshing" | "refreshable";
 
+export interface QuotaWindowEntry {
+  key: string;
+  label: string;
+  used: number | null;
+  total: number | null;
+  remaining: number | null;
+  percentRemaining: number | null;
+  resetAt: string | null;
+  unlimited: boolean;
+}
+
 export interface QuotaProviderEntry {
   name: string;
   provider: string;
   connectionId: string;
+  isActive: boolean;
+  authType: string | null;
+  plan: string | null;
+  fetchedAt: string | null;
+  message: string | null;
+  quotaSupported: boolean;
+  windows: QuotaWindowEntry[];
   quotaUsed: number;
   quotaTotal: number | null;
   percentRemaining: number;
@@ -47,6 +65,30 @@ function normalizeTokenStatus(value: unknown): QuotaTokenStatus {
   return "valid";
 }
 
+function sanitizeQuotaWindow(input: unknown): QuotaWindowEntry | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const src = input as Record<string, unknown>;
+  const key = typeof src.key === "string" && src.key.trim() ? src.key.trim() : "";
+  if (!key) return null;
+  const label = typeof src.label === "string" && src.label.trim() ? src.label.trim() : key;
+  const used = toNumber(src.used);
+  const total = toNumber(src.total);
+  const remaining = toNumber(src.remaining);
+  const pctRaw = toNumber(src.percentRemaining);
+  const percentRemaining = pctRaw !== null ? clamp(pctRaw, 0, 100) : null;
+  const resetAt = typeof src.resetAt === "string" && src.resetAt.trim() ? src.resetAt.trim() : null;
+  return {
+    key,
+    label,
+    used: used !== null && used >= 0 ? used : null,
+    total: total !== null && total >= 0 ? total : null,
+    remaining: remaining !== null && remaining >= 0 ? remaining : null,
+    percentRemaining,
+    resetAt,
+    unlimited: src.unlimited === true,
+  };
+}
+
 export function sanitizeQuotaProvider(input: unknown): QuotaProviderEntry {
   const source = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
   const provider = typeof source.provider === "string" ? source.provider : "unknown";
@@ -55,6 +97,15 @@ export function sanitizeQuotaProvider(input: unknown): QuotaProviderEntry {
     typeof source.connectionId === "string" && source.connectionId.trim()
       ? source.connectionId
       : "unknown";
+
+  const isActive = source.isActive !== false;
+  const authType = typeof source.authType === "string" && source.authType.trim() ? source.authType.trim() : null;
+  const plan = typeof source.plan === "string" && source.plan.trim() ? source.plan.trim() : null;
+  const fetchedAt = typeof source.fetchedAt === "string" && source.fetchedAt.trim() ? source.fetchedAt.trim() : null;
+  const message = typeof source.message === "string" && source.message.trim() ? source.message.trim() : null;
+  const quotaSupported = source.quotaSupported !== false;
+  const windowsRaw = Array.isArray(source.windows) ? source.windows : [];
+  const windows = windowsRaw.map(sanitizeQuotaWindow).filter((w): w is QuotaWindowEntry => w !== null);
 
   const quotaTotalRaw = toNumber(source.quotaTotal);
   const quotaTotal = quotaTotalRaw !== null && quotaTotalRaw >= 0 ? quotaTotalRaw : null;
@@ -80,6 +131,13 @@ export function sanitizeQuotaProvider(input: unknown): QuotaProviderEntry {
     name,
     provider,
     connectionId,
+    isActive,
+    authType,
+    plan,
+    fetchedAt,
+    message,
+    quotaSupported,
+    windows,
     quotaUsed,
     quotaTotal,
     percentRemaining,

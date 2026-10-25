@@ -13,7 +13,6 @@ import { Models } from "./pages/Models.tsx";
 import { Settings } from "./pages/Settings.tsx";
 import { Quota } from "./pages/Quota.tsx";
 import { Tools } from "./pages/Tools.tsx";
-import { Connectors } from "./pages/Connectors.tsx";
 import { Audit } from "./pages/Audit.tsx";
 import "./main.css";
 
@@ -31,7 +30,6 @@ const router = createBrowserRouter(
         { path: "usage", element: <Usage /> },
         { path: "quota", element: <Quota /> },
         { path: "tools", element: <Tools /> },
-        { path: "connectors", element: <Connectors /> },
         { path: "audit", element: <Audit /> },
         { path: "models", element: <Models /> },
         { path: "settings", element: <Settings /> },

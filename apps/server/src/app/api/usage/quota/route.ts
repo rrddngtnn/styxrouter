@@ -3,12 +3,16 @@ import {
   getLearnedLimits,
   getRateLimitStatus,
 } from "@styxrouter/open-sse/services/rateLimitManager.ts";
-import { getSanitizedCachedProviderLimitsMap } from "@/lib/usage/providerLimits.ts";
+import {
+  getSanitizedCachedProviderLimitsMap,
+  isSupportedUsageConnection,
+} from "@/lib/usage/providerLimits.ts";
 import {
   normalizeQuotaResponse,
   sanitizeQuotaProvider,
   type QuotaProviderEntry,
   type QuotaTokenStatus,
+  type QuotaWindowEntry,
 } from "@/shared/contracts/quota";
 
 type ProviderConnectionRecord = Record<string, unknown>;
@@ -17,6 +21,10 @@ function toDateMs(value: unknown): number | null {
   if (typeof value !== "string" || !value.trim()) return null;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function deriveTokenStatus(connection: ProviderConnectionRecord): QuotaTokenStatus {
@@ -45,6 +53,110 @@ function deriveTokenStatus(connection: ProviderConnectionRecord): QuotaTokenStat
   return "valid";
 }
 
+function deriveWindowPercent(q: Record<string, unknown>): {
+  used: number | null;
+  total: number | null;
+  remaining: number | null;
+  pct: number | null;
+} {
+  const used = toFiniteNumber(q.used);
+  const total = toFiniteNumber(q.total);
+  const remaining = toFiniteNumber(q.remaining);
+  let pct = toFiniteNumber(q.remainingPercentage);
+
+  // Some fetchers (e.g. Codex session/weekly) populate used/total/remaining without
+  // remainingPercentage; others (e.g. GLM Start Plan) round remainingPercentage to an
+  // integer, turning 634k/200M into 0% even though allowance remains. Derive exact
+  // percentage whenever total > 0 and either remainingPercentage is missing or rounded
+  // to 0 while remaining > 0.
+  if (total !== null && total > 0) {
+    const exactRem =
+      remaining !== null ? Math.max(0, Math.min(total, remaining)) : used !== null ? Math.max(0, total - used) : null;
+    if (exactRem !== null && (pct === null || (pct === 0 && exactRem > 0))) {
+      pct = Math.round((exactRem / total) * 10000) / 100;
+    }
+  }
+
+  return { used, total, remaining, pct };
+}
+
+/**
+ * Collapse Antigravity's 15 per-tier model keys into clean model-family buckets
+ * when sibling tiers share the exact same underlying quota pool (e.g. gemini-4-argon
+ * low/medium/high share one pool; claude-sonnet-5-5 + claude-opus-5-5 + gpt-oss-120b
+ * share one pool; gemini-3.8-flash + 3.1-flash-lite share one pool). Non-Antigravity
+ * providers pass every window through untouched.
+ */
+function familyForAntigravityKey(key: string): { id: string; label: string; rank: number } {
+  const k = key.toLowerCase();
+  if (k.startsWith("gemini-4-argon")) return { id: "argon", label: "Gemini 4 Argon", rank: 1 };
+  if (k.startsWith("claude-") || k.startsWith("gpt-oss")) {
+    return { id: "claude", label: "Claude / GPT-OSS", rank: 2 };
+  }
+  if (k.startsWith("gemini-3")) return { id: "flash", label: "Gemini 3 Flash", rank: 3 };
+  return { id: key, label: key, rank: 9 };
+}
+
+function extractCachedWindows(
+  provider: string,
+  quotas: Record<string, unknown> | null | undefined
+): QuotaWindowEntry[] {
+  if (!quotas || typeof quotas !== "object" || Array.isArray(quotas)) return [];
+
+  const rawEntries: Array<QuotaWindowEntry & { rank: number }> = [];
+  for (const [key, raw] of Object.entries(quotas)) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const q = raw as Record<string, unknown>;
+    const { used, total, remaining, pct } = deriveWindowPercent(q);
+    const resetAt = typeof q.resetAt === "string" && q.resetAt.trim() ? q.resetAt.trim() : null;
+    const unlimited = q.unlimited === true;
+    const displayName =
+      typeof q.displayName === "string" && q.displayName.trim() ? q.displayName.trim() : key;
+
+    if (provider === "antigravity" || provider === "agy") {
+      const fam = familyForAntigravityKey(key);
+      // Merge tiers in the same family when they share the same pool signature.
+      const sigReset = resetAt ?? "";
+      const sigTotal = total ?? -1;
+      const sigUsed = used ?? -1;
+      const groupKey = `${fam.id}:${sigTotal}:${sigUsed}:${sigReset}`;
+      if (rawEntries.some((w) => w.key === groupKey)) continue;
+      rawEntries.push({
+        key: groupKey,
+        label: fam.label,
+        used,
+        total,
+        remaining,
+        percentRemaining: pct,
+        resetAt,
+        unlimited,
+        rank: fam.rank,
+      });
+    } else {
+      const niceLabel =
+        key === "session"
+          ? "5h Session"
+          : key === "weekly"
+            ? "Weekly"
+            : displayName;
+      rawEntries.push({
+        key,
+        label: niceLabel,
+        used,
+        total,
+        remaining,
+        percentRemaining: pct,
+        resetAt,
+        unlimited,
+        rank: key === "session" ? 1 : key === "weekly" ? 2 : 5,
+      });
+    }
+  }
+
+  rawEntries.sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label));
+  return rawEntries.map(({ rank: _rank, ...w }) => w);
+}
+
 function buildQuotaEntry(
   connection: ProviderConnectionRecord,
   learnedLimit: unknown,
@@ -60,6 +172,18 @@ function buildQuotaEntry(
     (typeof connection.name === "string" && connection.name.trim()) ||
     (typeof connection.email === "string" && connection.email.trim()) ||
     provider;
+  const isActive = Boolean(connection.isActive ?? connection.is_active ?? true);
+  const authType =
+    typeof connection.authType === "string"
+      ? connection.authType
+      : typeof connection.auth_type === "string"
+        ? connection.auth_type
+        : null;
+  const quotaSupported = isSupportedUsageConnection({
+    id: connectionId,
+    provider,
+    authType: authType ?? undefined,
+  });
 
   const resetAt =
     typeof connection.rateLimitedUntil === "string" && connection.rateLimitedUntil.trim()
@@ -98,7 +222,6 @@ function buildQuotaEntry(
       quotaUsed = 100;
       percentRemaining = 0;
     } else {
-      // Fallback synthetic signal from queue pressure when limit headers are unavailable.
       const queued = typeof rateStatus.queued === "number" ? rateStatus.queued : 0;
       const running = typeof rateStatus.running === "number" ? rateStatus.running : 0;
       const executing = typeof rateStatus.executing === "number" ? rateStatus.executing : 0;
@@ -116,6 +239,13 @@ function buildQuotaEntry(
     name,
     provider,
     connectionId,
+    isActive,
+    authType,
+    plan: null,
+    fetchedAt: null,
+    message: null,
+    quotaSupported,
+    windows: [],
     quotaUsed,
     quotaTotal,
     percentRemaining,
@@ -124,49 +254,55 @@ function buildQuotaEntry(
   });
 }
 
-/**
- * Fold the freshest provider-limits cache entry into a quota row. The cache is
- * kept warm by the scheduled limits sync; without this fold the quota page only
- * showed learned header limits, which are empty until real traffic flows — the
- * "not checked on first open" gap. Prefers the cache's most-restrictive live
- * window (lowest remaining percentage with a reset time), keeping the learned
- * signal as fallback.
- */
 function applyCachedLimits(
   entry: QuotaProviderEntry,
-  cached: { quotas?: Record<string, unknown> | null } | undefined
+  cached:
+    | {
+        quotas?: Record<string, unknown> | null;
+        plan?: string | null;
+        fetchedAt?: string | null;
+        message?: string | null;
+      }
+    | undefined
 ): QuotaProviderEntry {
-  const quotas = cached?.quotas;
-  if (!quotas || typeof quotas !== "object") return entry;
+  if (!cached) return entry;
 
-  let best: { pct: number; used: number | null; total: number | null; resetAt: string | null } | null = null;
-  for (const quota of Object.values(quotas)) {
-    if (!quota || typeof quota !== "object" || Array.isArray(quota)) continue;
-    const q = quota as Record<string, unknown>;
-    const pct = typeof q.remainingPercentage === "number" && Number.isFinite(q.remainingPercentage)
-      ? q.remainingPercentage
-      : null;
-    if (pct === null) continue;
-    const unlimited = q.unlimited === true;
-    const resetAt = typeof q.resetAt === "string" && q.resetAt ? q.resetAt : null;
-    // Unlimited / no-reset windows (tab models) never describe the paid window.
-    if (unlimited && !resetAt) continue;
-    if (!best || pct < best.pct) {
-      best = {
-        pct,
-        used: typeof q.used === "number" && Number.isFinite(q.used) ? q.used : null,
-        total: typeof q.total === "number" && Number.isFinite(q.total) ? q.total : null,
-        resetAt,
-      };
+  const windows = extractCachedWindows(entry.provider, cached.quotas ?? null);
+  const plan = typeof cached.plan === "string" && cached.plan.trim() ? cached.plan.trim() : entry.plan;
+  const fetchedAt =
+    typeof cached.fetchedAt === "string" && cached.fetchedAt.trim() ? cached.fetchedAt.trim() : entry.fetchedAt;
+  const message =
+    typeof cached.message === "string" && cached.message.trim() ? cached.message.trim() : entry.message;
+
+  let best: QuotaWindowEntry | null = null;
+  for (const w of windows) {
+    if (w.percentRemaining === null) continue;
+    if (w.unlimited && !w.resetAt) continue;
+    if (!best || w.percentRemaining < (best.percentRemaining ?? 101)) {
+      best = w;
     }
   }
-  if (!best) return entry;
 
+  if (!best) {
+    return {
+      ...entry,
+      plan,
+      fetchedAt,
+      message,
+      windows,
+    };
+  }
+
+  const pct = best.percentRemaining ?? entry.percentRemaining;
   return {
     ...entry,
+    plan,
+    fetchedAt,
+    message,
+    windows,
     quotaTotal: best.total ?? 100,
-    quotaUsed: best.used ?? Math.max(0, Math.round(100 - best.pct)),
-    percentRemaining: best.pct,
+    quotaUsed: best.used ?? Math.max(0, Math.round(100 - pct)),
+    percentRemaining: pct,
     resetAt: best.resetAt ?? entry.resetAt,
   };
 }
@@ -177,14 +313,16 @@ function applyCachedLimits(
  * Query params:
  *   - provider (optional): filter by provider slug
  *   - connectionId (optional): filter to a provider connection id
+ *   - includeInactive (optional): "false" to exclude disabled accounts (default: include all)
  */
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const providerFilter = searchParams.get("provider");
     const connectionIdFilter = searchParams.get("connectionId");
+    const includeInactive = searchParams.get("includeInactive") !== "false";
 
-    const connectionsRaw = await getProviderConnections({ isActive: true });
+    const connectionsRaw = await getProviderConnections(includeInactive ? {} : { isActive: true });
     let connections = Array.isArray(connectionsRaw) ? connectionsRaw : [];
 
     if (providerFilter) {

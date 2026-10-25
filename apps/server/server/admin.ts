@@ -27,6 +27,7 @@ import {
   deleteProviderConnection,
   getProviderConnectionById,
   getProviderConnections,
+  getProviderNodeById,
   resetConnectionBackoff,
   updateProviderConnection,
 } from "../src/lib/db/providers.ts";
@@ -251,17 +252,39 @@ export function createAdminApi() {
     .strict();
 
   // API-key accounts only (OAuth accounts are linked through the /api/oauth device flow). The provider
-  // must be a canonical registry id that takes an API key; the DB layer refuses the management password as a key.
+  // must be either a canonical registry id that takes an API key, or a custom provider node id.
+  // The DB layer refuses the management password as a key.
   api.post("/connections", async (c) => {
     const v = validateBody(addConnectionSchema, await bodyOf(c));
     if (isValidationFailure(v)) return bad(c, v.error);
     const { provider, name, apiKey } = v.data;
     const entry = (REGISTRY as Record<string, any>)[provider];
-    if (!entry || entry.id !== provider) return bad(c, `Unknown provider '${provider}'`);
-    const modes: string[] = Array.isArray(entry.authModes) ? entry.authModes : [entry.authType];
-    if (!modes.includes("apikey")) return bad(c, `Provider '${provider}' does not use an API key`);
+    let providerSpecificData: Record<string, unknown> | undefined;
+    if (entry && entry.id === provider) {
+      const modes: string[] = Array.isArray(entry.authModes) ? entry.authModes : [entry.authType];
+      if (!modes.includes("apikey")) return bad(c, `Provider '${provider}' does not use an API key`);
+    } else {
+      const node = (await getProviderNodeById(provider)) as any;
+      if (!node) return bad(c, `Unknown provider '${provider}'`);
+      providerSpecificData = {
+        prefix: node.prefix ?? undefined,
+        apiType: node.apiType ?? undefined,
+        baseUrl: node.baseUrl ?? undefined,
+        nodeName: node.name ?? undefined,
+        chatPath: node.chatPath ?? undefined,
+        modelsPath: node.modelsPath ?? undefined,
+        ...(node.customHeaders ? { customHeaders: node.customHeaders } : {}),
+      };
+    }
     try {
-      const conn = (await createProviderConnection({ provider, authType: "apikey", name, apiKey, isActive: true })) as any;
+      const conn = (await createProviderConnection({
+        provider,
+        authType: "apikey",
+        name,
+        apiKey,
+        isActive: true,
+        ...(providerSpecificData ? { providerSpecificData } : {}),
+      })) as any;
       audit(c, "connection.create", String(conn.id), { provider, name });
       return c.json({ id: conn.id, provider, name }, 201);
     } catch (e) {

@@ -75,10 +75,27 @@ export interface ProviderInfo {
   id: string;
   name?: string;
 }
+export interface QuotaWindow {
+  key: string;
+  label: string;
+  used: number | null;
+  total: number | null;
+  remaining: number | null;
+  percentRemaining: number | null;
+  resetAt: string | null;
+  unlimited: boolean;
+}
 export interface QuotaRow {
   name: string;
   provider: string;
   connectionId: string;
+  isActive?: boolean;
+  authType?: string | null;
+  plan?: string | null;
+  fetchedAt?: string | null;
+  message?: string | null;
+  quotaSupported?: boolean;
+  windows?: QuotaWindow[];
   quotaUsed: number;
   quotaTotal: number | null;
   percentRemaining: number;
