@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
+import { EmptyState, LoadingState } from "../components/PageStates.tsx";
+import { Pagination } from "../components/Pagination.tsx";
 import { api } from "../lib/api.ts";
 import { Modal } from "../lib/actions.tsx";
+import { paginationState } from "../lib/pagination.ts";
 
 type Capability = "supportsThinking" | "supportsVision" | "supportsTools";
 interface ModelMetadata {
@@ -14,15 +17,50 @@ interface ModelMetadata {
   supportsTools: boolean;
   overrides: { contextWindow: number | null } & Record<Capability, boolean | null>;
 }
-interface CatalogModel {
+export interface CatalogModel {
   id: string;
   owned_by: string;
+  name?: string;
+  type?: string;
+  context_length?: number | null;
+  thinking?: boolean;
+  supportsThinking?: boolean;
+  capabilities?: {
+    thinking?: boolean;
+    supportsThinking?: boolean;
+    reasoning?: boolean;
+    vision?: boolean;
+    tool_calling?: boolean;
+    supportsTools?: boolean;
+  };
 }
 const capabilities = [
   ["supportsThinking", "Reasoning"],
   ["supportsVision", "Vision"],
   ["supportsTools", "Tools"],
 ] as const;
+
+export function formatContextTokens(tokens?: number | null): string {
+  if (!tokens || tokens <= 0) return "—";
+  if (tokens >= 1000000) return `${Math.round((tokens / 1000000) * 10) / 10}M`;
+  if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`;
+  return String(tokens);
+}
+
+export function extractCatalogCapabilities(row: CatalogModel): string[] {
+  const tags: string[] = [];
+  const caps = row.capabilities;
+  if (row.thinking || row.supportsThinking || caps?.thinking || caps?.supportsThinking || caps?.reasoning) {
+    tags.push("Reasoning");
+  }
+  if (caps?.vision) {
+    tags.push("Vision");
+  }
+  if (caps?.tool_calling || caps?.supportsTools) {
+    tags.push("Tools");
+  }
+  return tags;
+}
 
 export function ModelEditor({
   model,
@@ -139,18 +177,29 @@ export function ModelEditor({
 
 export function Models() {
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
   const [filter, setFilter] = useState("");
+  const [providerFilter, setProviderFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [customOpen, setCustomOpen] = useState(false);
   const [provider, setProvider] = useState("");
   const [modelId, setModelId] = useState("");
   const [model, setModel] = useState<ModelMetadata | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
+  function loadCatalog() {
+    setCatalogLoading(true);
     api
       .get<{ data: CatalogModel[] }>("/v1/models?configuredOnly=true&prefix=canonical")
       .then((result) => setCatalog(result.data.filter((row) => row.owned_by !== "combo")))
-      .catch((err) => setError(String(err)));
+      .catch((err) => setError(String(err)))
+      .finally(() => setCatalogLoading(false));
+  }
+
+  useEffect(() => {
+    loadCatalog();
   }, []);
 
   async function openModel(prov: string, id: string) {
@@ -162,6 +211,7 @@ export function Models() {
       const result = await api.get<{ model: ModelMetadata }>(
         `/api/model-metadata?${new URLSearchParams({ provider: prov, modelId: id })}`,
       );
+      setCustomOpen(false);
       setModel(result.model);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -172,62 +222,68 @@ export function Models() {
     }
   }
 
-  const filtered = filter.trim()
-    ? catalog.filter((r) => `${r.id} ${r.owned_by}`.toLowerCase().includes(filter.trim().toLowerCase()))
-    : catalog;
+  const providers = useMemo(
+    () => [...new Set(catalog.map((r) => r.owned_by).filter(Boolean))].sort(),
+    [catalog],
+  );
+
+  const filtered = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    return catalog.filter((r) => {
+      if (providerFilter !== "all" && r.owned_by !== providerFilter) return false;
+      if (!q) return true;
+      return `${r.id} ${r.owned_by} ${r.name ?? ""} ${r.type ?? ""}`.toLowerCase().includes(q);
+    });
+  }, [catalog, filter, providerFilter]);
+
+  const pg = paginationState(filtered.length, pageSize, page);
+  const pageRows = filtered.slice(Math.max(0, pg.start - 1), pg.end);
 
   return (
     <section className="page">
-      <h1>Model Capabilities</h1>
-      <p className="muted">
-        Inspect and override context window sizes, reasoning support, vision input, and tool calling per model.
-      </p>
+      <div className="section-head" style={{ marginBottom: 16 }}>
+        <div>
+          <h1 style={{ marginBottom: 4 }}>Model Capabilities</h1>
+          <p className="muted" style={{ margin: 0 }}>
+            Inspect and override context window sizes, reasoning support, vision input, and tool calling per model.
+          </p>
+        </div>
+        <button type="button" className="btn-ghost" onClick={() => setCustomOpen(true)}>
+          <SlidersHorizontal size={14} />
+          <span>Inspect custom model ID</span>
+        </button>
+      </div>
 
       <div className="toolbar">
         <input
           type="search"
-          placeholder="Search configured models (e.g. argon, codex, glm)…"
+          placeholder="Search models (e.g. argon, codex, glm, flash)…"
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onChange={(e) => {
+            setFilter(e.target.value);
+            setPage(1);
+          }}
+          style={{ minWidth: 340 }}
         />
-        <span className="muted">{filtered.length} models</span>
+        <select
+          aria-label="Filter by provider"
+          value={providerFilter}
+          onChange={(e) => {
+            setProviderFilter(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="all">All providers ({catalog.length})</option>
+          {providers.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+        <span className="muted" style={{ marginLeft: "auto" }}>
+          {filtered.length} {filtered.length === 1 ? "model" : "models"}
+        </span>
       </div>
-
-      <form
-        className="card stack-form"
-        style={{ maxWidth: 680, marginBottom: 20 }}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void openModel(provider, modelId);
-        }}
-      >
-        <div className="two-col" style={{ gap: 12 }}>
-          <label>
-            Provider
-            <input
-              required
-              placeholder="e.g. antigravity, codex, glm"
-              value={provider}
-              onChange={(event) => setProvider(event.target.value)}
-            />
-          </label>
-          <label>
-            Model ID
-            <input
-              required
-              placeholder="e.g. gemini-4-argon-high"
-              value={modelId}
-              onChange={(event) => setModelId(event.target.value)}
-            />
-          </label>
-        </div>
-        <div className="row-actions">
-          <button type="submit" className="btn-add" disabled={loading || !provider.trim() || !modelId.trim()}>
-            <SlidersHorizontal size={14} />
-            <span>{loading ? "Loading…" : "Inspect / Override model"}</span>
-          </button>
-        </div>
-      </form>
 
       {error && (
         <p role="alert" className="bad">
@@ -235,44 +291,149 @@ export function Models() {
         </p>
       )}
 
-      {filtered.length > 0 && (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Canonical ID</th>
-                <th>Provider</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((row) => {
-                const bareId = row.id.includes("/") ? row.id.slice(row.id.indexOf("/") + 1) : row.id;
-                return (
-                  <tr key={row.id}>
-                    <td>
-                      <code>{row.id}</code>
-                    </td>
-                    <td>
-                      <span className="vendor-badge">{row.owned_by}</span>
-                    </td>
-                    <td className="row-actions">
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        disabled={loading}
-                        onClick={() => openModel(row.owned_by, bareId)}
-                      >
-                        Configure
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      {catalogLoading && <LoadingState label="Loading model catalog" />}
+
+      {!catalogLoading && filtered.length === 0 && (
+        <EmptyState
+          title="No matching models"
+          description={
+            filter || providerFilter !== "all"
+              ? "Try clearing your search or switching the provider filter."
+              : "Connect a provider to populate the model catalog."
+          }
+          action={
+            (filter || providerFilter !== "all") ? (
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  setFilter("");
+                  setProviderFilter("all");
+                  setPage(1);
+                }}
+              >
+                Reset filters
+              </button>
+            ) : undefined
+          }
+        />
       )}
+
+      {!catalogLoading && filtered.length > 0 && (
+        <>
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Canonical ID</th>
+                  <th>Provider</th>
+                  <th>Type</th>
+                  <th>Context</th>
+                  <th>Capabilities</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map((row) => {
+                  const bareId = row.id.includes("/") ? row.id.slice(row.id.indexOf("/") + 1) : row.id;
+                  const tags = extractCatalogCapabilities(row);
+                  return (
+                    <tr key={row.id}>
+                      <td>
+                        <code>{row.id}</code>
+                      </td>
+                      <td>
+                        <span className="vendor-badge">{row.owned_by}</span>
+                      </td>
+                      <td className="muted">{row.type ?? "chat"}</td>
+                      <td>
+                        <code>{formatContextTokens(row.context_length)}</code>
+                      </td>
+                      <td>
+                        {tags.length > 0 ? (
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {tags.map((t) => (
+                              <span key={t} className="vendor-badge">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td className="row-actions">
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          disabled={loading}
+                          onClick={() => openModel(row.owned_by, bareId)}
+                        >
+                          Configure
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            total={filtered.length}
+            page={pg.page}
+            pageSize={pg.pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            pageSizeOptions={[15, 20, 50, 100]}
+            itemLabel="models"
+            label="Models pagination"
+          />
+        </>
+      )}
+
+      <Modal
+        open={customOpen}
+        onOpenChange={setCustomOpen}
+        title="Inspect or override custom model ID"
+        description="Look up any provider and model ID directly, even if it is not currently listed in the active catalog."
+      >
+        <form
+          className="stack-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void openModel(provider, modelId);
+          }}
+        >
+          <div className="two-col" style={{ gap: 12 }}>
+            <label>
+              Provider
+              <input
+                required
+                placeholder="e.g. antigravity, codex, glm"
+                value={provider}
+                onChange={(event) => setProvider(event.target.value)}
+              />
+            </label>
+            <label>
+              Model ID
+              <input
+                required
+                placeholder="e.g. gemini-4-argon-high"
+                value={modelId}
+                onChange={(event) => setModelId(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="row-actions">
+            <button type="submit" className="btn-add" disabled={loading || !provider.trim() || !modelId.trim()}>
+              {loading ? "Loading…" : "Inspect model"}
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => setCustomOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal
         open={model !== null}
@@ -286,7 +447,10 @@ export function Models() {
           <ModelEditor
             key={`${model.provider}/${model.modelId}`}
             model={model}
-            onSaved={setModel}
+            onSaved={(saved) => {
+              setModel(saved);
+              loadCatalog();
+            }}
             onClose={() => setModel(null)}
           />
         )}
