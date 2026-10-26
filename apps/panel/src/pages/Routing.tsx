@@ -29,7 +29,42 @@ export function Routing() {
   const [models, setModels] = useState("");
   const [addedModel, setAddedModel] = useState("");
   const [editing, setEditing] = useState<ComboRow | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const { busy, error, run } = useAction(state.reload);
+  const locked = busy !== null || bulkBusy;
+
+  const selectedIds = rows.map((r) => r.id).filter((id) => selected.has(id));
+
+  async function bulkAction(action: "enable" | "disable" | "delete") {
+    if (locked || selectedIds.length === 0) return;
+    if (
+      action === "delete" &&
+      !window.confirm(`Delete ${selectedIds.length} selected combo${selectedIds.length === 1 ? "" : "s"} permanently?`)
+    ) {
+      return;
+    }
+    setBulkBusy(true);
+    let ok = 0;
+    let failed = 0;
+    try {
+      for (const id of selectedIds) {
+        try {
+          if (action === "delete") await api.delete(`/api/routing/combos/${encodeURIComponent(id)}`);
+          else await api.put(`/api/routing/combos/${encodeURIComponent(id)}`, { isActive: action === "enable" });
+          ok += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      if (failed === 0) toast.success(`Bulk ${action}: ${ok}/${selectedIds.length} succeeded`);
+      else toast.warning(`Bulk ${action}: ${ok} succeeded, ${failed} failed`);
+      if (action === "delete") setSelected(new Set());
+    } finally {
+      setBulkBusy(false);
+      state.reload();
+    }
+  }
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -157,9 +192,53 @@ export function Routing() {
         action={<button type="button" className="btn-add" onClick={() => setCreating(true)}>New combo</button>} />}
       {state.status === "ok" && rows.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div className="section-head" style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+            <label className="check">
+              <input
+                type="checkbox"
+                disabled={locked}
+                checked={selectedIds.length === rows.length && rows.length > 0}
+                ref={(el) => {
+                  if (el) el.indeterminate = selectedIds.length > 0 && selectedIds.length < rows.length;
+                }}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setSelected(checked ? new Set(rows.map((r) => r.id)) : new Set());
+                }}
+              />
+              Select all ({selectedIds.length}/{rows.length})
+            </label>
+            <div className="row-actions">
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={locked || selectedIds.length === 0}
+                onClick={() => void bulkAction("enable")}
+              >
+                Enable selected
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={locked || selectedIds.length === 0}
+                onClick={() => void bulkAction("disable")}
+              >
+                Disable selected
+              </button>
+              <button
+                type="button"
+                className="btn-danger"
+                disabled={locked || selectedIds.length === 0}
+                onClick={() => void bulkAction("delete")}
+              >
+                Delete selected
+              </button>
+            </div>
+          </div>
           <table className="table">
             <thead>
               <tr>
+                <th style={{ width: 36 }} />
                 <th>Name</th>
                 <th>Strategy</th>
                 <th>Chain</th>
@@ -170,6 +249,23 @@ export function Routing() {
             <tbody>
               {rows.map((r, i) => (
                 <tr key={r.id}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${r.name ?? r.id}`}
+                      disabled={locked}
+                      checked={selected.has(r.id)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setSelected((s) => {
+                          const next = new Set(s);
+                          if (checked) next.add(r.id);
+                          else next.delete(r.id);
+                          return next;
+                        });
+                      }}
+                    />
+                  </td>
                   <td>
                     <code>{r.name ?? "—"}</code>
                   </td>
@@ -183,25 +279,25 @@ export function Routing() {
                   </td>
                   <td className={r.enabled ? "ok" : "muted"}>{r.enabled ? "enabled" : "disabled"}</td>
                   <td className="row-actions">
-                    <button type="button" className="btn-ghost" disabled={busy !== null || i === 0} onClick={() => move(i, -1)} aria-label="Move up">
+                    <button type="button" className="btn-ghost" disabled={locked || i === 0} onClick={() => move(i, -1)} aria-label="Move up">
                       ↑
                     </button>
                     <button
                       type="button"
                       className="btn-ghost"
-                      disabled={busy !== null || i === rows.length - 1}
+                      disabled={locked || i === rows.length - 1}
                       onClick={() => move(i, 1)}
                       aria-label="Move down"
                     >
                       ↓
                     </button>
-                    <button type="button" className="btn-ghost" disabled={busy !== null} onClick={() => setEditing(r)}>
+                    <button type="button" className="btn-ghost" disabled={locked} onClick={() => setEditing(r)}>
                       Edit steps
                     </button>
                     <button
                       type="button"
                       className="btn-ghost"
-                      disabled={busy !== null}
+                      disabled={locked}
                       onClick={() => run(`toggle-${r.id}`, () => api.put(`/api/routing/combos/${r.id}`, { isActive: !r.enabled }))}
                     >
                       {r.enabled ? "Disable" : "Enable"}
@@ -209,7 +305,7 @@ export function Routing() {
                     <button
                       type="button"
                       className="btn-danger"
-                      disabled={busy !== null}
+                      disabled={locked}
                       onClick={async () => {
                         const out = await run(`delete-${r.id}`, () => api.delete(`/api/routing/combos/${r.id}`), `Delete combo “${r.name}”?`);
                         if (out) toast.success(`Deleted combo “${r.name}”`);

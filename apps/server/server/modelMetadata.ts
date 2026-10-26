@@ -22,16 +22,35 @@ function modelMetadata(provider: string, modelId: string) {
 
 export function createModelMetadataApi() {
   const app = new Hono<ModelMetadataEnv>();
-  // The panel's auth status is not an authentication boundary. This editor is
-  // deliberately direct-loopback only until real dashboard auth is integrated.
+  // When mounted under styx.ts, requireAuth already enforces a valid dashboard
+  // session cookie + same-origin check on writes. When invoked standalone in
+  // unit tests without a session cookie, fall back to the direct-loopback guard.
   app.use("*", async (c, next) => {
-    const peer = c.env?.peerAddress;
+    const { hasSession } = await import("./auth.ts");
+    const authed = await hasSession(c);
+    const origin = c.req.header("origin");
     const url = new URL(c.req.url);
+    const host = c.req.header("x-forwarded-host") ?? c.req.header("host") ?? url.host;
+    let originMismatch = false;
+    if (origin) {
+      try {
+        originMismatch = new URL(origin).host !== host;
+      } catch {
+        originMismatch = true;
+      }
+    }
+    if (authed) {
+      if (originMismatch || c.req.header("sec-fetch-site") === "cross-site") {
+        return c.json({ error: "Cross-origin model editing request refused." }, 403);
+      }
+      await next();
+      return;
+    }
+    const peer = c.env?.peerAddress;
     const forwarded = [...c.req.raw.headers.keys()].some(key => key === "forwarded" || key.startsWith("x-forwarded-") || key === "x-real-ip");
     const loopbackHost = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-    const origin = c.req.header("origin");
     if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(peer ?? "") || forwarded || !loopbackHost || (origin && origin !== url.origin) || c.req.header("sec-fetch-site") === "cross-site") {
-      return c.json({ error: "Model editing requires a direct loopback connection; proxied and remote requests are disabled." }, 403);
+      return c.json({ error: "Model editing requires an authenticated session or direct loopback connection." }, 403);
     }
     await next();
   });

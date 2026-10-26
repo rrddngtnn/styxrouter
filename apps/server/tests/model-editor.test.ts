@@ -34,9 +34,15 @@ test("local editor rejects spoofed and forwarded transport and validates before 
   expect((await send("127.0.0.1", {}, { provider: "codex", modelId: "gpt-5", contextWindow: null, supportsTools: null, supportsThinking: null, supportsVision: null })).status).toBe(200);
 });
 
-test("Bun transport supplies the peer and rejects proxy headers on mounted routes", async () => {
+test("Bun transport supplies the peer, rejects unauthenticated proxy headers, and allows authenticated sessions behind a reverse proxy", async () => {
   const { Hono } = await import("hono");
+  const { SignJWT } = await import("jose");
   const { createModelMetadataApi } = await import("../server/modelMetadata.ts");
+  process.env.JWT_SECRET = "test-model-editor-secret-key-32-bytes";
+  const token = await new SignJWT({ authenticated: true })
+    .setProtectedHeader({ alg: "HS256" })
+    .setExpirationTime("10m")
+    .sign(new TextEncoder().encode(process.env.JWT_SECRET));
   const app = new Hono<{ Bindings: { peerAddress?: string } }>();
   app.route("/api/model-metadata", createModelMetadataApi());
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request, server) => app.fetch(request, { peerAddress: server.requestIP(request)?.address }) });
@@ -45,6 +51,18 @@ test("Bun transport supplies the peer and rejects proxy headers on mounted route
     expect((await fetch(url)).status).toBe(200);
     expect((await fetch(url, { headers: { "X-Forwarded-Host": "remote.example" } })).status).toBe(403);
     expect((await fetch(url, { headers: { Origin: "https://remote.example" } })).status).toBe(403);
+    expect(
+      (
+        await fetch(url, {
+          headers: {
+            Cookie: `auth_token=${token}`,
+            "X-Forwarded-Host": "styx.example.com",
+            "X-Forwarded-For": "198.51.100.7",
+            Origin: "https://styx.example.com",
+          },
+        })
+      ).status,
+    ).toBe(200);
   } finally { await server.stop(true); }
 });
 

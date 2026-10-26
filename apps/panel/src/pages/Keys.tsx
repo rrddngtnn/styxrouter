@@ -28,7 +28,41 @@ export function Keys() {
   const [name, setName] = useState("");
   const [editing, setEditing] = useState<KeyRow | null>(null);
   const [secret, setSecret] = useState<{ title: string; key: string } | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const { busy, error, run } = useAction(state.reload);
+  const locked = busy !== null || bulkBusy;
+
+  const selectedIds = rows.map((r) => String(r.id)).filter((id) => selected.has(id));
+
+  async function bulkAction(action: "revoke" | "delete") {
+    if (locked || selectedIds.length === 0) return;
+    const msg =
+      action === "delete"
+        ? `Delete ${selectedIds.length} selected API key${selectedIds.length === 1 ? "" : "s"} permanently?`
+        : `Revoke ${selectedIds.length} selected API key${selectedIds.length === 1 ? "" : "s"}?`;
+    if (!window.confirm(msg)) return;
+    setBulkBusy(true);
+    let ok = 0;
+    let failed = 0;
+    try {
+      for (const id of selectedIds) {
+        try {
+          if (action === "delete") await api.delete(`/api/keys/${encodeURIComponent(id)}`);
+          else await api.post(`/api/keys/${encodeURIComponent(id)}/revoke`);
+          ok += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      if (failed === 0) toast.success(`Bulk ${action}: ${ok}/${selectedIds.length} succeeded`);
+      else toast.warning(`Bulk ${action}: ${ok} succeeded, ${failed} failed`);
+      if (action === "delete") setSelected(new Set());
+    } finally {
+      setBulkBusy(false);
+      state.reload();
+    }
+  }
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -118,9 +152,45 @@ export function Keys() {
         action={<button type="button" className="btn-add" onClick={() => setCreating(true)}>Create key</button>} />}
       {state.status === "ok" && rows.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div className="section-head" style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+            <label className="check">
+              <input
+                type="checkbox"
+                disabled={locked}
+                checked={selectedIds.length === rows.length && rows.length > 0}
+                ref={(el) => {
+                  if (el) el.indeterminate = selectedIds.length > 0 && selectedIds.length < rows.length;
+                }}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setSelected(checked ? new Set(rows.map((r) => String(r.id))) : new Set());
+                }}
+              />
+              Select all ({selectedIds.length}/{rows.length})
+            </label>
+            <div className="row-actions">
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={locked || selectedIds.length === 0}
+                onClick={() => void bulkAction("revoke")}
+              >
+                Revoke selected
+              </button>
+              <button
+                type="button"
+                className="btn-danger"
+                disabled={locked || selectedIds.length === 0}
+                onClick={() => void bulkAction("delete")}
+              >
+                Delete selected
+              </button>
+            </div>
+          </div>
           <table className="table">
             <thead>
               <tr>
+                <th style={{ width: 36 }} />
                 <th>Name</th>
                 <th>Prefix</th>
                 <th>Limits</th>
@@ -143,6 +213,23 @@ export function Keys() {
                   .join(" · ");
                 return (
                   <tr key={id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${r.name ?? id}`}
+                        disabled={locked}
+                        checked={selected.has(id)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setSelected((s) => {
+                            const next = new Set(s);
+                            if (checked) next.add(id);
+                            else next.delete(id);
+                            return next;
+                          });
+                        }}
+                      />
+                    </td>
                     <td>{r.name ?? "—"}</td>
                     <td>
                       <code>{r.prefix ?? "—"}</code>
@@ -154,13 +241,13 @@ export function Keys() {
                     <td className="row-actions">
                       {active && (
                         <>
-                          <button type="button" className="btn-ghost" disabled={busy !== null} onClick={() => setEditing(r)}>
+                          <button type="button" className="btn-ghost" disabled={locked} onClick={() => setEditing(r)}>
                             Edit
                           </button>
                           <button
                             type="button"
                             className="btn-ghost"
-                            disabled={busy !== null}
+                            disabled={locked}
                             onClick={async () => {
                               const out = await run(
                                 `regen-${id}`,
@@ -178,7 +265,7 @@ export function Keys() {
                           <button
                             type="button"
                             className="btn-ghost"
-                            disabled={busy !== null}
+                            disabled={locked}
                             onClick={async () => {
                               const out = await run(`revoke-${id}`, () => api.post(`/api/keys/${id}/revoke`), `Revoke “${r.name}”?`);
                               if (out) toast.success(`Revoked key “${r.name}”`);
@@ -191,7 +278,7 @@ export function Keys() {
                       <button
                         type="button"
                         className="btn-danger"
-                        disabled={busy !== null}
+                        disabled={locked}
                         onClick={async () => {
                           const out = await run(`delete-${id}`, () => api.delete(`/api/keys/${id}`), `Delete “${r.name}” permanently?`);
                           if (out) toast.success(`Deleted key “${r.name}”`);

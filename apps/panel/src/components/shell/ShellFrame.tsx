@@ -1,16 +1,28 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Dialog, DropdownMenu } from "@radix-ui/themes";
-import { breadcrumbs } from "./breadcrumbs.ts";
-import { Menu, X, PanelLeftClose, PanelLeftOpen, ChevronRight, UserRound } from "lucide-react";
+import { Menu, X, PanelLeftClose, PanelLeftOpen, ChevronRight, UserRound, Terminal, KeyRound, Activity as ActivityIcon } from "lucide-react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { breadcrumbs } from "./breadcrumbs.ts";
 import { navigation } from "./navigation.ts";
 import { CommandPalette } from "./CommandPalette.tsx";
+import { useFetch } from "../../lib/useFetch.ts";
+
+function formatUptime(sec?: number): string {
+  if (!sec || sec < 0) return "";
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
 
 export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logout: () => void; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
+  const ping = useFetch<{ ok: boolean; uptime_seconds?: number; version?: string }>("/api/health/ping");
   useEffect(() => setOpen(false), [location]);
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 861px)");
@@ -25,9 +37,11 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
         <div className="nav-section-label">{group}</div>
         {navigation.filter(item => item.group === group).map(({ label, to, icon: Icon }) => <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'} onClick={() => setOpen(false)}><Icon size={15} aria-hidden="true" /><span>{label}</span></NavLink>)}
       </div>)}
-
     </>;
   }
+  const crumbs = breadcrumbs(location.pathname);
+  const isOnline = ping.status === "ok" && ping.data?.ok;
+  const uptimeText = ping.status === "ok" ? formatUptime(ping.data?.uptime_seconds) : "";
   return <div className={`shell shell-responsive${collapsed ? " shell-collapsed" : ""}`}>
     <a href="#main-content" className="shell-skip">Skip to content</a>
     <nav className="sidebar shell-desktop-sidebar" aria-label="Main navigation">{links()}</nav>
@@ -41,7 +55,29 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
           </Dialog.Content>
         </Dialog.Root>
         <button type="button" className="shell-icon-button shell-collapse-trigger" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
-        <nav className="shell-breadcrumbs" aria-label="Breadcrumb">{breadcrumbs(location.pathname).map((crumb,index) => <span key={index}>{index > 0 && <ChevronRight size={12} />}{crumb.to ? <Link to={crumb.to}>{crumb.label}</Link> : <span aria-current="page">{crumb.label}</span>}</span>)}</nav>
+        {crumbs.length > 1 ? (
+          <nav className="shell-breadcrumbs" aria-label="Breadcrumb">
+            {crumbs.map((crumb, index) => (
+              <span key={index}>
+                {index > 0 && <ChevronRight size={12} />}
+                {crumb.to ? <Link to={crumb.to}>{crumb.label}</Link> : <span aria-current="page">{crumb.label}</span>}
+              </span>
+            ))}
+          </nav>
+        ) : (
+          <div className="shell-status-strip">
+            <span className={`shell-status-pill ${isOnline ? "online" : "offline"}`}>
+              <span className="shell-status-dot" />
+              <span>{isOnline ? "Gateway online" : "Checking gateway…"}</span>
+              {uptimeText ? <code className="shell-uptime">up {uptimeText}</code> : null}
+            </span>
+            <div className="shell-quick-links">
+              <Link to="/tools" className="shell-quick-link"><Terminal size={12} /><span>Connect tools</span></Link>
+              <Link to="/keys" className="shell-quick-link"><KeyRound size={12} /><span>API keys</span></Link>
+              <Link to="/activity" className="shell-quick-link"><ActivityIcon size={12} /><span>Live logs</span></Link>
+            </div>
+          </div>
+        )}
         <CommandPalette />
         <DropdownMenu.Root><DropdownMenu.Trigger><button type="button" className="shell-icon-button" aria-label="Session menu"><UserRound size={17} /></button></DropdownMenu.Trigger><DropdownMenu.Content><DropdownMenu.Label>Administrator session</DropdownMenu.Label><DropdownMenu.Item onSelect={() => navigate('/settings')}>Settings</DropdownMenu.Item><DropdownMenu.Separator /><DropdownMenu.Item color="red" onSelect={logout}>Sign out</DropdownMenu.Item></DropdownMenu.Content></DropdownMenu.Root>
       </header>

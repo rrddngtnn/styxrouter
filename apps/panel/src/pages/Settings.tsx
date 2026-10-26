@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
+import { DatabaseBackup, KeyRound, Plus, SlidersHorizontal, Trash2, Wrench } from "lucide-react";
 import { toast } from "sonner";
+import { LoadingState } from "../components/PageStates.tsx";
 import { api, type JsonValue } from "../lib/api.ts";
 import { useAction } from "../lib/actions.tsx";
+import { when } from "../lib/format.ts";
 import { useFetch } from "../lib/useFetch.ts";
 
 type SettingsBag = Record<string, unknown>;
+type SettingsTab = "runtime" | "security" | "backups" | "advanced";
 
 const FALLBACK_STRATEGIES = [
   "priority",
@@ -19,22 +23,87 @@ const FALLBACK_STRATEGIES = [
 ] as const;
 
 export function Settings() {
+  const [tab, setTab] = useState<SettingsTab>("runtime");
   const state = useFetch<SettingsBag>("/api/settings");
 
   return (
     <div className="page">
-      <h1>Settings</h1>
-      {state.status === "ok" && <RoutingAndRuntimeSettings initial={state.data} onSaved={state.reload} />}
-      <ChangePassword />
-      <MigrateFromStyxRouter />
-      <details style={{ marginTop: 24 }}>
-        <summary className="muted" style={{ cursor: "pointer" }}>
-          Raw settings JSON (read-only snapshot)
-        </summary>
-        {state.status === "loading" && <p>Loading…</p>}
-        {state.status === "error" && <p className="bad">{state.error.message}</p>}
-        {state.status === "ok" && <pre className="json">{JSON.stringify(state.data, null, 2)}</pre>}
-      </details>
+      <div className="section-head" style={{ marginBottom: 16 }}>
+        <div>
+          <h1 style={{ marginBottom: 4 }}>Settings</h1>
+          <p className="muted" style={{ margin: 0 }}>
+            Configure account failover policies, wildcard model aliases, management security, and SQLite snapshots.
+          </p>
+        </div>
+      </div>
+
+      <div className="tabs" role="tablist" aria-label="Settings sections">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "runtime"}
+          className={tab === "runtime" ? "tab active" : "tab"}
+          onClick={() => setTab("runtime")}
+        >
+          <SlidersHorizontal size={14} />
+          <span>Routing & Runtime</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "security"}
+          className={tab === "security" ? "tab active" : "tab"}
+          onClick={() => setTab("security")}
+        >
+          <KeyRound size={14} />
+          <span>Security</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "backups"}
+          className={tab === "backups" ? "tab active" : "tab"}
+          onClick={() => setTab("backups")}
+        >
+          <DatabaseBackup size={14} />
+          <span>Database Backups</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "advanced"}
+          className={tab === "advanced" ? "tab active" : "tab"}
+          onClick={() => setTab("advanced")}
+        >
+          <Wrench size={14} />
+          <span>Migration & Raw JSON</span>
+        </button>
+      </div>
+
+      {tab === "runtime" && (
+        <>
+          {state.status === "loading" && <LoadingState label="Loading runtime settings" />}
+          {state.status === "error" && <p className="bad">{state.error.message}</p>}
+          {state.status === "ok" && <RoutingAndRuntimeSettings initial={state.data} onSaved={state.reload} />}
+        </>
+      )}
+
+      {tab === "security" && <ChangePassword />}
+
+      {tab === "backups" && <DatabaseBackupsSection />}
+
+      {tab === "advanced" && (
+        <div style={{ display: "grid", gap: 20 }}>
+          <MigrateFromStyxRouter />
+          <section className="settings-card">
+            <h2>Raw settings JSON (read-only snapshot)</h2>
+            <p className="muted">Live configuration payload persisted in SQLite (`settings` table).</p>
+            {state.status === "loading" && <LoadingState label="Loading settings snapshot" />}
+            {state.status === "error" && <p className="bad">{state.error.message}</p>}
+            {state.status === "ok" && <pre className="json">{JSON.stringify(state.data, null, 2)}</pre>}
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -60,7 +129,33 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
     const arr = Array.isArray(initial.wildcardAliases) ? (initial.wildcardAliases as WildcardAlias[]) : [];
     return arr.map((a) => `${a.pattern} = ${a.target}`).join("\n");
   });
+  const [newPattern, setNewPattern] = useState("");
+  const [newTarget, setNewTarget] = useState("");
   const [savedBanner, setSavedBanner] = useState(false);
+
+  const parsedAliases = aliasesText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const eq = line.indexOf("=");
+      return eq > 0 ? { pattern: line.slice(0, eq).trim(), target: line.slice(eq + 1).trim() } : null;
+    })
+    .filter((x): x is WildcardAlias => Boolean(x && x.pattern && x.target));
+
+  function addAliasRule() {
+    const p = newPattern.trim();
+    const t = newTarget.trim();
+    if (!p || !t) return;
+    setAliasesText((cur) => (cur.trim() ? `${cur.trim()}\n${p} = ${t}` : `${p} = ${t}`));
+    setNewPattern("");
+    setNewTarget("");
+  }
+
+  function removeAliasRule(idx: number) {
+    const next = parsedAliases.filter((_, i) => i !== idx);
+    setAliasesText(next.map((a) => `${a.pattern} = ${a.target}`).join("\n"));
+  }
   const { busy, error, run } = useAction(() => {
     setSavedBanner(true);
     toast.success("Runtime settings saved");
@@ -115,102 +210,172 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
 
   return (
     <section className="settings-card">
-      <h2>Routing & runtime</h2>
-      <p className="muted">
-        Account failover strategy, retry limits, prompt-cache affinity, and wildcard model aliases (persisted in SQLite).
-      </p>
       <form className="stack-form" onSubmit={submit}>
-        <div className="two-col" style={{ gap: 12 }}>
-          <label>
-            Account fallback strategy
-            <select value={fallbackStrategy} onChange={(e) => setFallbackStrategy(e.target.value)}>
-              {FALLBACK_STRATEGIES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Combo expansion strategy
-            <select value={comboStrategy} onChange={(e) => setComboStrategy(e.target.value)}>
-              <option value="fallback">fallback (in order)</option>
-              <option value="round-robin">round-robin</option>
-            </select>
-          </label>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 24, alignItems: "start" }}>
+          <div style={{ display: "grid", gap: 14 }}>
+            <h2 style={{ margin: 0 }}>Failover & retry behavior</h2>
+            <div className="two-col" style={{ gap: 12 }}>
+              <label>
+                Account fallback strategy
+                <select value={fallbackStrategy} onChange={(e) => setFallbackStrategy(e.target.value)}>
+                  {FALLBACK_STRATEGIES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Combo expansion strategy
+                <select value={comboStrategy} onChange={(e) => setComboStrategy(e.target.value)}>
+                  <option value="fallback">fallback (in order)</option>
+                  <option value="round-robin">round-robin</option>
+                </select>
+              </label>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12, alignItems: "end" }}>
+              <label>
+                Request retries (0–10)
+                <input
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={requestRetry}
+                  onChange={(e) => setRequestRetry(Number(e.target.value))}
+                />
+              </label>
+              <label>
+                Max retry sec (0–300)
+                <input
+                  type="number"
+                  min={0}
+                  max={300}
+                  value={maxRetryIntervalSec}
+                  onChange={(e) => setMaxRetryIntervalSec(Number(e.target.value))}
+                />
+              </label>
+              <label>
+                Sticky limit (0 = off)
+                <input
+                  type="number"
+                  min={0}
+                  max={1000}
+                  value={stickyLimit}
+                  onChange={(e) => setStickyLimit(Number(e.target.value))}
+                />
+              </label>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "10px 16px", paddingTop: 4 }}>
+              <label className="check">
+                <input type="checkbox" checked={promptCacheAffinity} onChange={(e) => setPromptCacheAffinity(e.target.checked)} />
+                <span>Keep combo targets close to provider prompt cache</span>
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={disableStickiness} onChange={(e) => setDisableStickiness(e.target.checked)} />
+                <span>Disable session stickiness globally</span>
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={lkgpEnabled} onChange={(e) => setLkgpEnabled(e.target.checked)} />
+                <span>Enable Last Known Good Provider (LKGP) memory</span>
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={autoRefreshQuota} onChange={(e) => setAutoRefreshQuota(e.target.checked)} />
+                <span>Auto-refresh provider quota in background</span>
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={hideHealthLogs} onChange={(e) => setHideHealthLogs(e.target.checked)} />
+                <span>Hide health-check requests from call logs</span>
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={debugMode} onChange={(e) => setDebugMode(e.target.checked)} />
+                <span>Debug logging mode</span>
+              </label>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gap: 10 }}>
+            <h2 style={{ margin: 0 }}>Wildcard model aliases</h2>
+            <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+              Redirect matching model patterns to a canonical <code>provider/model</code> target before dispatch.
+            </p>
+            {parsedAliases.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {parsedAliases.map((a, idx) => (
+                  <span
+                    key={`${a.pattern}-${idx}`}
+                    className="vendor-badge"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px" }}
+                  >
+                    <code>{a.pattern}</code>
+                    <span className="muted">→</span>
+                    <code>{a.target}</code>
+                    <button
+                      type="button"
+                      aria-label={`Remove alias ${a.pattern}`}
+                      onClick={() => removeAliasRule(idx)}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: "var(--muted)",
+                        padding: 0,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                      }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 0.9fr) minmax(0, 1.3fr) auto", gap: 8, alignItems: "center" }}>
+              <input
+                type="text"
+                placeholder="Pattern (e.g. gpt-4o*)"
+                value={newPattern}
+                onChange={(e) => setNewPattern(e.target.value)}
+                style={{ minWidth: 0 }}
+              />
+              <input
+                type="text"
+                placeholder="Target (e.g. codex/gpt-5.3)"
+                value={newTarget}
+                onChange={(e) => setNewTarget(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addAliasRule();
+                  }
+                }}
+                style={{ minWidth: 0 }}
+              />
+              <button
+                type="button"
+                className="btn-ghost"
+                style={{ whiteSpace: "nowrap" }}
+                disabled={!newPattern.trim() || !newTarget.trim()}
+                onClick={addAliasRule}
+              >
+                <Plus size={14} />
+                <span>Add rule</span>
+              </button>
+            </div>
+            <label>
+              <span className="muted" style={{ fontSize: 11.5 }}>
+                Raw rules — one per line (<code>pattern = provider/model</code>)
+              </span>
+              <textarea
+                rows={4}
+                value={aliasesText}
+                onChange={(e) => setAliasesText(e.target.value)}
+                placeholder={"gpt-4o* = codex/gpt-5.3-codex\nclaude-sonnet* = antigravity/claude-sonnet-4-6"}
+              />
+            </label>
+          </div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
-          <label>
-            Request retries (0–10)
-            <input
-              type="number"
-              min={0}
-              max={10}
-              value={requestRetry}
-              onChange={(e) => setRequestRetry(Number(e.target.value))}
-            />
-          </label>
-          <label>
-            Max retry interval sec (0–300)
-            <input
-              type="number"
-              min={0}
-              max={300}
-              value={maxRetryIntervalSec}
-              onChange={(e) => setMaxRetryIntervalSec(Number(e.target.value))}
-            />
-          </label>
-          <label>
-            Sticky round-robin limit (0 = off)
-            <input
-              type="number"
-              min={0}
-              max={1000}
-              value={stickyLimit}
-              onChange={(e) => setStickyLimit(Number(e.target.value))}
-            />
-          </label>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "8px 16px" }}>
-          <label className="check">
-            <input type="checkbox" checked={promptCacheAffinity} onChange={(e) => setPromptCacheAffinity(e.target.checked)} />
-            <span>Keep combo targets close to provider prompt cache</span>
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={disableStickiness} onChange={(e) => setDisableStickiness(e.target.checked)} />
-            <span>Disable session stickiness globally</span>
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={lkgpEnabled} onChange={(e) => setLkgpEnabled(e.target.checked)} />
-            <span>Enable Last Known Good Provider (LKGP) memory</span>
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={autoRefreshQuota} onChange={(e) => setAutoRefreshQuota(e.target.checked)} />
-            <span>Auto-refresh provider quota in background</span>
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={hideHealthLogs} onChange={(e) => setHideHealthLogs(e.target.checked)} />
-            <span>Hide health-check requests from call logs</span>
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={debugMode} onChange={(e) => setDebugMode(e.target.checked)} />
-            <span>Debug logging mode</span>
-          </label>
-        </div>
-        <label>
-          <span>
-            Wildcard model aliases — one per line (<code>pattern = provider/model</code>)
-          </span>
-          <textarea
-            rows={3}
-            value={aliasesText}
-            onChange={(e) => setAliasesText(e.target.value)}
-            placeholder={"gpt-4o* = codex/gpt-5.3-codex\nclaude-sonnet* = antigravity/claude-sonnet-4-6"}
-          />
-        </label>
         {error && <div className="bad">{error}</div>}
         {savedBanner && <div className="ok">Settings saved.</div>}
-        <div>
+        <div style={{ paddingTop: 4, borderTop: "1px solid var(--border-subtle)" }}>
           <button type="submit" className="btn-add" disabled={busy !== null}>
             {busy === "save-settings" ? "…" : "Save settings"}
           </button>
@@ -261,6 +426,86 @@ function ChangePassword() {
           </button>
         </div>
       </form>
+    </section>
+  );
+}
+
+interface BackupRow {
+  id: string;
+  filename: string;
+  createdAt: string;
+  size: number;
+  reason: string;
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
+}
+
+function DatabaseBackupsSection() {
+  const state = useFetch<{ backups?: BackupRow[] }>("/api/backups");
+  const rows = state.status === "ok" ? state.data.backups ?? [] : [];
+  const { busy, error, run } = useAction(state.reload);
+
+  async function createSnapshot() {
+    const out = await run("backup", () => api.post<{ filename: string; size: number }>("/api/backups"));
+    if (out) {
+      toast.success(`Created backup ${out.filename} (${formatBytes(out.size)})`);
+    }
+  }
+
+  return (
+    <section className="settings-card">
+      <div className="section-head" style={{ marginBottom: 12 }}>
+        <div>
+          <h2 style={{ marginBottom: 4 }}>Database Backups</h2>
+          <p className="muted" style={{ margin: 0 }}>
+            Consistent online SQLite snapshots stored in <code>db_backups/</code>. Scheduled snapshots run daily and prune older copies automatically.
+          </p>
+        </div>
+        <button type="button" className="btn-add" disabled={busy !== null} onClick={createSnapshot}>
+          <DatabaseBackup size={14} />
+          <span>{busy === "backup" ? "Snapshotting…" : "Backup now"}</span>
+        </button>
+      </div>
+
+      {error && <p className="bad">{error}</p>}
+      {state.status === "loading" && <LoadingState label="Loading database backups" />}
+      {state.status === "error" && <p className="bad">{state.error.message}</p>}
+      {state.status === "ok" && rows.length === 0 && (
+        <p className="muted">No backups recorded yet. Click “Backup now” to take an immediate snapshot.</p>
+      )}
+      {state.status === "ok" && rows.length > 0 && (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Filename</th>
+                <th>Reason</th>
+                <th>Size</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((b) => (
+                <tr key={b.id}>
+                  <td>
+                    <code>{b.filename}</code>
+                  </td>
+                  <td>
+                    <span className="vendor-badge">{b.reason}</span>
+                  </td>
+                  <td>{formatBytes(b.size)}</td>
+                  <td className="muted">{when(b.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
