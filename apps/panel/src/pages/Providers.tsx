@@ -1,3 +1,4 @@
+import { useTranslator } from "../lib/useTranslator.ts";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, KeyRound, Layers, Link2, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
@@ -64,6 +65,7 @@ const API_TYPES = ["chat", "responses", "embeddings", "rerank", "audio-transcrip
 const blankNode = { type: "openai-compatible", name: "", prefix: "", apiType: "chat", baseUrl: "", chatPath: "", modelsPath: "" };
 
 export function Providers() {
+  const tr = useTranslator();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
   const tab: Tab = initialTab === "apikey" || initialTab === "custom" ? initialTab : "oauth";
@@ -117,12 +119,10 @@ export function Providers() {
 
   return (
     <div className="page">
-      <h1>Providers</h1>
-      <p className="muted">
-        Select any provider card to open its dedicated page — connect OAuth accounts, add or bulk-import API keys, and run bulk actions on that provider’s accounts.
-      </p>
+      <h1>{tr("Providers")}</h1>
+      <p className="muted">{tr("Select any provider card to open its dedicated page — connect OAuth accounts, add or bulk-import API keys, and run bulk actions on that provider’s accounts.")}</p>
 
-      {state.status === "loading" && <LoadingState label="Loading providers" />}
+      {state.status === "loading" && <LoadingState label={tr("Loading providers")} />}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
 
       {state.status === "ok" && (
@@ -133,37 +133,30 @@ export function Providers() {
               aria-selected={tab === "oauth"}
               className={tab === "oauth" ? "tab active" : "tab"}
               onClick={() => setTab("oauth")}
-            >
-              OAuth Logins
-              <span className="tab-count">{oauthList.length}</span>
+            >{tr("OAuth Logins")}<span className="tab-count">{oauthList.length}</span>
             </button>
             <button
               role="tab"
               aria-selected={tab === "apikey"}
               className={tab === "apikey" ? "tab active" : "tab"}
               onClick={() => setTab("apikey")}
-            >
-              API Keys
-              <span className="tab-count">{apikeyList.length}</span>
+            >{tr("API Keys")}<span className="tab-count">{apikeyList.length}</span>
             </button>
             <button
               role="tab"
               aria-selected={tab === "custom"}
               className={tab === "custom" ? "tab active" : "tab"}
               onClick={() => setTab("custom")}
-            >
-              Custom Providers
-              <span className="tab-count">{nodes.length}</span>
+            >{tr("Custom Providers")}<span className="tab-count">{nodes.length}</span>
             </button>
           </div>
 
           <div className="panel-provider-search">
-            <label>Search providers
-              <input type="search" aria-label="Search providers" placeholder="ID, name, vendor or custom prefix"
+            <label>{tr("Search providers")}<input type="search" aria-label="Search providers" placeholder={tr("ID, name, vendor or custom prefix")}
                 value={search} onChange={(event) => setSearch(event.target.value)} />
             </label>
-            {search && <button type="button" className="btn-ghost" onClick={() => setSearch("")}>Clear search</button>}
-            <small className="muted" role="status">{tab === "custom" ? filteredNodes.length : list.length} results</small>
+            {search && <button type="button" className="btn-ghost" onClick={() => setSearch("")}>{tr("Clear search")}</button>}
+            <small className="muted" role="status">{tab === "custom" ? filteredNodes.length : list.length} {tr("results")}</small>
           </div>
           {tab !== "custom" ? (
             <div className="provider-grid">
@@ -176,20 +169,17 @@ export function Providers() {
                   activeAccounts={counts[p.id]?.active ?? 0}
                 />
               ))}
-              {list.length === 0 && <EmptyState title={search.trim() ? "No matching providers" : "No providers in this category"}
-                description={search.trim() ? "Try another ID, name or vendor." : "Select another authentication category."}
+              {list.length === 0 && <EmptyState title={search.trim() ? tr("No matching providers") : tr("No providers in this category")}
+                description={search.trim() ? tr("Try another ID, name or vendor.") : tr("Select another authentication category.")}
                 action={search.trim() ? <button type="button" className="btn-ghost" onClick={() => setSearch("")}>Clear search</button> : undefined} />}
             </div>
           ) : (
             <section>
-              <p className="muted">
-                OpenAI- or Anthropic-compatible endpoints routed through their own prefix (e.g. <code>muse/model</code>).
-                Click a custom provider card to manage its endpoint and attached API keys.
-              </p>
+              <p className="muted">{tr("OpenAI- or Anthropic-compatible endpoints routed through their own prefix (e.g.")}<code>muse/model</code>{tr("). Click a custom provider card to manage its endpoint and attached API keys.")}</p>
               <div className="toolbar">
                 <button type="button" className="btn-add" onClick={() => setEditingNode("new")}>
                   <Plus size={14} />
-                  <span>New custom provider</span>
+                  <span>{tr("New custom provider")}</span>
                 </button>
               </div>
               <Modal
@@ -197,8 +187,8 @@ export function Providers() {
                 onOpenChange={(open) => {
                   if (!open) setEditingNode(null);
                 }}
-                title="New custom provider"
-                description="Register an OpenAI- or Anthropic-compatible upstream endpoint under its own routing prefix."
+                title={tr("New custom provider")}
+                description={tr("Register an OpenAI- or Anthropic-compatible upstream endpoint under its own routing prefix.")}
               >
                 <NodeForm
                   onDone={() => {
@@ -217,11 +207,11 @@ export function Providers() {
                     activeAccounts={counts[n.id]?.active ?? 0}
                   />
                 ))}
-                {nodesState.status === "loading" && <LoadingState label="Loading custom providers" />}
+                {nodesState.status === "loading" && <LoadingState label={tr("Loading custom providers")} />}
                 {nodesState.status === "error" && <p className="bad" role="alert">{nodesState.error.message}</p>}
                 {nodesState.status === "ok" && filteredNodes.length === 0 && editingNode === null && <EmptyState
-                  title={search.trim() ? "No matching custom providers" : "No custom providers"}
-                  description={search.trim() ? "Try another name, ID or prefix." : "Add an OpenAI- or Anthropic-compatible endpoint to route models through your own prefix."}
+                  title={search.trim() ? tr("No matching custom providers") : tr("No custom providers")}
+                  description={search.trim() ? tr("Try another name, ID or prefix.") : tr("Add an OpenAI- or Anthropic-compatible endpoint to route models through your own prefix.")}
                   action={search.trim() ? <button type="button" className="btn-ghost" onClick={() => setSearch("")}>Clear search</button>
                     : <button type="button" className="btn-add" onClick={() => setEditingNode("new")}>New custom provider</button>} />}
               </div>
@@ -230,7 +220,7 @@ export function Providers() {
 
           {Object.keys(vendorCounts).length > 0 && (
             <section className="vendor-summary">
-              <h3>Grouped by vendor</h3>
+              <h3>{tr("Grouped by vendor")}</h3>
               <ul className="vendor-list">
                 {Object.entries(vendorCounts)
                   .sort(([a], [b]) => a.localeCompare(b))
@@ -257,6 +247,7 @@ interface CardProps {
 }
 
 function ProviderCard({ provider, tab, accounts, activeAccounts }: CardProps) {
+  const tr = useTranslator();
   const navigate = useNavigate();
   const name = provider.name ?? provider.id;
   const vendor = provider.vendor ?? "—";
@@ -276,11 +267,11 @@ function ProviderCard({ provider, tab, accounts, activeAccounts }: CardProps) {
       <div className="provider-body">
         <div className="provider-name">{name}</div>
         <div className="provider-meta">
-          <span className={`health ${status}`}>{status === "disabled" ? "no accounts" : status}</span>
+          <span className={`health ${status}`}>{status === "disabled" ? tr("no accounts") : status}</span>
           <span className="auth-type">{tab === "oauth" ? "oauth" : tab === "apikey" ? "apikey" : provider.authType ?? "—"}</span>
           {accounts > 0 && (
-            <span className="muted" title="Accounts whose last check passed, out of all accounts for this provider">
-              {`${activeAccounts}/${accounts} active`}
+            <span className="muted" title={tr("Accounts whose last check passed, out of all accounts for this provider")}>
+              {tr("{0}/{1} active", {0: String(activeAccounts),1: String(accounts)})}
             </span>
           )}
         </div>
@@ -292,7 +283,7 @@ function ProviderCard({ provider, tab, accounts, activeAccounts }: CardProps) {
           style={{ textDecoration: "none" }}
           onClick={(e) => e.stopPropagation()}
         >
-          {accounts > 0 ? `Manage (${accounts})` : "Connect"}
+          {accounts > 0 ? tr("Manage ({0})", {0: String(accounts)}) : tr("Connect")}
         </Link>
       </footer>
     </article>
@@ -308,6 +299,7 @@ function CustomNodeCard({
   accounts: number;
   activeAccounts: number;
 }) {
+  const tr = useTranslator();
   const navigate = useNavigate();
   const status = activeAccounts > 0 ? "ok" : accounts === 0 ? "disabled" : "down";
   const href = `/providers/${encodeURIComponent(node.id)}?tab=custom`;
@@ -325,9 +317,9 @@ function CustomNodeCard({
       <div className="provider-body">
         <div className="provider-name">{node.name}</div>
         <div className="provider-meta">
-          <span className={`health ${status}`}>{status === "disabled" ? "no accounts" : status}</span>
+          <span className={`health ${status}`}>{status === "disabled" ? tr("no accounts") : status}</span>
           <span className="auth-type">{node.apiType ?? "chat"}</span>
-          <span className="muted">{accounts > 0 ? `${activeAccounts}/${accounts} active` : "0 accounts"}</span>
+          <span className="muted">{accounts > 0 ? tr("{0}/{1} active", {0: String(activeAccounts),1: String(accounts)}) : tr("0 accounts")}</span>
         </div>
         <div className="muted" style={{ fontSize: 11, wordBreak: "break-all" }}>
           {node.baseUrl ?? DASH}
@@ -340,7 +332,7 @@ function CustomNodeCard({
           style={{ textDecoration: "none" }}
           onClick={(e) => e.stopPropagation()}
         >
-          {accounts > 0 ? `Manage (${accounts})` : "Manage"}
+          {accounts > 0 ? tr("Manage ({0})", {0: String(accounts)}) : tr("Manage")}
         </Link>
       </footer>
     </article>
@@ -348,6 +340,7 @@ function CustomNodeCard({
 }
 
 function NodeForm({ node, onDone }: { node?: Node; onDone: () => void }) {
+  const tr = useTranslator();
   const editing = Boolean(node);
   const [form, setForm] = useState(
     node
@@ -386,49 +379,43 @@ function NodeForm({ node, onDone }: { node?: Node; onDone: () => void }) {
 
   return (
     <form className="stack-form" onSubmit={submit}>
-      <label>Name
-        <input value={form.name} onChange={set("name")} required maxLength={200} />
+      <label>{tr("Name")}<input value={form.name} onChange={set("name")} required maxLength={200} />
       </label>
-      <label>Wire format
-        <select value={form.type} onChange={set("type")} disabled={editing}>
-          <option value="openai-compatible">OpenAI-compatible</option>
-          <option value="anthropic-compatible">Anthropic-compatible</option>
+      <label>{tr("Wire format")}<select value={form.type} onChange={set("type")} disabled={editing}>
+          <option value="openai-compatible">{tr("OpenAI-compatible")}</option>
+          <option value="anthropic-compatible">{tr("Anthropic-compatible")}</option>
         </select>
       </label>
       {!editing && (
-        <label>Request prefix
-          <input value={form.prefix} onChange={set("prefix")} required maxLength={100} placeholder="muse" />
+        <label>{tr("Request prefix")}<input value={form.prefix} onChange={set("prefix")} required maxLength={100} placeholder="muse" />
         </label>
       )}
-      {editing && <p className="muted">Prefix <code>{form.prefix || "—"}</code> — fixed after creation.</p>}
+      {editing && <p className="muted">{tr("Prefix")}<code>{form.prefix || "—"}</code>{tr("— fixed after creation.")}</p>}
       {form.type === "openai-compatible" && (
-        <label>API type
-          <select value={form.apiType} onChange={set("apiType")}>
+        <label>{tr("API type")}<select value={form.apiType} onChange={set("apiType")}>
             {API_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </label>
       )}
-      <label>Base URL
-        <input value={form.baseUrl} onChange={set("baseUrl")} required placeholder="https://bridge.example/v1" />
+      <label>{tr("Base URL")}<input value={form.baseUrl} onChange={set("baseUrl")} required placeholder="https://bridge.example/v1" />
       </label>
-      <label>Chat path override
-        <input value={form.chatPath} onChange={set("chatPath")} placeholder="/chat/completions" />
+      <label>{tr("Chat path override")}<input value={form.chatPath} onChange={set("chatPath")} placeholder="/chat/completions" />
       </label>
-      <label>Models path override
-        <input value={form.modelsPath} onChange={set("modelsPath")} placeholder="/models" />
+      <label>{tr("Models path override")}<input value={form.modelsPath} onChange={set("modelsPath")} placeholder="/models" />
       </label>
       {error && <div className="bad">{error}</div>}
       <div className="row-actions">
         <button type="submit" className="btn-add" disabled={busy !== null || !form.name.trim() || !form.baseUrl.trim()}>
-          {busy === "save" ? "…" : editing ? "Save" : "Create"}
+          {busy === "save" ? "…" : editing ? tr("Save") : tr("Create")}
         </button>
-        <button type="button" className="btn-ghost" onClick={onDone}>Cancel</button>
+        <button type="button" className="btn-ghost" onClick={onDone}>{tr("Cancel")}</button>
       </div>
     </form>
   );
 }
 
 export function ProviderDetail() {
+  const tr = useTranslator();
   const { providerId = "" } = useParams<{ providerId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -568,8 +555,8 @@ export function ProviderDetail() {
   if (loading && !target) {
     return (
       <div className="page">
-        <p><Link to={backHref}>← All Providers</Link></p>
-        <LoadingState label="Loading provider" />
+        <p><Link to={backHref}>{tr("← All Providers")}</Link></p>
+        <LoadingState label={tr("Loading provider")} />
       </div>
     );
   }
@@ -577,9 +564,9 @@ export function ProviderDetail() {
   if (!target) {
     return (
       <div className="page">
-        <p><Link to={backHref}>← All Providers</Link></p>
-        <h1>Provider not found</h1>
-        <p className="muted">No provider or custom endpoint matches <code>{providerId}</code>.</p>
+        <p><Link to={backHref}>{tr("← All Providers")}</Link></p>
+        <h1>{tr("Provider not found")}</h1>
+        <p className="muted">{tr("No provider or custom endpoint matches")}<code>{providerId}</code>.</p>
       </div>
     );
   }
@@ -592,7 +579,7 @@ export function ProviderDetail() {
       <p style={{ marginBottom: 12 }}>
         <Link to={backHref} className="back-link">
           <ArrowLeft size={14} />
-          <span>All Providers</span>
+          <span>{tr("All Providers")}</span>
         </Link>
       </p>
 
@@ -604,11 +591,11 @@ export function ProviderDetail() {
             <span className="vendor-badge">{target.badge}</span>
           </h1>
           <div className="provider-meta" style={{ fontSize: 13 }}>
-            <span className={`health ${status}`}>{status === "disabled" ? "no accounts" : status}</span>
+            <span className={`health ${status}`}>{status === "disabled" ? tr("no accounts") : status}</span>
             <span>
               {providerAccounts.length > 0
-                ? `${activeCount}/${providerAccounts.length} active accounts`
-                : "0 accounts connected"}
+                ? tr("{0}/{1} active accounts", {0: String(activeCount),1: String(providerAccounts.length)})
+                : tr("0 accounts connected")}
             </span>
             {target.isCustomNode && target.node?.baseUrl && (
               <span className="muted">· {target.node.baseUrl}</span>
@@ -620,18 +607,18 @@ export function ProviderDetail() {
           {target.canOauth && flow?.flowType && (
             <button type="button" className="btn-add" onClick={() => setConnecting(true)}>
               <Link2 size={14} />
-              <span>Connect OAuth</span>
+              <span>{tr("Connect OAuth")}</span>
             </button>
           )}
           {target.canApiKey && (
             <>
               <button type="button" className="btn-add" onClick={() => setAddingKey(true)}>
                 <KeyRound size={14} />
-                <span>Add API key</span>
+                <span>{tr("Add API key")}</span>
               </button>
               <button type="button" className="btn-ghost" onClick={() => setBulkOpen(true)}>
                 <Layers size={14} />
-                <span>Bulk import</span>
+                <span>{tr("Bulk import")}</span>
               </button>
             </>
           )}
@@ -639,17 +626,17 @@ export function ProviderDetail() {
             <>
               <button type="button" className="btn-ghost" onClick={() => setEditingNode(true)}>
                 <Settings2 size={14} />
-                <span>Edit endpoint</span>
+                <span>{tr("Edit endpoint")}</span>
               </button>
               <button type="button" className="btn-danger" disabled={locked} onClick={deleteNode}>
                 <Trash2 size={14} />
-                <span>Delete provider</span>
+                <span>{tr("Delete provider")}</span>
               </button>
             </>
           )}
           <button type="button" className="btn-ghost" onClick={refresh}>
             <RefreshCw size={14} />
-            <span>Reload</span>
+            <span>{tr("Reload")}</span>
           </button>
         </div>
       </div>
@@ -658,8 +645,8 @@ export function ProviderDetail() {
         <Modal
           open={connecting}
           onOpenChange={setConnecting}
-          title={`Connect ${target.label} via OAuth`}
-          description="Authorize an account with the upstream provider and store its encrypted OAuth credentials."
+          title={tr("Connect {0} via OAuth", {0: String(target.label)})}
+          description={tr("Authorize an account with the upstream provider and store its encrypted OAuth credentials.")}
         >
           <OAuthConnect
             provider={providerId}
@@ -682,13 +669,11 @@ export function ProviderDetail() {
           setAddingKey(open);
           if (!open) setApiKey("");
         }}
-        title={`Add API key — ${target.label}`}
-        description="Credentials are encrypted with AES-256-GCM before being written to SQLite."
+        title={tr("Add API key — {0}", {0: String(target.label)})}
+        description={tr("Credentials are encrypted with AES-256-GCM before being written to SQLite.")}
       >
         <form className="stack-form" onSubmit={addSingleKey}>
-          <label>
-            Account label (optional)
-            <input
+          <label>{tr("Account label (optional)")}<input
               type="text"
               placeholder={`${target.label} account`}
               value={label}
@@ -696,11 +681,9 @@ export function ProviderDetail() {
               onChange={(e) => setLabel(e.target.value)}
             />
           </label>
-          <label>
-            API key / token
-            <input
+          <label>{tr("API key / token")}<input
               type="password"
-              placeholder="API key (min 8 chars)"
+              placeholder={tr("API key (min 8 chars)")}
               autoComplete="off"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
@@ -711,7 +694,7 @@ export function ProviderDetail() {
           {actionError && <div className="bad">{actionError}</div>}
           <div className="row-actions">
             <button type="submit" className="btn-add" disabled={locked || apiKey.trim().length < 8}>
-              {busy === "add-key" ? "…" : "Save key"}
+              {busy === "add-key" ? "…" : tr("Save key")}
             </button>
             <button
               type="button"
@@ -720,9 +703,7 @@ export function ProviderDetail() {
                 setAddingKey(false);
                 setApiKey("");
               }}
-            >
-              Cancel
-            </button>
+            >{tr("Cancel")}</button>
           </div>
         </form>
       </Modal>
@@ -730,8 +711,8 @@ export function ProviderDetail() {
       <Modal
         open={bulkOpen}
         onOpenChange={setBulkOpen}
-        title={`Bulk import API keys — ${target.label}`}
-        description="Paste one API key per line. Append |label to assign a custom account name."
+        title={tr("Bulk import API keys — {0}", {0: String(target.label)})}
+        description={tr("Paste one API key per line. Append |label to assign a custom account name.")}
         maxWidth="580px"
       >
         <BulkAddForProvider
@@ -747,8 +728,8 @@ export function ProviderDetail() {
         <Modal
           open={editingNode}
           onOpenChange={setEditingNode}
-          title={`Edit ${target.label} endpoint`}
-          description="Update the upstream base URL, API type, or path overrides."
+          title={tr("Edit {0} endpoint", {0: String(target.label)})}
+          description={tr("Update the upstream base URL, API type, or path overrides.")}
         >
           <NodeForm
             node={target.node}
@@ -769,16 +750,14 @@ export function ProviderDetail() {
             setNewKey("");
           }
         }}
-        title={`Rotate API key — ${rotatingAccount?.name ?? rotatingAccount?.id.slice(0, 8) ?? ""}`}
-        description="Replaces the stored key in place while keeping the account's priority, ID, and usage history."
+        title={tr("Rotate API key — {0}", {0: String(rotatingAccount?.name ?? rotatingAccount?.id.slice(0, 8) ?? "")})}
+        description={tr("Replaces the stored key in place while keeping the account's priority, ID, and usage history.")}
       >
         {rotatingAccount && (
           <form className="stack-form" onSubmit={(e) => rotate(e, rotatingAccount.id)}>
-            <label>
-              New API key
-              <input
+            <label>{tr("New API key")}<input
                 type="password"
-                placeholder="New API key (min 8 chars)"
+                placeholder={tr("New API key (min 8 chars)")}
                 value={newKey}
                 minLength={8}
                 required
@@ -790,7 +769,7 @@ export function ProviderDetail() {
             {actionError && <div className="bad">{actionError}</div>}
             <div className="row-actions">
               <button type="submit" className="btn-add" disabled={locked || newKey.trim().length < 8}>
-                {busy === `rot-${rotatingAccount.id}` ? "…" : "Rotate key"}
+                {busy === `rot-${rotatingAccount.id}` ? "…" : tr("Rotate key")}
               </button>
               <button
                 type="button"
@@ -799,9 +778,7 @@ export function ProviderDetail() {
                   setRotatingId(null);
                   setNewKey("");
                 }}
-              >
-                Cancel
-              </button>
+              >{tr("Cancel")}</button>
             </div>
           </form>
         )}
@@ -809,8 +786,7 @@ export function ProviderDetail() {
 
       <section className="accounts card" style={{ marginTop: 16 }}>
         <div className="section-head" style={{ marginBottom: 12 }}>
-          <h2 style={{ margin: 0 }}>
-            Connected accounts <span className="tab-count">{providerAccounts.length}</span>
+          <h2 style={{ margin: 0 }}>{tr("Connected accounts")}<span className="tab-count">{providerAccounts.length}</span>
           </h2>
           {providerAccounts.length > 0 && (
             <div className="toolbar" style={{ margin: 0 }}>
@@ -826,8 +802,7 @@ export function ProviderDetail() {
                     const checked = e.target.checked;
                     setSelected(checked ? new Set(providerAccounts.map((a) => a.id)) : new Set());
                   }}
-                />
-                Select all ({ids.length}/{providerAccounts.length})
+                />{tr("Select all (")}{ids.length}/{providerAccounts.length})
               </label>
               {(
                 [
@@ -867,16 +842,16 @@ export function ProviderDetail() {
         {actionError && !addingKey && <p className="bad">{actionError}</p>}
 
         {providerAccounts.length === 0 ? (
-          <EmptyState title="No connected accounts" description={`Connect an OAuth login or add an API key to ${target.label} using the actions above.`} />
+          <EmptyState title={tr("No connected accounts")} description={tr("Connect an OAuth login or add an API key to {0} using the actions above.", {0: String(target.label)})} />
         ) : (
           <table className="table">
             <thead>
               <tr>
                 <th style={{ width: 36 }} />
-                <th>Account</th>
-                <th>Auth</th>
-                <th>Status</th>
-                <th>Last result / error</th>
+                <th>{tr("Account")}</th>
+                <th>{tr("Auth")}</th>
+                <th>{tr("Status")}</th>
+                <th>{tr("Last result / error")}</th>
                 <th />
               </tr>
             </thead>
@@ -890,7 +865,7 @@ export function ProviderDetail() {
                     <td>
                       <input
                         type="checkbox"
-                        aria-label={`Select ${labelText}`}
+                        aria-label={tr("Select {0}", {0: String(labelText)})}
                         disabled={locked}
                         checked={selected.has(a.id)}
                         onChange={(e) => {
@@ -911,16 +886,14 @@ export function ProviderDetail() {
                       <span className="auth-type">{isApiKey ? "apikey" : a.authType ?? "oauth"}</span>
                     </td>
                     <td className={!a.isActive ? "muted" : failing ? "bad" : "ok"}>
-                      {!a.isActive ? "disabled" : a.testStatus ?? "unchecked"}
+                      {!a.isActive ? tr("disabled") : a.testStatus ?? tr("unchecked")}
                       {a.backoffLevel > 0 ? ` · backoff ${a.backoffLevel}` : ""}
                     </td>
                     <td className="cell-error" title={a.lastError ?? undefined}>
                       {results[a.id] ?? (a.lastError ? a.lastError.replace(/\s+/g, " ").slice(0, 80) : "")}
                     </td>
                     <td className="row-actions">
-                      <button type="button" className="btn-ghost" disabled={locked} onClick={() => test(a.id)}>
-                        Test
-                      </button>
+                      <button type="button" className="btn-ghost" disabled={locked} onClick={() => test(a.id)}>{tr("Test")}</button>
                       {isApiKey && (
                         <button
                           type="button"
@@ -930,9 +903,7 @@ export function ProviderDetail() {
                             setRotatingId(a.id);
                             setNewKey("");
                           }}
-                        >
-                          Rotate key
-                        </button>
+                        >{tr("Rotate key")}</button>
                       )}
                       {(failing || a.backoffLevel > 0) && (
                         <button
@@ -940,9 +911,7 @@ export function ProviderDetail() {
                           className="btn-ghost"
                           disabled={locked}
                           onClick={() => run(`cool-${a.id}`, () => api.post(`/api/connections/${a.id}/release-cooldown`))}
-                        >
-                          Clear error
-                        </button>
+                        >{tr("Clear error")}</button>
                       )}
                       <button
                         type="button"
@@ -950,7 +919,7 @@ export function ProviderDetail() {
                         disabled={locked}
                         onClick={() => run(`toggle-${a.id}`, () => api.patch(`/api/connections/${a.id}`, { isActive: !a.isActive }))}
                       >
-                        {a.isActive ? "Disable" : "Enable"}
+                        {a.isActive ? tr("Disable") : tr("Enable")}
                       </button>
                       <button
                         type="button"
@@ -963,9 +932,7 @@ export function ProviderDetail() {
                             `Delete account “${labelText}”? Its stored credentials are removed.`,
                           )
                         }
-                      >
-                        Delete
-                      </button>
+                      >{tr("Delete")}</button>
                     </td>
                   </tr>
                 );
@@ -995,6 +962,7 @@ function BulkAddForProvider({
   onDone: () => void;
   onClose: () => void;
 }) {
+  const tr = useTranslator();
   const [text, setText] = useState("");
   const [result, setResult] = useState<{ created: { name: string }[]; skipped: { line: string; reason: string }[] } | null>(null);
   const { busy, error, run } = useAction(() => {
@@ -1020,9 +988,7 @@ function BulkAddForProvider({
 
   return (
     <form className="stack-form" onSubmit={submit}>
-      <label>
-        Keys — one per line, <code>key|name</code> for a label
-        <textarea
+      <label>{tr("Keys — one per line,")}<code>key|name</code>{tr("for a label")}<textarea
           rows={6}
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -1039,11 +1005,9 @@ function BulkAddForProvider({
       )}
       <div className="row-actions">
         <button type="submit" className="btn-add" disabled={busy !== null || !text.trim()}>
-          {busy === "bulk" ? "…" : "Import keys"}
+          {busy === "bulk" ? "…" : tr("Import keys")}
         </button>
-        <button type="button" className="btn-ghost" onClick={onClose}>
-          Close
-        </button>
+        <button type="button" className="btn-ghost" onClick={onClose}>{tr("Close")}</button>
       </div>
     </form>
   );

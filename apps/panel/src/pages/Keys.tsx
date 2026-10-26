@@ -1,4 +1,7 @@
+import { useTranslator } from "../lib/useTranslator.ts";
 import { useState } from "react";
+import { usePreferences } from "../lib/preferences.tsx";
+import { filterKeys, visibleSelectedIds } from "../lib/table-search.ts";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { appendModelLine } from "../lib/model-selection.ts";
@@ -22,6 +25,9 @@ interface KeyRow {
 }
 
 export function Keys() {
+  const tr = useTranslator();
+  const {t} = usePreferences();
+  const [search, setSearch] = useState("");
   const state = useFetch<{ keys?: KeyRow[] }>("/api/keys");
   const rows = state.status === "ok" ? state.data.keys ?? [] : [];
   const [creating, setCreating] = useState(false);
@@ -33,7 +39,8 @@ export function Keys() {
   const { busy, error, run } = useAction(state.reload);
   const locked = busy !== null || bulkBusy;
 
-  const selectedIds = rows.map((r) => String(r.id)).filter((id) => selected.has(id));
+  const shown = filterKeys(rows, search);
+  const selectedIds = visibleSelectedIds(shown, selected);
 
   async function bulkAction(action: "revoke" | "delete") {
     if (locked || selectedIds.length === 0) return;
@@ -79,14 +86,12 @@ export function Keys() {
     <div className="page">
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
-          <h1 style={{ marginBottom: 4 }}>API Keys</h1>
-          <p className="muted" style={{ margin: 0 }}>
-            Keys that clients present as <code>Authorization: Bearer …</code> on <code>/v1</code>. Only a prefix is ever shown after creation.
-          </p>
+          <h1 style={{ marginBottom: 4 }}>{t("API Keys")}</h1>
+          <p className="muted" style={{ margin: 0 }}>{tr("Keys that clients present as")}<code>Authorization: Bearer …</code> on <code>/v1</code>{tr(". Only a prefix is ever shown after creation.")}</p>
         </div>
         <button type="button" className="btn-add" onClick={() => setCreating(true)}>
           <Plus size={14} />
-          <span>Create key</span>
+          <span>{t("Create key")}</span>
         </button>
       </div>
 
@@ -98,15 +103,13 @@ export function Keys() {
           setCreating(open);
           if (!open) setName("");
         }}
-        title="Create API key"
-        description="Issue a new Bearer token for inference clients (/v1/chat/completions, /v1/messages, /v1/responses)."
+        title={tr("Create API key")}
+        description={tr("Issue a new Bearer token for inference clients (/v1/chat/completions, /v1/messages, /v1/responses).")}
       >
         <form className="stack-form" onSubmit={create}>
-          <label>
-            Key name
-            <input
+          <label>{tr("Key name")}<input
               type="text"
-              placeholder="e.g. laptop, cursor-workstation, ci"
+              placeholder={tr("e.g. laptop, cursor-workstation, ci")}
               value={name}
               maxLength={200}
               autoFocus
@@ -120,7 +123,7 @@ export function Keys() {
               {busy === "create" ? "…" : "Create key"}
             </button>
             <button type="button" className="btn-ghost" onClick={() => setCreating(false)}>
-              Cancel
+              {t("Cancel")}
             </button>
           </div>
         </form>
@@ -131,8 +134,8 @@ export function Keys() {
         onOpenChange={(open) => {
           if (!open) setEditing(null);
         }}
-        title={`Edit API key — ${editing?.name ?? ""}`}
-        description="Configure rate limits and optional model restrictions for this key."
+        title={tr("Edit API key — {0}", {0: String(editing?.name ?? "")})}
+        description={tr("Configure rate limits and optional model restrictions for this key.")}
       >
         {editing && (
           <KeyEditor
@@ -146,27 +149,29 @@ export function Keys() {
         )}
       </Modal>
 
-      {state.status === "loading" && <LoadingState label="Loading API keys" />}
+      <div className="toolbar"><input type="search" aria-label={t("Search keys")} placeholder={t("Search keys")} value={search} onChange={e=>{setSearch(e.target.value);setSelected(new Set());}} />{search && <button type="button" className="btn-ghost" onClick={()=>{setSearch("");setSelected(new Set());}}>{t("Clear search")}</button>}<span className="muted" role="status">{shown.length} / {rows.length}</span></div>
+      {state.status === "ok" && rows.length > 0 && shown.length === 0 && <EmptyState title={t("No matching keys")} />}
+      {state.status === "loading" && <LoadingState label={tr("Loading API keys")} />}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
-      {state.status === "ok" && rows.length === 0 && <EmptyState title="No API keys" description="Create a key to authenticate clients with this router."
-        action={<button type="button" className="btn-add" onClick={() => setCreating(true)}>Create key</button>} />}
-      {state.status === "ok" && rows.length > 0 && (
+      {state.status === "ok" && rows.length === 0 && <EmptyState title={tr("No API keys")} description={tr("Create a key to authenticate clients with this router.")}
+        action={<button type="button" className="btn-add" onClick={() => setCreating(true)}>{t("Create key")}</button>} />}
+      {state.status === "ok" && shown.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <div className="section-head" style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
             <label className="check">
               <input
                 type="checkbox"
                 disabled={locked}
-                checked={selectedIds.length === rows.length && rows.length > 0}
+                checked={selectedIds.length === shown.length && shown.length > 0}
                 ref={(el) => {
-                  if (el) el.indeterminate = selectedIds.length > 0 && selectedIds.length < rows.length;
+                  if (el) el.indeterminate = selectedIds.length > 0 && selectedIds.length < shown.length;
                 }}
                 onChange={(e) => {
                   const checked = e.target.checked;
-                  setSelected(checked ? new Set(rows.map((r) => String(r.id))) : new Set());
+                  setSelected(checked ? new Set(shown.map((r) => String(r.id))) : new Set());
                 }}
               />
-              Select all ({selectedIds.length}/{rows.length})
+              {t("Select all filtered")} ({selectedIds.length}/{shown.length})
             </label>
             <div className="row-actions">
               <button
@@ -175,7 +180,7 @@ export function Keys() {
                 disabled={locked || selectedIds.length === 0}
                 onClick={() => void bulkAction("revoke")}
               >
-                Revoke selected
+                {t("Revoke selected")}
               </button>
               <button
                 type="button"
@@ -183,7 +188,7 @@ export function Keys() {
                 disabled={locked || selectedIds.length === 0}
                 onClick={() => void bulkAction("delete")}
               >
-                Delete selected
+                {t("Delete selected")}
               </button>
             </div>
           </div>
@@ -191,17 +196,17 @@ export function Keys() {
             <thead>
               <tr>
                 <th style={{ width: 36 }} />
-                <th>Name</th>
-                <th>Prefix</th>
-                <th>Limits</th>
-                <th>Created</th>
-                <th>Last used</th>
-                <th>Status</th>
+                <th>{t("Name")}</th>
+                <th>{t("Prefix")}</th>
+                <th>{t("Limits")}</th>
+                <th>{t("Created")}</th>
+                <th>{t("Last used")}</th>
+                <th>{t("Status")}</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {shown.map((r) => {
                 const id = String(r.id);
                 const active = r.isActive !== false;
                 const limits = [
@@ -216,7 +221,7 @@ export function Keys() {
                     <td>
                       <input
                         type="checkbox"
-                        aria-label={`Select ${r.name ?? id}`}
+                        aria-label={tr("Select {0}", {0: String(r.name ?? id)})}
                         disabled={locked}
                         checked={selected.has(id)}
                         onChange={(e) => {
@@ -234,15 +239,15 @@ export function Keys() {
                     <td>
                       <code>{r.prefix ?? "—"}</code>
                     </td>
-                    <td className="muted">{limits || "unrestricted"}</td>
+                    <td className="muted">{limits || tr("unrestricted")}</td>
                     <td className="muted">{r.createdAt?.slice(0, 10) ?? "—"}</td>
-                    <td className="muted">{r.lastUsedAt?.slice(0, 10) ?? "never"}</td>
-                    <td className={active ? "ok" : "bad"}>{active ? "active" : "revoked"}</td>
+                    <td className="muted">{r.lastUsedAt?.slice(0, 10) ?? tr("never")}</td>
+                    <td className={active ? "ok" : "bad"}>{active ? tr("active") : tr("revoked")}</td>
                     <td className="row-actions">
                       {active && (
                         <>
                           <button type="button" className="btn-ghost" disabled={locked} onClick={() => setEditing(r)}>
-                            Edit
+                            {t("Edit")}
                           </button>
                           <button
                             type="button"
@@ -260,7 +265,7 @@ export function Keys() {
                               }
                             }}
                           >
-                            Regenerate
+                            {t("Regenerate")}
                           </button>
                           <button
                             type="button"
@@ -271,7 +276,7 @@ export function Keys() {
                               if (out) toast.success(`Revoked key “${r.name}”`);
                             }}
                           >
-                            Revoke
+                            {t("Revoke")}
                           </button>
                         </>
                       )}
@@ -284,7 +289,7 @@ export function Keys() {
                           if (out) toast.success(`Deleted key “${r.name}”`);
                         }}
                       >
-                        Delete
+                        {t("Delete")}
                       </button>
                     </td>
                   </tr>
@@ -301,6 +306,8 @@ export function Keys() {
 const toLimit = (v: string) => (v.trim() === "" ? null : Number(v));
 
 function KeyEditor({ row, onSaved, onClose }: { row: KeyRow; onSaved: () => void; onClose: () => void }) {
+  const tr = useTranslator();
+  const { t } = usePreferences();
   const [name, setName] = useState(row.name ?? "");
   const [perDay, setPerDay] = useState(row.maxRequestsPerDay ? String(row.maxRequestsPerDay) : "");
   const [perMinute, setPerMinute] = useState(row.maxRequestsPerMinute ? String(row.maxRequestsPerMinute) : "");
@@ -324,21 +331,17 @@ function KeyEditor({ row, onSaved, onClose }: { row: KeyRow; onSaved: () => void
   return (
     <form className="stack-form" onSubmit={save}>
       <label>
-        Name
+        {t("Name")}
         <input type="text" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} required />
       </label>
       <div className="two-col" style={{ gap: 12 }}>
-        <label>
-          Max requests / day
-          <input type="number" min={1} step={1} placeholder="unlimited" value={perDay} onChange={(e) => setPerDay(e.target.value)} />
+        <label>{tr("Max requests / day")}<input type="number" min={1} step={1} placeholder={tr("unlimited")} value={perDay} onChange={(e) => setPerDay(e.target.value)} />
         </label>
-        <label>
-          Max requests / minute
-          <input type="number" min={1} step={1} placeholder="unlimited" value={perMinute} onChange={(e) => setPerMinute(e.target.value)} />
+        <label>{tr("Max requests / minute")}<input type="number" min={1} step={1} placeholder={tr("unlimited")} value={perMinute} onChange={(e) => setPerMinute(e.target.value)} />
         </label>
       </div>
       <div className="inline-form" style={{ alignItems: "start" }}>
-        <ModelPicker label="Find allowed model" value={addedModel} onChange={setAddedModel} onKeyDown={(event) => {
+        <ModelPicker label={tr("Find allowed model")} value={addedModel} onChange={setAddedModel} onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
             if (addedModel.trim()) {
@@ -350,19 +353,17 @@ function KeyEditor({ row, onSaved, onClose }: { row: KeyRow; onSaved: () => void
         <button type="button" className="btn-ghost" disabled={!addedModel.trim()} onClick={() => {
           setModels((current) => appendModelLine(current, addedModel, true));
           setAddedModel("");
-        }}>Add model</button>
+        }}>{t("Add model")}</button>
       </div>
-      <label>
-        Allowed models (one per line, empty = all models)
-        <textarea rows={4} placeholder={"antigravity/gemini-4-argon-high\nglm/glm-5.3-flash"} value={models} onChange={(e) => setModels(e.target.value)} />
+      <label>{tr("Allowed models (one per line, empty = all models)")}<textarea rows={4} placeholder={"antigravity/gemini-4-argon-high\nglm/glm-5.3-flash"} value={models} onChange={(e) => setModels(e.target.value)} />
       </label>
       {error && <p className="bad">{error}</p>}
       <div className="row-actions">
         <button type="submit" className="btn-add" disabled={busy !== null || !name.trim()}>
-          {busy ? "…" : "Save changes"}
+          {busy ? "…" : tr("Save changes")}
         </button>
         <button type="button" className="btn-ghost" onClick={onClose}>
-          Cancel
+          {t("Cancel")}
         </button>
       </div>
     </form>

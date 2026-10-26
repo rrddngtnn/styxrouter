@@ -1,4 +1,7 @@
+import { useTranslator } from "../lib/useTranslator.ts";
 import { useState } from "react";
+import { usePreferences } from "../lib/preferences.tsx";
+import { filterCombos, visibleSelectedIds } from "../lib/table-search.ts";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { appendModelLine } from "../lib/model-selection.ts";
@@ -22,6 +25,9 @@ interface ComboRow {
 }
 
 export function Routing() {
+  const tr = useTranslator();
+  const {t} = usePreferences();
+  const [search, setSearch] = useState("");
   const state = useFetch<{ combos?: ComboRow[] }>("/api/routing/combos");
   const rows = state.status === "ok" ? state.data.combos ?? [] : [];
   const [creating, setCreating] = useState(false);
@@ -34,7 +40,8 @@ export function Routing() {
   const { busy, error, run } = useAction(state.reload);
   const locked = busy !== null || bulkBusy;
 
-  const selectedIds = rows.map((r) => r.id).filter((id) => selected.has(id));
+  const shown = filterCombos(rows, search);
+  const selectedIds = visibleSelectedIds(shown, selected);
 
   async function bulkAction(action: "enable" | "disable" | "delete") {
     if (locked || selectedIds.length === 0) return;
@@ -91,14 +98,12 @@ export function Routing() {
     <div className="page">
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
-          <h1 style={{ marginBottom: 4 }}>Routing Combos</h1>
-          <p className="muted" style={{ margin: 0 }}>
-            A combo is a named fallback chain of models tried in order; clients call it by name as the model ID.
-          </p>
+          <h1 style={{ marginBottom: 4 }}>{t("Routing Combos")}</h1>
+          <p className="muted" style={{ margin: 0 }}>{tr("A combo is a named fallback chain of models tried in order; clients call it by name as the model ID.")}</p>
         </div>
         <button type="button" className="btn-add" onClick={() => setCreating(true)}>
           <Plus size={14} />
-          <span>New combo</span>
+          <span>{t("New combo")}</span>
         </button>
       </div>
 
@@ -112,15 +117,13 @@ export function Routing() {
             setAddedModel("");
           }
         }}
-        title="Create routing combo"
-        description="Define a virtual model name and the ordered list of provider/model targets to try on fallback."
+        title={tr("Create routing combo")}
+        description={tr("Define a virtual model name and the ordered list of provider/model targets to try on fallback.")}
       >
         <form className="stack-form" onSubmit={create}>
-          <label>
-            Combo name
-            <input
+          <label>{tr("Combo name")}<input
               type="text"
-              placeholder="e.g. coding-primary, fast-fallback"
+              placeholder={tr("e.g. coding-primary, fast-fallback")}
               value={name}
               maxLength={100}
               autoFocus
@@ -129,7 +132,7 @@ export function Routing() {
             />
           </label>
           <div className="inline-form" style={{ alignItems: "start" }}>
-            <ModelPicker label="Find target model" value={addedModel} onChange={setAddedModel} onKeyDown={(event) => {
+            <ModelPicker label={tr("Find target model")} value={addedModel} onChange={setAddedModel} onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
                 if (addedModel.trim()) {
@@ -141,11 +144,9 @@ export function Routing() {
             <button type="button" className="btn-ghost" disabled={!addedModel.trim()} onClick={() => {
               setModels((current) => appendModelLine(current, addedModel));
               setAddedModel("");
-            }}>Add target</button>
+            }}>{t("Add target")}</button>
           </div>
-          <label>
-            Target models (one per line, in fallback order)
-            <textarea
+          <label>{tr("Target models (one per line, in fallback order)")}<textarea
               placeholder={"antigravity/gemini-4-argon-high\ncodex/gpt-5.3-codex\nglm/glm-5.3"}
               rows={5}
               value={models}
@@ -156,10 +157,10 @@ export function Routing() {
           {error && <p className="bad">{error}</p>}
           <div className="row-actions">
             <button type="submit" className="btn-add" disabled={busy !== null || !name.trim() || !models.trim()}>
-              {busy === "create" ? "…" : "Create combo"}
+              {busy === "create" ? "…" : tr("Create combo")}
             </button>
             <button type="button" className="btn-ghost" onClick={() => setCreating(false)}>
-              Cancel
+              {t("Cancel")}
             </button>
           </div>
         </form>
@@ -170,8 +171,8 @@ export function Routing() {
         onOpenChange={(open) => {
           if (!open) setEditing(null);
         }}
-        title={`Edit combo steps — ${editing?.name ?? ""}`}
-        description="Reorder, remove, or append fallback targets for this combo."
+        title={tr("Edit combo steps — {0}", {0: String(editing?.name ?? "")})}
+        description={tr("Reorder, remove, or append fallback targets for this combo.")}
         maxWidth="560px"
       >
         {editing && (
@@ -186,27 +187,29 @@ export function Routing() {
         )}
       </Modal>
 
-      {state.status === "loading" && <LoadingState label="Loading routing combos" />}
+      <div className="toolbar"><input type="search" aria-label={t("Search routing combos")} placeholder={t("Search routing combos")} value={search} onChange={e=>{setSearch(e.target.value);setSelected(new Set());}} />{search && <button type="button" className="btn-ghost" onClick={()=>{setSearch("");setSelected(new Set());}}>{t("Clear search")}</button>}<span className="muted" role="status">{shown.length} / {rows.length}</span></div>
+      {state.status === "ok" && rows.length > 0 && shown.length === 0 && <EmptyState title={t("No matching combos")} />}
+      {state.status === "loading" && <LoadingState label={tr("Loading routing combos")} />}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
-      {state.status === "ok" && rows.length === 0 && <EmptyState title="No routing combos" description="Create an ordered fallback chain for clients to call by name."
-        action={<button type="button" className="btn-add" onClick={() => setCreating(true)}>New combo</button>} />}
-      {state.status === "ok" && rows.length > 0 && (
+      {state.status === "ok" && rows.length === 0 && <EmptyState title={tr("No routing combos")} description={tr("Create an ordered fallback chain for clients to call by name.")}
+        action={<button type="button" className="btn-add" onClick={() => setCreating(true)}>{t("New combo")}</button>} />}
+      {state.status === "ok" && shown.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <div className="section-head" style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
             <label className="check">
               <input
                 type="checkbox"
                 disabled={locked}
-                checked={selectedIds.length === rows.length && rows.length > 0}
+                checked={selectedIds.length === shown.length && shown.length > 0}
                 ref={(el) => {
-                  if (el) el.indeterminate = selectedIds.length > 0 && selectedIds.length < rows.length;
+                  if (el) el.indeterminate = selectedIds.length > 0 && selectedIds.length < shown.length;
                 }}
                 onChange={(e) => {
                   const checked = e.target.checked;
-                  setSelected(checked ? new Set(rows.map((r) => r.id)) : new Set());
+                  setSelected(checked ? new Set(shown.map((r) => r.id)) : new Set());
                 }}
               />
-              Select all ({selectedIds.length}/{rows.length})
+              {t("Select all filtered")} ({selectedIds.length}/{shown.length})
             </label>
             <div className="row-actions">
               <button
@@ -215,7 +218,7 @@ export function Routing() {
                 disabled={locked || selectedIds.length === 0}
                 onClick={() => void bulkAction("enable")}
               >
-                Enable selected
+                {t("Enable selected")}
               </button>
               <button
                 type="button"
@@ -223,7 +226,7 @@ export function Routing() {
                 disabled={locked || selectedIds.length === 0}
                 onClick={() => void bulkAction("disable")}
               >
-                Disable selected
+                {t("Disable selected")}
               </button>
               <button
                 type="button"
@@ -231,7 +234,7 @@ export function Routing() {
                 disabled={locked || selectedIds.length === 0}
                 onClick={() => void bulkAction("delete")}
               >
-                Delete selected
+                {t("Delete selected")}
               </button>
             </div>
           </div>
@@ -239,20 +242,20 @@ export function Routing() {
             <thead>
               <tr>
                 <th style={{ width: 36 }} />
-                <th>Name</th>
-                <th>Strategy</th>
-                <th>Chain</th>
-                <th>Status</th>
+                <th>{t("Name")}</th>
+                <th>{t("Strategy")}</th>
+                <th>{t("Chain")}</th>
+                <th>{t("Status")}</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
+              {shown.map((r) => { const i = rows.indexOf(r); return (
                 <tr key={r.id}>
                   <td>
                     <input
                       type="checkbox"
-                      aria-label={`Select ${r.name ?? r.id}`}
+                      aria-label={tr("Select {0}", {0: String(r.name ?? r.id)})}
                       disabled={locked}
                       checked={selected.has(r.id)}
                       onChange={(e) => {
@@ -277,22 +280,22 @@ export function Routing() {
                       {(r.models?.length ?? 0) > 3 ? " …" : ""}
                     </span>
                   </td>
-                  <td className={r.enabled ? "ok" : "muted"}>{r.enabled ? "enabled" : "disabled"}</td>
+                  <td className={r.enabled ? "ok" : "muted"}>{r.enabled ? tr("enabled") : tr("disabled")}</td>
                   <td className="row-actions">
-                    <button type="button" className="btn-ghost" disabled={locked || i === 0} onClick={() => move(i, -1)} aria-label="Move up">
+                    <button type="button" className="btn-ghost" disabled={locked || rows.indexOf(r) === 0} onClick={() => move(i, -1)} aria-label={tr("Move up")}>
                       ↑
                     </button>
                     <button
                       type="button"
                       className="btn-ghost"
-                      disabled={locked || i === rows.length - 1}
+                      disabled={locked || rows.indexOf(r) === rows.length - 1}
                       onClick={() => move(i, 1)}
-                      aria-label="Move down"
+                      aria-label={tr("Move down")}
                     >
                       ↓
                     </button>
                     <button type="button" className="btn-ghost" disabled={locked} onClick={() => setEditing(r)}>
-                      Edit steps
+                      {t("Edit steps")}
                     </button>
                     <button
                       type="button"
@@ -300,7 +303,7 @@ export function Routing() {
                       disabled={locked}
                       onClick={() => run(`toggle-${r.id}`, () => api.put(`/api/routing/combos/${r.id}`, { isActive: !r.enabled }))}
                     >
-                      {r.enabled ? "Disable" : "Enable"}
+                      {r.enabled ? tr("Disable") : tr("Enable")}
                     </button>
                     <button
                       type="button"
@@ -311,11 +314,11 @@ export function Routing() {
                         if (out) toast.success(`Deleted combo “${r.name}”`);
                       }}
                     >
-                      Delete
+                      {t("Delete")}
                     </button>
                   </td>
                 </tr>
-              ))}
+              );})}
             </tbody>
           </table>
         </div>
@@ -325,6 +328,8 @@ export function Routing() {
 }
 
 function StepsEditor({ row, onSaved, onClose }: { row: ComboRow; onSaved: () => void; onClose: () => void }) {
+  const tr = useTranslator();
+  const { t } = usePreferences();
   const [steps, setSteps] = useState<Step[]>(row.models ?? []);
   const [added, setAdded] = useState("");
   const { busy, error, run } = useAction(onSaved);
@@ -354,14 +359,14 @@ function StepsEditor({ row, onSaved, onClose }: { row: ComboRow; onSaved: () => 
           <li key={`${i}-${stepLabel(s)}`}>
             <code>{stepLabel(s)}</code>
             <span className="row-actions">
-              <button type="button" className="btn-ghost" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move step up">
+              <button type="button" className="btn-ghost" disabled={i === 0} onClick={() => move(i, -1)} aria-label={tr("Move step up")}>
                 ↑
               </button>
-              <button type="button" className="btn-ghost" disabled={i === steps.length - 1} onClick={() => move(i, 1)} aria-label="Move step down">
+              <button type="button" className="btn-ghost" disabled={i === steps.length - 1} onClick={() => move(i, 1)} aria-label={tr("Move step down")}>
                 ↓
               </button>
               <button type="button" className="btn-danger" disabled={steps.length === 1} onClick={() => setSteps((cur) => cur.filter((_, j) => j !== i))}>
-                Remove
+                {t("Remove")}
               </button>
             </span>
           </li>
@@ -369,7 +374,7 @@ function StepsEditor({ row, onSaved, onClose }: { row: ComboRow; onSaved: () => 
       </ol>
       <div className="inline-form" style={{ maxWidth: "100%" }}>
         <ModelPicker
-          label="Add fallback target"
+          label={tr("Add fallback target")}
           value={added}
           onChange={setAdded}
           onKeyDown={(e) => {
@@ -380,7 +385,7 @@ function StepsEditor({ row, onSaved, onClose }: { row: ComboRow; onSaved: () => 
           }}
         />
         <button type="button" className="btn-ghost" disabled={!added.trim()} onClick={add}>
-          Add step
+          {t("Add step")}
         </button>
       </div>
       {error && <p className="bad">{error}</p>}
@@ -389,7 +394,7 @@ function StepsEditor({ row, onSaved, onClose }: { row: ComboRow; onSaved: () => 
           {busy ? "…" : "Save steps"}
         </button>
         <button type="button" className="btn-ghost" onClick={onClose}>
-          Cancel
+          {t("Cancel")}
         </button>
       </div>
     </div>

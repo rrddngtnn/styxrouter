@@ -1,3 +1,4 @@
+import { useTranslator } from "../lib/useTranslator.ts";
 import { useEffect, useState } from "react";
 import { DatabaseBackup, KeyRound, Plus, SlidersHorizontal, Trash2, Wrench } from "lucide-react";
 import { toast } from "sonner";
@@ -6,6 +7,8 @@ import { api, type JsonValue } from "../lib/api.ts";
 import { useAction } from "../lib/actions.tsx";
 import { when } from "../lib/format.ts";
 import { useFetch } from "../lib/useFetch.ts";
+import { usePreferences } from "../lib/preferences.tsx";
+import { AdvancedSettings } from "../components/settings/AdvancedSettings.tsx";
 
 type SettingsBag = Record<string, unknown>;
 type SettingsTab = "runtime" | "security" | "backups" | "advanced";
@@ -23,6 +26,8 @@ const FALLBACK_STRATEGIES = [
 ] as const;
 
 export function Settings() {
+  const tr = useTranslator();
+  const { t, language, setLanguage, theme, setTheme } = usePreferences();
   const [tab, setTab] = useState<SettingsTab>("runtime");
   const state = useFetch<SettingsBag>("/api/settings");
 
@@ -30,14 +35,16 @@ export function Settings() {
     <div className="page">
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
-          <h1 style={{ marginBottom: 4 }}>Settings</h1>
-          <p className="muted" style={{ margin: 0 }}>
-            Configure account failover policies, wildcard model aliases, management security, and SQLite snapshots.
-          </p>
+          <h1 style={{ marginBottom: 4 }}>{t("Settings")}</h1>
+          <p className="muted" style={{ margin: 0 }}>{tr("Configure account failover policies, wildcard model aliases, management security, and SQLite snapshots.")}</p>
         </div>
       </div>
 
-      <div className="tabs" role="tablist" aria-label="Settings sections">
+      <section className="settings-personal" aria-label={t("Appearance")}>
+        <label>{t("Language")}<select value={language} onChange={e => setLanguage(e.target.value as "en" | "id")}><option value="en">English</option><option value="id">Bahasa Indonesia</option></select></label>
+        <label>{t("Appearance")}<select value={theme} onChange={e => setTheme(e.target.value as "system" | "dark" | "light")}><option value="system">{t("System theme")}</option><option value="dark">{t("Dark")}</option><option value="light">{t("Light")}</option></select></label>
+      </section>
+      <div className="tabs" role="tablist" aria-label={tr("Settings sections")}>
         <button
           type="button"
           role="tab"
@@ -46,7 +53,7 @@ export function Settings() {
           onClick={() => setTab("runtime")}
         >
           <SlidersHorizontal size={14} />
-          <span>Routing & Runtime</span>
+          <span>{t("Routing & Runtime")}</span>
         </button>
         <button
           type="button"
@@ -56,7 +63,7 @@ export function Settings() {
           onClick={() => setTab("security")}
         >
           <KeyRound size={14} />
-          <span>Security</span>
+          <span>{t("Security")}</span>
         </button>
         <button
           type="button"
@@ -66,7 +73,7 @@ export function Settings() {
           onClick={() => setTab("backups")}
         >
           <DatabaseBackup size={14} />
-          <span>Database Backups</span>
+          <span>{t("Database Backups")}</span>
         </button>
         <button
           type="button"
@@ -76,13 +83,13 @@ export function Settings() {
           onClick={() => setTab("advanced")}
         >
           <Wrench size={14} />
-          <span>Migration & Raw JSON</span>
+          <span>{t("Advanced")}</span>
         </button>
       </div>
 
       {tab === "runtime" && (
         <>
-          {state.status === "loading" && <LoadingState label="Loading runtime settings" />}
+          {state.status === "loading" && <LoadingState label={tr("Loading runtime settings")} />}
           {state.status === "error" && <p className="bad">{state.error.message}</p>}
           {state.status === "ok" && <RoutingAndRuntimeSettings initial={state.data} onSaved={state.reload} />}
         </>
@@ -92,18 +99,7 @@ export function Settings() {
 
       {tab === "backups" && <DatabaseBackupsSection />}
 
-      {tab === "advanced" && (
-        <div style={{ display: "grid", gap: 20 }}>
-          <MigrateFromStyxRouter />
-          <section className="settings-card">
-            <h2>Raw settings JSON (read-only snapshot)</h2>
-            <p className="muted">Live configuration payload persisted in SQLite (`settings` table).</p>
-            {state.status === "loading" && <LoadingState label="Loading settings snapshot" />}
-            {state.status === "error" && <p className="bad">{state.error.message}</p>}
-            {state.status === "ok" && <pre className="json">{JSON.stringify(state.data, null, 2)}</pre>}
-          </section>
-        </div>
-      )}
+      {tab === "advanced" && <AdvancedSettings settings={state.status === "ok" ? state.data : {}} loading={state.status === "loading"} error={state.status === "error" ? state.error.message : undefined} />}
     </div>
   );
 }
@@ -114,6 +110,8 @@ interface WildcardAlias {
 }
 
 function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag; onSaved: () => void }) {
+  const tr = useTranslator();
+  const { t } = usePreferences();
   const [fallbackStrategy, setFallbackStrategy] = useState<string>(String(initial.fallbackStrategy ?? "priority"));
   const [comboStrategy, setComboStrategy] = useState<string>(String(initial.comboStrategy ?? "fallback"));
   const [requestRetry, setRequestRetry] = useState<number>(Number(initial.requestRetry ?? 2));
@@ -186,7 +184,7 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
       const line = raw.trim();
       if (!line) continue;
       const eq = line.indexOf("=");
-      if (eq <= 0) continue;
+      if (eq <= 0 || !line.slice(eq + 1).trim()) { toast.error(t("Invalid alias rule") + ": " + line); return; }
       const pattern = line.slice(0, eq).trim();
       const target = line.slice(eq + 1).trim();
       if (pattern && target) wildcardAliases.push({ pattern, target });
@@ -211,12 +209,12 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
   return (
     <section className="settings-card">
       <form className="stack-form" onSubmit={submit}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 24, alignItems: "start" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))", gap: 24, alignItems: "start" }}>
           <div style={{ display: "grid", gap: 14 }}>
-            <h2 style={{ margin: 0 }}>Failover & retry behavior</h2>
+            <h2 style={{ margin: 0 }}>{t("Failover & retry behavior")}</h2>
             <div className="two-col" style={{ gap: 12 }}>
               <label>
-                Account fallback strategy
+                {t("Account fallback strategy")}
                 <select value={fallbackStrategy} onChange={(e) => setFallbackStrategy(e.target.value)}>
                   {FALLBACK_STRATEGIES.map((s) => (
                     <option key={s} value={s}>
@@ -226,7 +224,7 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
                 </select>
               </label>
               <label>
-                Combo expansion strategy
+                {t("Combo expansion strategy")}
                 <select value={comboStrategy} onChange={(e) => setComboStrategy(e.target.value)}>
                   <option value="fallback">fallback (in order)</option>
                   <option value="round-robin">round-robin</option>
@@ -235,7 +233,7 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12, alignItems: "end" }}>
               <label>
-                Request retries (0–10)
+                {t("Request retries (0\u201310)")}
                 <input
                   type="number"
                   min={0}
@@ -245,7 +243,7 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
                 />
               </label>
               <label>
-                Max retry sec (0–300)
+                {t("Max retry sec (0\u2013300)")}
                 <input
                   type="number"
                   min={0}
@@ -255,7 +253,7 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
                 />
               </label>
               <label>
-                Sticky limit (0 = off)
+                {t("Sticky limit (0 = off)")}
                 <input
                   type="number"
                   min={0}
@@ -268,36 +266,34 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "10px 16px", paddingTop: 4 }}>
               <label className="check">
                 <input type="checkbox" checked={promptCacheAffinity} onChange={(e) => setPromptCacheAffinity(e.target.checked)} />
-                <span>Keep combo targets close to provider prompt cache</span>
+                <span>{tr("Keep combo targets close to provider prompt cache")}</span>
               </label>
               <label className="check">
                 <input type="checkbox" checked={disableStickiness} onChange={(e) => setDisableStickiness(e.target.checked)} />
-                <span>Disable session stickiness globally</span>
+                <span>{tr("Disable session stickiness globally")}</span>
               </label>
               <label className="check">
                 <input type="checkbox" checked={lkgpEnabled} onChange={(e) => setLkgpEnabled(e.target.checked)} />
-                <span>Enable Last Known Good Provider (LKGP) memory</span>
+                <span>{tr("Enable Last Known Good Provider (LKGP) memory")}</span>
               </label>
               <label className="check">
                 <input type="checkbox" checked={autoRefreshQuota} onChange={(e) => setAutoRefreshQuota(e.target.checked)} />
-                <span>Auto-refresh provider quota in background</span>
+                <span>{tr("Auto-refresh provider quota in background")}</span>
               </label>
               <label className="check">
                 <input type="checkbox" checked={hideHealthLogs} onChange={(e) => setHideHealthLogs(e.target.checked)} />
-                <span>Hide health-check requests from call logs</span>
+                <span>{tr("Hide health-check requests from call logs")}</span>
               </label>
               <label className="check">
                 <input type="checkbox" checked={debugMode} onChange={(e) => setDebugMode(e.target.checked)} />
-                <span>Debug logging mode</span>
+                <span>{tr("Debug logging mode")}</span>
               </label>
             </div>
           </div>
 
           <div style={{ display: "grid", gap: 10 }}>
-            <h2 style={{ margin: 0 }}>Wildcard model aliases</h2>
-            <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
-              Redirect matching model patterns to a canonical <code>provider/model</code> target before dispatch.
-            </p>
+            <h2 style={{ margin: 0 }}>{t("Wildcard model aliases")}</h2>
+            <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>{tr("Redirect matching model patterns to a canonical")}<code>provider/model</code>{tr("target before dispatch.")}</p>
             {parsedAliases.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {parsedAliases.map((a, idx) => (
@@ -311,7 +307,7 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
                     <code>{a.target}</code>
                     <button
                       type="button"
-                      aria-label={`Remove alias ${a.pattern}`}
+                      aria-label={tr("Remove alias {0}", {0: String(a.pattern)})}
                       onClick={() => removeAliasRule(idx)}
                       style={{
                         background: "transparent",
@@ -328,17 +324,17 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
                 ))}
               </div>
             )}
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 0.9fr) minmax(0, 1.3fr) auto", gap: 8, alignItems: "center" }}>
+            <div className="settings-alias-builder">
               <input
                 type="text"
-                placeholder="Pattern (e.g. gpt-4o*)"
+                placeholder={tr("Pattern")} aria-label={tr("Alias pattern")}
                 value={newPattern}
                 onChange={(e) => setNewPattern(e.target.value)}
                 style={{ minWidth: 0 }}
               />
               <input
                 type="text"
-                placeholder="Target (e.g. codex/gpt-5.3)"
+                placeholder="provider/model" aria-label={tr("Alias target")}
                 value={newTarget}
                 onChange={(e) => setNewTarget(e.target.value)}
                 onKeyDown={(e) => {
@@ -357,12 +353,11 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
                 onClick={addAliasRule}
               >
                 <Plus size={14} />
-                <span>Add rule</span>
+                <span>{t("Add rule")}</span>
               </button>
             </div>
             <label>
-              <span className="muted" style={{ fontSize: 11.5 }}>
-                Raw rules — one per line (<code>pattern = provider/model</code>)
+              <span className="muted" style={{ fontSize: 11.5 }}>{tr("Raw rules — one per line (")}<code>pattern = provider/model</code>)
               </span>
               <textarea
                 rows={4}
@@ -374,7 +369,7 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
           </div>
         </div>
         {error && <div className="bad">{error}</div>}
-        {savedBanner && <div className="ok">Settings saved.</div>}
+        {savedBanner && <div className="ok">{tr("Settings saved.")}</div>}
         <div style={{ paddingTop: 4, borderTop: "1px solid var(--border-subtle)" }}>
           <button type="submit" className="btn-add" disabled={busy !== null}>
             {busy === "save-settings" ? "…" : "Save settings"}
@@ -386,6 +381,8 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
 }
 
 function ChangePassword() {
+  const tr = useTranslator();
+  const { t } = usePreferences();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [again, setAgain] = useState("");
@@ -409,17 +406,15 @@ function ChangePassword() {
 
   return (
     <section className="settings-card">
-      <h2>Management password</h2>
-      <p className="muted">
-        Used to sign in here. At least 12 characters. Other signed-in browsers stay signed in until their session expires.
-      </p>
+      <h2>{t("Management password")}</h2>
+      <p className="muted">{tr("Used to sign in here. At least 12 characters. Other signed-in browsers stay signed in until their session expires.")}</p>
       <form className="stack-form" onSubmit={submit}>
-        <input type="password" autoComplete="current-password" placeholder="Current password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
-        <input type="password" autoComplete="new-password" placeholder="New password (12+ characters)" minLength={12} value={next} onChange={(e) => setNext(e.target.value)} required />
-        <input type="password" autoComplete="new-password" placeholder="Repeat new password" value={again} onChange={(e) => setAgain(e.target.value)} required />
-        {mismatch && <div className="bad">The two new passwords differ.</div>}
+        <input type="password" autoComplete="current-password" placeholder={tr("Current password")} value={current} onChange={(e) => setCurrent(e.target.value)} required />
+        <input type="password" autoComplete="new-password" placeholder={tr("New password (12+ characters)")} minLength={12} value={next} onChange={(e) => setNext(e.target.value)} required />
+        <input type="password" autoComplete="new-password" placeholder={tr("Repeat new password")} value={again} onChange={(e) => setAgain(e.target.value)} required />
+        {mismatch && <div className="bad">{tr("The two new passwords differ.")}</div>}
         {error && <div className="bad">{error}</div>}
-        {done && <div className="ok">Password changed.</div>}
+        {done && <div className="ok">{tr("Password changed.")}</div>}
         <div>
           <button type="submit" className="btn-add" disabled={busy !== null || mismatch || next.length < 12 || !current}>
             {busy ? "…" : "Change password"}
@@ -446,6 +441,8 @@ function formatBytes(bytes: number): string {
 }
 
 function DatabaseBackupsSection() {
+  const tr = useTranslator();
+  const { t } = usePreferences();
   const state = useFetch<{ backups?: BackupRow[] }>("/api/backups");
   const rows = state.status === "ok" ? state.data.backups ?? [] : [];
   const { busy, error, run } = useAction(state.reload);
@@ -461,10 +458,8 @@ function DatabaseBackupsSection() {
     <section className="settings-card">
       <div className="section-head" style={{ marginBottom: 12 }}>
         <div>
-          <h2 style={{ marginBottom: 4 }}>Database Backups</h2>
-          <p className="muted" style={{ margin: 0 }}>
-            Consistent online SQLite snapshots stored in <code>db_backups/</code>. Scheduled snapshots run daily and prune older copies automatically.
-          </p>
+          <h2 style={{ marginBottom: 4 }}>{t("Database Backups")}</h2>
+          <p className="muted" style={{ margin: 0 }}>{tr("Consistent online SQLite snapshots stored in")}<code>db_backups/</code>{tr(". Scheduled snapshots run daily and prune older copies automatically.")}</p>
         </div>
         <button type="button" className="btn-add" disabled={busy !== null} onClick={createSnapshot}>
           <DatabaseBackup size={14} />
@@ -473,20 +468,20 @@ function DatabaseBackupsSection() {
       </div>
 
       {error && <p className="bad">{error}</p>}
-      {state.status === "loading" && <LoadingState label="Loading database backups" />}
+      {state.status === "loading" && <LoadingState label={tr("Loading database backups")} />}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
       {state.status === "ok" && rows.length === 0 && (
-        <p className="muted">No backups recorded yet. Click “Backup now” to take an immediate snapshot.</p>
+        <p className="muted">{tr("No backups recorded yet. Click “Backup now” to take an immediate snapshot.")}</p>
       )}
       {state.status === "ok" && rows.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <table className="table">
             <thead>
               <tr>
-                <th>Filename</th>
-                <th>Reason</th>
-                <th>Size</th>
-                <th>Created</th>
+                <th>{t("Filename")}</th>
+                <th>{t("Reason")}</th>
+                <th>{t("Size")}</th>
+                <th>{t("Created")}</th>
               </tr>
             </thead>
             <tbody>
@@ -510,83 +505,3 @@ function DatabaseBackupsSection() {
   );
 }
 
-function MigrateFromStyxRouter() {
-  const [srcDb, setSrcDb] = useState("/home/youruser/styx/databases/storage.sqlite");
-  const [secret, setSecret] = useState("");
-  const [dryRun, setDryRun] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
-
-  async function run() {
-    setBusy(true);
-    setResult(null);
-    try {
-      const body = await api.post<{ migrated?: number; failed?: number; backup?: string }>("/api/admin/migrate-from-styx", {
-        srcDb,
-        srcSecret: secret,
-        dryRun,
-      });
-      const msg =
-        `${dryRun ? "DRY " : ""}migrated=${body.migrated ?? 0} ` +
-        `failed=${body.failed ?? 0} ` +
-        (body.backup ? `backup=${body.backup}` : "");
-      setResult(msg);
-      toast.success(msg);
-    } catch (e: any) {
-      const msg = `err: ${e?.message || e}`;
-      setResult(msg);
-      toast.error(e?.message || "Migration failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className="settings-card">
-      <h2>Migrate from StyxRouter</h2>
-      <p className="muted">
-        Re-encrypts credential fields in an external SQLite DB under the StyxRouter salt. A backup is created before any write.
-      </p>
-      <div style={{ display: "grid", gap: 8, maxWidth: 640 }}>
-        <label>
-          Source DB path
-          <input
-            type="text"
-            value={srcDb}
-            onChange={(e) => setSrcDb(e.target.value)}
-            style={{ width: "100%" }}
-          />
-        </label>
-        <label>
-          Source secret (STORAGE_ENCRYPTION_KEY)
-          <input
-            type="password"
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            style={{ width: "100%" }}
-            autoComplete="off"
-          />
-        </label>
-        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />
-          Dry run (count rows but don't rewrite)
-        </label>
-        <div>
-          <button
-            type="button"
-            className="btn-add"
-            disabled={busy || !srcDb || !secret}
-            onClick={run}
-          >
-            {busy ? "…" : "Migrate"}
-          </button>
-        </div>
-        {result && (
-          <div className={result.startsWith("err:") ? "bad" : "ok"} style={{ marginTop: 8 }}>
-            {result}
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}

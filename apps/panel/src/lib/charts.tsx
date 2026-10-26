@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { usePreferences } from "./preferences.tsx";
 
 export interface Bar {
   label: string;
@@ -8,9 +9,10 @@ export interface Bar {
 
 /** Plain SVG bar chart: no dependency, scales to its container, labels thinned when there are many bars. */
 export function BarChart({ data, format = (n: number) => String(n), height = 140 }: { data: Bar[]; format?: (n: number) => string; height?: number }): ReactNode {
-  if (data.length === 0) return <p className="muted">No data in this range.</p>;
+  const { t } = usePreferences();
+  if (data.length === 0) return <p className="muted">{t("No data in this range.")}</p>;
   const max = Math.max(...data.map((d) => d.value), 1);
-  if (data.every((d) => d.value === 0)) return <p className="muted">Nothing to chart: every value in this range is 0.</p>;
+  if (data.every((d) => d.value === 0)) return <p className="muted">{t("Nothing to chart: every value in this range is 0.")}</p>;
   const w = 600;
   const pad = 22;
   // A bar never gets wider than 48 units, so a range with two days of data does not draw two giant blocks.

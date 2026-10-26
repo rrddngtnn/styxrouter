@@ -1,3 +1,4 @@
+import { useTranslator } from "../lib/useTranslator.ts";
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import { LoadingState } from "../components/PageStates.tsx";
@@ -12,6 +13,7 @@ type Range = (typeof RANGES)[number];
 type Metric = "requests" | "totalTokens" | "cost";
 
 export function Usage() {
+  const tr = useTranslator();
   const [range, setRange] = useState<Range>("30d");
   const [metric, setMetric] = useState<Metric>("requests");
   const state = useFetch<Analytics>(`/api/usage/analytics?range=${range}`);
@@ -46,49 +48,47 @@ export function Usage() {
     <div className="page">
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
-          <h1 style={{ marginBottom: 4 }}>Usage</h1>
-          <p className="muted" style={{ margin: 0 }}>
-            Request volume, token consumption, latency, and estimated cost across providers, models, and client keys.
-          </p>
+          <h1 style={{ marginBottom: 4 }}>{tr("Usage")}</h1>
+          <p className="muted" style={{ margin: 0 }}>{tr("Request volume, token consumption, latency, and estimated cost across providers, models, and client keys.")}</p>
         </div>
         <div className="toolbar" style={{ marginBottom: 0 }}>
-          <div className="seg" role="group" aria-label="Range">
+          <div className="seg" role="group" aria-label={tr("Range")}>
             {RANGES.map((r) => (
               <button key={r} type="button" className={r === range ? "seg-on" : ""} onClick={() => setRange(r)}>
                 {r}
               </button>
             ))}
           </div>
-          <div className="seg" role="group" aria-label="Metric">
+          <div className="seg" role="group" aria-label={tr("Metric")}>
             {(["requests", "totalTokens", "cost"] as const).map((m) => (
               <button key={m} type="button" className={m === metric ? "seg-on" : ""} onClick={() => setMetric(m)}>
-                {m === "totalTokens" ? "tokens" : m}
+                {tr(m === "totalTokens" ? "tokens" : m)}
               </button>
             ))}
           </div>
         </div>
       </div>
 
-      {state.status === "loading" && <LoadingState label="Loading usage analytics" />}
+      {state.status === "loading" && <LoadingState label={tr("Loading usage analytics")} />}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
       {a && (
         <>
           <div className="cards">
-            <Stat label="Requests" value={int(a.summary.totalRequests)} sub={`${pctText(a.summary.successRatePct)} succeeded`} />
-            <Stat label="Input tokens" value={num(a.summary.promptTokens)} />
-            <Stat label="Output tokens" value={num(a.summary.completionTokens)} />
-            <Stat label="Avg latency" value={ms(a.summary.avgLatencyMs)} />
-            <Stat label="Est. cost" value={usd(a.summary.totalCost)} sub="indicative only" />
+            <Stat label={tr("Requests")} value={int(a.summary.totalRequests)} sub={tr("{0} succeeded", {0: String(pctText(a.summary.successRatePct))})} />
+            <Stat label={tr("Input tokens")} value={num(a.summary.promptTokens)} />
+            <Stat label={tr("Output tokens")} value={num(a.summary.completionTokens)} />
+            <Stat label={tr("Avg latency")} value={ms(a.summary.avgLatencyMs)} />
+            <Stat label={tr("Est. cost")} value={usd(a.summary.totalCost)} sub={tr("indicative only")} />
           </div>
 
           <section className="card" style={{ marginBottom: 20 }}>
-            <h2 style={{ marginTop: 0 }}>Daily trend ({metric === "totalTokens" ? "tokens" : metric})</h2>
+            <h2 style={{ marginTop: 0 }}>{tr("Daily trend (")}{tr(metric === "totalTokens" ? "tokens" : metric)})</h2>
             <BarChart data={a.dailyTrend.map((d) => ({ label: d.date.slice(5), value: series(d) }))} format={fmt} />
           </section>
 
           <section className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
             <div className="section-head" style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
-              <h2 style={{ margin: 0 }}>By provider</h2>
+              <h2 style={{ margin: 0 }}>{tr("By provider")}</h2>
               <button
                 type="button"
                 className="btn-ghost"
@@ -105,14 +105,14 @@ export function Usage() {
               </button>
             </div>
             <Table
-              head={["Provider", "Requests", "Tokens", "Latency", "Success", "Cost"]}
+              head={[tr("Provider"), tr("Requests"), tr("Tokens"), tr("Latency"), tr("Success"), tr("Cost")]}
               rows={a.byProvider.map((p) => [label(p.provider), int(p.requests), num(p.totalTokens), ms(p.avgLatencyMs), pctText(p.successRatePct), usd(p.cost)])}
             />
           </section>
 
           <section className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
             <div className="section-head" style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
-              <h2 style={{ margin: 0 }}>By model</h2>
+              <h2 style={{ margin: 0 }}>{tr("By model")}</h2>
               <button
                 type="button"
                 className="btn-ghost"
@@ -129,7 +129,7 @@ export function Usage() {
               </button>
             </div>
             <Table
-              head={["Model", "Provider", "Requests", "Tokens", "Latency", "Success", "Cost"]}
+              head={[tr("Model"), tr("Provider"), tr("Requests"), tr("Tokens"), tr("Latency"), tr("Success"), tr("Cost")]}
               rows={a.byModel.map((m) => [m.model, label(m.provider), int(m.requests), num(m.totalTokens), ms(m.avgLatencyMs), pctText(m.successRatePct), usd(m.cost)])}
             />
           </section>
@@ -137,29 +137,29 @@ export function Usage() {
           <div className="two-col" style={{ marginBottom: 20 }}>
             <section className="card" style={{ padding: 0, overflow: "hidden" }}>
               <div className="section-head" style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
-                <h2 style={{ margin: 0 }}>By account</h2>
-                {a.byAccount.length > 15 && <span className="muted" style={{ fontSize: 12 }}>Top 15 of {a.byAccount.length}</span>}
+                <h2 style={{ margin: 0 }}>{tr("By account")}</h2>
+                {a.byAccount.length > 15 && <span className="muted" style={{ fontSize: 12 }}>{tr("Top 15 of")}{a.byAccount.length}</span>}
               </div>
               <Table
-                head={["Account", "Requests", "Tokens", "Last used"]}
+                head={[tr("Account"), tr("Requests"), tr("Tokens"), tr("Last used")]}
                 rows={a.byAccount.slice(0, 15).map((x) => [x.account, int(x.requests), num(x.totalTokens), when(x.lastUsed)])}
               />
             </section>
             <div style={{ display: "grid", gap: 20, alignContent: "start" }}>
               <section className="card" style={{ padding: 0, overflow: "hidden" }}>
                 <div className="section-head" style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
-                  <h2 style={{ margin: 0 }}>By API key</h2>
+                  <h2 style={{ margin: 0 }}>{tr("By API key")}</h2>
                 </div>
                 <Table
-                  head={["Key", "Requests", "Tokens", "Cost"]}
+                  head={[tr("Key"), tr("Requests"), tr("Tokens"), tr("Cost")]}
                   rows={a.byApiKey.map((k) => [k.apiKeyName, int(k.requests), num(k.totalTokens), usd(k.cost)])}
                 />
               </section>
               <section className="card" style={{ padding: 0, overflow: "hidden" }}>
                 <div className="section-head" style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
-                  <h2 style={{ margin: 0 }}>Errors by status</h2>
+                  <h2 style={{ margin: 0 }}>{tr("Errors by status")}</h2>
                 </div>
-                <Table head={["Type", "Count"]} rows={a.errorBreakdown.map((e) => [e.errorType, int(e.count)])} />
+                <Table head={[tr("Type"), tr("Count")]} rows={a.errorBreakdown.map((e) => [e.errorType, int(e.count)])} />
               </section>
             </div>
           </div>
@@ -167,8 +167,8 @@ export function Usage() {
           <section className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div className="section-head" style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
               <div>
-                <h2 style={{ margin: 0 }}>Monthly report</h2>
-                <small className="muted">Built from daily totals in the selected range; choose 365d for a full year.</small>
+                <h2 style={{ margin: 0 }}>{tr("Monthly report")}</h2>
+                <small className="muted">{tr("Built from daily totals in the selected range; choose 365d for a full year.")}</small>
               </div>
               <button
                 type="button"
@@ -185,7 +185,7 @@ export function Usage() {
                 <span>CSV</span>
               </button>
             </div>
-            <Table head={["Month", "Requests", "Tokens", "Est. cost"]} rows={months.map(([m, v]) => [m, int(v.requests), num(v.tokens), usd(v.cost)])} />
+            <Table head={[tr("Month"), tr("Requests"), tr("Tokens"), tr("Est. cost")]} rows={months.map(([m, v]) => [m, int(v.requests), num(v.tokens), usd(v.cost)])} />
           </section>
         </>
       )}

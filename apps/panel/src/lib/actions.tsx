@@ -1,3 +1,4 @@
+import { useTranslator } from "./useTranslator.ts";
 import { useState, type ReactNode } from "react";
 import { Dialog } from "@radix-ui/themes";
 import { toast } from "sonner";
@@ -46,6 +47,7 @@ export function Modal({
   children: ReactNode;
   maxWidth?: string;
 }): ReactNode {
+  const tr = useTranslator();
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Content className="styx-modal" style={{ maxWidth }}>
@@ -57,7 +59,7 @@ export function Modal({
             ) : null}
           </div>
           <Dialog.Close>
-            <button type="button" className="styx-icon-btn" aria-label="Close modal">
+            <button type="button" className="styx-icon-btn" aria-label={tr("Close modal")}>
               <X size={16} />
             </button>
           </Dialog.Close>
@@ -70,6 +72,7 @@ export function Modal({
 
 /** A secret the server shows exactly once (new or regenerated API key), rendered inside a clean modal/banner. */
 export function SecretBanner({ title, secret, onDismiss }: { title: string; secret: string; onDismiss: () => void }): ReactNode {
+  const tr = useTranslator();
   const [copied, setCopied] = useState(false);
 
   function copy() {
@@ -88,15 +91,13 @@ export function SecretBanner({ title, secret, onDismiss }: { title: string; secr
         <KeyRound size={16} />
         <strong>{title}</strong>
       </div>
-      <p className="muted">Copy this key now. For security, only its prefix is stored in plaintext and it cannot be shown again.</p>
+      <p className="muted">{tr("Copy this key now. For security, only its prefix is stored in plaintext and it cannot be shown again.")}</p>
       <code className="secret-value">{secret}</code>
       <div className="row-actions">
         <button type="button" className="btn-add" onClick={copy}>
-          {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy key</>}
+          {copied ? <><Check size={14} />{tr("Copied")}</> : <><Copy size={14} />{tr("Copy key")}</>}
         </button>
-        <button type="button" className="btn-ghost" onClick={onDismiss}>
-          I have saved it
-        </button>
+        <button type="button" className="btn-ghost" onClick={onDismiss}>{tr("I have saved it")}</button>
       </div>
     </div>
   );

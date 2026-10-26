@@ -1,3 +1,4 @@
+import { useTranslator } from "../lib/useTranslator.ts";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Pagination } from "../components/Pagination.tsx";
@@ -37,6 +38,7 @@ const fmtUsedLimit = (w: { used?: number | null; total?: number | null; remainin
 };
 
 export function Quota() {
+  const tr = useTranslator();
   const now = useNow(1000);
   const state = useFetch<{ providers?: QuotaRow[] }>("/api/usage/quota");
   const provs = useFetch<{ providers?: ProviderInfo[] }>("/api/providers");
@@ -96,20 +98,18 @@ export function Quota() {
 
   return (
     <div className="page quota-page">
-      <h1>Quota</h1>
-      <p className="muted">
-        Choose a provider to explore account allowances, model windows, and reset times. Quotas are cached until refreshed.
-      </p>
+      <h1>{tr("Quota")}</h1>
+      <p className="muted">{tr("Choose a provider to explore account allowances, model windows, and reset times. Quotas are cached until refreshed.")}</p>
       <div className="toolbar">
         <button type="button" className="btn-add" disabled={syncingAll} onClick={syncAllNow}>
-          {syncingAll ? "Syncing all…" : "Sync all quotas"}
+          {syncingAll ? tr("Syncing all…") : tr("Sync all quotas")}
         </button>
-        <button type="button" className="btn-ghost" onClick={state.reload}>Reload cached view</button>
+        <button type="button" className="btn-ghost" onClick={state.reload}>{tr("Reload cached view")}</button>
         {syncSummary && <span className="muted">{syncSummary}</span>}
       </div>
-      {state.status === "loading" && <p>Loading...</p>}
+      {state.status === "loading" && <p>{tr("Loading...")}</p>}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
-      {state.status === "ok" && !state.data.providers?.length && <p className="muted">No accounts connected.</p>}
+      {state.status === "ok" && !state.data.providers?.length && <p className="muted">{tr("No accounts connected.")}</p>}
       {state.status === "ok" && <QuotaBrowser rows={state.data.providers ?? []} names={names} now={now} live={live} syncingAll={syncingAll} onRefresh={refresh} onCheckGroup={checkGroup} />}
     </div>
   );
@@ -126,6 +126,7 @@ export function QuotaBrowser({ rows, names, now, live, syncingAll, onRefresh, on
   rows: QuotaRow[]; names: Map<string, string>; now: number; live: Record<string, Live>; syncingAll: boolean;
   onRefresh: (id: string) => void; onCheckGroup: (rows: QuotaRow[]) => void;
 }) {
+  const tr = useTranslator();
   const [selected, setSelected] = useState(rows[0]?.provider ?? "");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -139,19 +140,19 @@ export function QuotaBrowser({ rows, names, now, live, syncingAll, onRefresh, on
   if (current && current !== selected) { setSelected(current); setPage(1); }
   const busy = syncingAll || Object.values(live).some(l => l.busy);
   return <>
-    <div className="quota-provider-grid" aria-label="Provider categories">
+    <div className="quota-provider-grid" aria-label={tr("Provider categories")}>
       {providers.map(provider => {
         const count = rows.filter(r => r.provider === provider).length;
         return <button key={provider} className="quota-provider" aria-pressed={provider === current} onClick={() => { setSelected(provider); setPage(1); setSearch(""); }}>
           <strong>{providerLabel(provider, names)}</strong>
-          <small>{count} {count === 1 ? "account" : "accounts"}</small>
+          <small>{count} {tr(count === 1 ? "account" : "accounts")}</small>
         </button>;
       })}
     </div>
     <div className="toolbar">
-      <input aria-label="Search accounts" type="search" placeholder="Search accounts" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
-      <span className="muted">{result.total} {result.total === 1 ? "account" : "accounts"}</span>
-      <button className="btn-ghost" disabled={busy || !pool.some(r => r.quotaSupported !== false && r.isActive !== false)} onClick={() => onCheckGroup(pool)}>Refresh provider</button>
+      <input aria-label={tr("Search accounts")} type="search" placeholder={tr("Search accounts")} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+      <span className="muted">{result.total} {tr(result.total === 1 ? "account" : "accounts")}</span>
+      <button className="btn-ghost" disabled={busy || !pool.some(r => r.quotaSupported !== false && r.isActive !== false)} onClick={() => onCheckGroup(pool)}>{tr("Refresh provider")}</button>
     </div>
     <div className="quota-account-grid">
       {result.rows.map(row => {
@@ -159,20 +160,20 @@ export function QuotaBrowser({ rows, names, now, live, syncingAll, onRefresh, on
         const fresh = status?.data !== undefined ? toWindows(row.provider, status.data) : [];
         const windows = fresh.length ? fresh : row.windows ?? [];
         return <article className="quota-account" key={row.connectionId}>
-          <header><h3>{row.name}</h3><span className="vendor-badge">{row.plan ?? "Plan unknown"}</span></header>
-          <div className={tokenTone(row.tokenStatus)}>{row.isActive === false ? "Disabled · " : ""}{row.tokenStatus}</div>
-          {row.quotaSupported === false ? <p className="muted">Upstream quota API unavailable</p> : windows.length === 0 ? <p className="muted">{row.message ?? "Not synced yet"}</p> : windows.map(w => <section className="quota-window" key={w.key}>
-            <div className="quota-window-head"><strong>{w.label}</strong><span>{w.unlimited ? "Unlimited" : `${fmtPct(w.percentRemaining)} left`}</span></div>
+          <header><h3>{row.name}</h3><span className="vendor-badge">{row.plan ?? tr("Plan unknown")}</span></header>
+          <div className={tokenTone(row.tokenStatus)}>{row.isActive === false ? tr("Disabled ·") : ""}{row.tokenStatus}</div>
+          {row.quotaSupported === false ? <p className="muted">{tr("Upstream quota API unavailable")}</p> : windows.length === 0 ? <p className="muted">{row.message ?? tr("Not synced yet")}</p> : windows.map(w => <section className="quota-window" key={w.key}>
+            <div className="quota-window-head"><strong>{tr(w.label)}</strong><span>{w.unlimited ? tr("Unlimited") : tr("{0} left", {0: String(fmtPct(w.percentRemaining))})}</span></div>
             {w.percentRemaining !== null && !w.unlimited && <Meter value={w.percentRemaining} />}
-            <div className="quota-window-head"><span>{w.used != null && w.total != null ? `${fmtUsedLimit(w)} used` : fmtUsedLimit(w)}</span><span>{resetText(w.resetAt, now)}</span></div>
-            {!!w.models?.length && <details><summary>Models ({w.models.length})</summary>{w.models.join(", ")}</details>}
+            <div className="quota-window-head"><span>{w.used != null && w.total != null ? tr("{0} used", {0: String(fmtUsedLimit(w))}) : fmtUsedLimit(w)}</span><span>{resetText(w.resetAt, now)}</span></div>
+            {!!w.models?.length && <details><summary>{tr("Models (")}{w.models.length})</summary>{w.models.join(", ")}</details>}
           </section>)}
           {(status?.error || row.message) && <p className="bad">{status?.error ?? row.message}</p>}
-          <footer><small className="muted">{row.fetchedAt ? ago(row.fetchedAt, now) : "Never synced"}</small>{row.quotaSupported !== false && <button className="btn-ghost" disabled={busy} onClick={() => onRefresh(row.connectionId)}>{status?.busy ? "Checking…" : "Check now"}</button>}</footer>
+          <footer><small className="muted">{row.fetchedAt ? ago(row.fetchedAt, now) : tr("Never synced")}</small>{row.quotaSupported !== false && <button className="btn-ghost" disabled={busy} onClick={() => onRefresh(row.connectionId)}>{status?.busy ? tr("Checking…") : tr("Check now")}</button>}</footer>
         </article>;
       })}
     </div>
-    {!result.total && <p className="muted">No matching accounts.</p>}
+    {!result.total && <p className="muted">{tr("No matching accounts.")}</p>}
     <Pagination total={result.total} page={result.page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} itemLabel="accounts" />
   </>;
 }

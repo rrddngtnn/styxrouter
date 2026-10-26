@@ -1,3 +1,4 @@
+import { useTranslator } from "../lib/useTranslator.ts";
 import { useEffect, useMemo, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
@@ -71,6 +72,7 @@ export function ModelEditor({
   onSaved: (model: ModelMetadata) => void;
   onClose?: () => void;
 }) {
+  const tr = useTranslator();
   const [context, setContext] = useState(String(model.overrides.contextWindow ?? model.contextWindow));
   const [values, setValues] = useState(model.overrides);
   const [busy, setBusy] = useState(false);
@@ -117,31 +119,21 @@ export function ModelEditor({
           {model.provider}/{model.modelId}
         </code>
       </h2>
-      <label>
-        Context window (tokens)
-        <input
+      <label>{tr("Context window (tokens)")}<input
           type="number"
           min="1"
           step="1"
           value={context}
-          placeholder="Automatic"
+          placeholder={tr("Automatic")}
           onChange={(event) => setContext(event.target.value)}
         />
       </label>
       <div className="model-actions">
-        <button type="button" className="btn-ghost" onClick={() => setContext("1000000")}>
-          Default 1M
-        </button>
-        <button type="button" className="btn-ghost" onClick={() => setContext("256000")}>
-          GPT 256K
-        </button>
-        <button type="button" className="btn-ghost" onClick={() => setContext("")}>
-          Automatic context
-        </button>
+        <button type="button" className="btn-ghost" onClick={() => setContext("1000000")}>{tr("Default 1M")}</button>
+        <button type="button" className="btn-ghost" onClick={() => setContext("256000")}>{tr("GPT 256K")}</button>
+        <button type="button" className="btn-ghost" onClick={() => setContext("")}>{tr("Automatic context")}</button>
       </div>
-      <p className="muted" style={{ margin: "2px 0 6px" }}>
-        Effective context: {model.contextWindow.toLocaleString()} tokens. Blank clears the manual override. Unknown contexts default to 1M; use GPT 256K for GPT models.
-      </p>
+      <p className="muted" style={{ margin: "2px 0 6px" }}>{tr("Effective context:")}{model.contextWindow.toLocaleString()}{tr("tokens. Blank clears the manual override. Unknown contexts default to 1M; use GPT 256K for GPT models.")}</p>
       {capabilities.map(([key, label]) => (
         <label key={key}>
           {label}
@@ -154,20 +146,18 @@ export function ModelEditor({
               }))
             }
           >
-            <option value="auto">Automatic ({model[key] ? "enabled" : "disabled"})</option>
-            <option value="true">Enabled</option>
-            <option value="false">Disabled</option>
+            <option value="auto">Automatic ({model[key] ? tr("enabled") : tr("disabled")})</option>
+            <option value="true">{tr("Enabled")}</option>
+            <option value="false">{tr("Disabled")}</option>
           </select>
         </label>
       ))}
       <div className="row-actions" style={{ marginTop: 8 }}>
         <button type="submit" className="btn-add" disabled={busy}>
-          {busy ? "Saving…" : "Save"}
+          {busy ? tr("Saving…") : tr("Save")}
         </button>
         {onClose && (
-          <button type="button" className="btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
+          <button type="button" className="btn-ghost" onClick={onClose}>{tr("Cancel")}</button>
         )}
       </div>
       {message && <p role="status">{message}</p>}
@@ -176,6 +166,7 @@ export function ModelEditor({
 }
 
 export function Models() {
+  const tr = useTranslator();
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [filter, setFilter] = useState("");
@@ -243,21 +234,19 @@ export function Models() {
     <section className="page">
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
-          <h1 style={{ marginBottom: 4 }}>Model Capabilities</h1>
-          <p className="muted" style={{ margin: 0 }}>
-            Inspect and override context window sizes, reasoning support, vision input, and tool calling per model.
-          </p>
+          <h1 style={{ marginBottom: 4 }}>{tr("Model Capabilities")}</h1>
+          <p className="muted" style={{ margin: 0 }}>{tr("Inspect and override context window sizes, reasoning support, vision input, and tool calling per model.")}</p>
         </div>
         <button type="button" className="btn-ghost" onClick={() => setCustomOpen(true)}>
           <SlidersHorizontal size={14} />
-          <span>Inspect custom model ID</span>
+          <span>{tr("Inspect custom model ID")}</span>
         </button>
       </div>
 
       <div className="toolbar">
         <input
           type="search"
-          placeholder="Search models (e.g. argon, codex, glm, flash)…"
+          placeholder={tr("Search models (e.g. argon, codex, glm, flash)…")}
           value={filter}
           onChange={(e) => {
             setFilter(e.target.value);
@@ -266,14 +255,14 @@ export function Models() {
           style={{ minWidth: 340 }}
         />
         <select
-          aria-label="Filter by provider"
+          aria-label={tr("Filter by provider")}
           value={providerFilter}
           onChange={(e) => {
             setProviderFilter(e.target.value);
             setPage(1);
           }}
         >
-          <option value="all">All providers ({catalog.length})</option>
+          <option value="all">{tr("All providers (")}{catalog.length})</option>
           {providers.map((p) => (
             <option key={p} value={p}>
               {p}
@@ -281,7 +270,7 @@ export function Models() {
           ))}
         </select>
         <span className="muted" style={{ marginLeft: "auto" }}>
-          {filtered.length} {filtered.length === 1 ? "model" : "models"}
+          {filtered.length} {tr(filtered.length === 1 ? "model" : "models")}
         </span>
       </div>
 
@@ -291,15 +280,15 @@ export function Models() {
         </p>
       )}
 
-      {catalogLoading && <LoadingState label="Loading model catalog" />}
+      {catalogLoading && <LoadingState label={tr("Loading model catalog")} />}
 
       {!catalogLoading && filtered.length === 0 && (
         <EmptyState
-          title="No matching models"
+          title={tr("No matching models")}
           description={
             filter || providerFilter !== "all"
-              ? "Try clearing your search or switching the provider filter."
-              : "Connect a provider to populate the model catalog."
+              ? tr("Try clearing your search or switching the provider filter.")
+              : tr("Connect a provider to populate the model catalog.")
           }
           action={
             (filter || providerFilter !== "all") ? (
@@ -325,11 +314,11 @@ export function Models() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Canonical ID</th>
-                  <th>Provider</th>
-                  <th>Type</th>
-                  <th>Context</th>
-                  <th>Capabilities</th>
+                  <th>{tr("Canonical ID")}</th>
+                  <th>{tr("Provider")}</th>
+                  <th>{tr("Type")}</th>
+                  <th>{tr("Context")}</th>
+                  <th>{tr("Capabilities")}</th>
                   <th />
                 </tr>
               </thead>
@@ -354,7 +343,7 @@ export function Models() {
                           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                             {tags.map((t) => (
                               <span key={t} className="vendor-badge">
-                                {t}
+                                {tr(t)}
                               </span>
                             ))}
                           </div>
@@ -368,9 +357,7 @@ export function Models() {
                           className="btn-ghost"
                           disabled={loading}
                           onClick={() => openModel(row.owned_by, bareId)}
-                        >
-                          Configure
-                        </button>
+                        >{tr("Configure")}</button>
                       </td>
                     </tr>
                   );
@@ -386,7 +373,7 @@ export function Models() {
             onPageSizeChange={setPageSize}
             pageSizeOptions={[15, 20, 50, 100]}
             itemLabel="models"
-            label="Models pagination"
+            label={tr("Models pagination")}
           />
         </>
       )}
@@ -394,8 +381,8 @@ export function Models() {
       <Modal
         open={customOpen}
         onOpenChange={setCustomOpen}
-        title="Inspect or override custom model ID"
-        description="Look up any provider and model ID directly, even if it is not currently listed in the active catalog."
+        title={tr("Inspect or override custom model ID")}
+        description={tr("Look up any provider and model ID directly, even if it is not currently listed in the active catalog.")}
       >
         <form
           className="stack-form"
@@ -405,18 +392,14 @@ export function Models() {
           }}
         >
           <div className="two-col" style={{ gap: 12 }}>
-            <label>
-              Provider
-              <input
+            <label>{tr("Provider")}<input
                 required
                 placeholder="e.g. antigravity, codex, glm"
                 value={provider}
                 onChange={(event) => setProvider(event.target.value)}
               />
             </label>
-            <label>
-              Model ID
-              <input
+            <label>{tr("Model ID")}<input
                 required
                 placeholder="e.g. gemini-4-argon-high"
                 value={modelId}
@@ -426,11 +409,9 @@ export function Models() {
           </div>
           <div className="row-actions">
             <button type="submit" className="btn-add" disabled={loading || !provider.trim() || !modelId.trim()}>
-              {loading ? "Loading…" : "Inspect model"}
+              {loading ? tr("Loading…") : tr("Inspect model")}
             </button>
-            <button type="button" className="btn-ghost" onClick={() => setCustomOpen(false)}>
-              Cancel
-            </button>
+            <button type="button" className="btn-ghost" onClick={() => setCustomOpen(false)}>{tr("Cancel")}</button>
           </div>
         </form>
       </Modal>
@@ -440,8 +421,8 @@ export function Models() {
         onOpenChange={(open) => {
           if (!open) setModel(null);
         }}
-        title="Configure model capabilities"
-        description="Override context length or capability flags advertised by /v1/models and enforced at dispatch."
+        title={tr("Configure model capabilities")}
+        description={tr("Override context length or capability flags advertised by /v1/models and enforced at dispatch.")}
       >
         {model && (
           <ModelEditor

@@ -1,3 +1,4 @@
+import { useTranslator } from "../lib/useTranslator.ts";
 import { useState } from "react";
 import { Check, Copy, KeyRound, Play, Sparkles, Terminal } from "lucide-react";
 import { toast } from "sonner";
@@ -155,6 +156,7 @@ export function buildSnippets(
 }
 
 export function Tools() {
+  const tr = useTranslator();
   const [tool, setTool] = useState<ToolId>("claude-code");
   const [base, setBase] = useState(() => location.origin);
   const [key, setKey] = useState("");
@@ -244,19 +246,17 @@ export function Tools() {
     <div className="page tools-page">
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
-          <h1 style={{ marginBottom: 4 }}>Connect tools</h1>
-          <p className="muted" style={{ margin: 0 }}>
-            Generate ready-to-paste client configs and test your API key against any model in real time.
-          </p>
+          <h1 style={{ marginBottom: 4 }}>{tr("Connect tools")}</h1>
+          <p className="muted" style={{ margin: 0 }}>{tr("Generate ready-to-paste client configs and test your API key against any model in real time.")}</p>
         </div>
         <div className="row-actions">
           <button type="button" className="btn-ghost" disabled={busy !== null} onClick={makeKey}>
             <KeyRound size={14} />
-            <span>{busy === "key" ? "Generating…" : `Generate key for ${activeSpec.name}`}</span>
+            <span>{busy === "key" ? tr("Generating…") : tr("Generate key for {0}", {0: String(activeSpec.name)})}</span>
           </button>
           <button type="button" className="btn-add" disabled={probing} onClick={runLiveProbe}>
             <Play size={14} />
-            <span>{probing ? "Testing…" : "Test connection"}</span>
+            <span>{probing ? tr("Testing…") : tr("Test connection")}</span>
           </button>
         </div>
       </div>
@@ -266,37 +266,35 @@ export function Tools() {
       <section className="card tools-config-card">
         <div className="tools-config-grid">
           <label className="tools-field">
-            <span>Router base URL</span>
+            <span>{tr("Router base URL")}</span>
             <input
               type="text"
               value={base}
               placeholder="http://127.0.0.1:20128"
               onChange={(e) => setBase(e.target.value.replace(/\/+$/, ""))}
             />
-            <small className="muted">
-              Current origin: <code>{location.origin}</code>. Use loopback or your tunnel URL.
-            </small>
+            <small className="muted">{tr("Current origin:")}<code>{location.origin}</code>{tr(". Use loopback or your tunnel URL.")}</small>
           </label>
 
           <label className="tools-field">
-            <span>Client API key</span>
+            <span>{tr("Client API key")}</span>
             <input
               type="password"
               autoComplete="off"
-              placeholder="Paste sk-… or click Generate key above"
+              placeholder={tr("Paste sk-… or click Generate key above")}
               value={key}
               onChange={(e) => setKey(e.target.value)}
             />
             <small className={hasRealKey ? "ok" : "muted"}>
               {hasRealKey
-                ? `Key injected into snippets (${key.trim().slice(0, 10)}…)`
-                : "Using placeholder YOUR_STYX_KEY — generate or paste a key before copying."}
+                ? tr("Key injected into snippets ({0}…)", {0: String(key.trim().slice(0, 10))})
+                : tr("Using placeholder YOUR_STYX_KEY — generate or paste a key before copying.")}
             </small>
           </label>
 
           <div className="tools-field">
             <ModelPicker
-              label={`Target model (default: ${defaultModel})`}
+              label={tr("Target model (default: {0})", {0: String(defaultModel)})}
               value={model}
               onChange={setModel}
               catalog={catalog}
@@ -315,23 +313,21 @@ export function Tools() {
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Sparkles size={15} />
               <strong>
-                {probeResult.ok ? "Live dispatch succeeded" : "Live dispatch failed"}
+                {probeResult.ok ? tr("Live dispatch succeeded") : tr("Live dispatch failed")}
               </strong>
               <code className="provider-id">
                 {probeResult.status ? `HTTP ${probeResult.status}` : "NETWORK"} · {probeResult.latencyMs}ms
               </code>
               <code className="provider-id">{shownModel}</code>
             </div>
-            <button type="button" className="btn-ghost" onClick={() => setProbeResult(null)}>
-              Dismiss
-            </button>
+            <button type="button" className="btn-ghost" onClick={() => setProbeResult(null)}>{tr("Dismiss")}</button>
           </div>
           <pre className="tools-probe-reply">{probeResult.reply}</pre>
         </section>
       )}
 
       <div className="tools-workspace">
-        <div className="tools-selector" role="tablist" aria-label="Client tools">
+        <div className="tools-selector" role="tablist" aria-label={tr("Client tools")}>
           {TOOLS.map((t) => {
             const active = t.id === tool;
             return (
@@ -345,9 +341,9 @@ export function Tools() {
               >
                 <div className="tools-tab-top">
                   <strong>{t.name}</strong>
-                  <span className="vendor-badge">{t.badge}</span>
+                  <span className="vendor-badge">{tr(t.badge)}</span>
                 </div>
-                <small>{t.summary}</small>
+                <small>{tr(t.summary)}</small>
               </button>
             );
           })}
@@ -357,8 +353,8 @@ export function Tools() {
           {!hasRealKey && (
             <div className="tools-key-notice">
               <span>
-                Snippets currently contain <code>YOUR_STYX_KEY</code>. Click{" "}
-                <strong>Generate key for {activeSpec.name}</strong> to inject a working Bearer token automatically.
+                {tr("Snippets currently contain")} <code>YOUR_STYX_KEY</code>{tr(". Click")}{" "}
+                <strong>{tr("Generate key for")} {activeSpec.name}</strong> {tr("to inject a working Bearer token automatically.")}
               </span>
             </div>
           )}
@@ -372,13 +368,14 @@ export function Tools() {
 }
 
 function SnippetCard({ title, file, body }: { title: string; file: string; body: string }) {
+  const tr = useTranslator();
   const [copied, setCopied] = useState(false);
   return (
     <section className="tools-snippet-card">
       <header className="tools-snippet-head">
         <div className="tools-snippet-meta">
           <Terminal size={14} />
-          <strong>{title}</strong>
+          <strong>{tr(title)}</strong>
           <code>{file}</code>
         </div>
         <button
@@ -398,12 +395,12 @@ function SnippetCard({ title, file, body }: { title: string; file: string; body:
           {copied ? (
             <>
               <Check size={13} />
-              <span>Copied</span>
+              <span>{tr("Copied")}</span>
             </>
           ) : (
             <>
               <Copy size={13} />
-              <span>Copy snippet</span>
+              <span>{tr("Copy snippet")}</span>
             </>
           )}
         </button>

@@ -1,3 +1,4 @@
+import { useTranslator } from "../lib/useTranslator.ts";
 import { useMemo, useState } from "react";
 import { Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -20,6 +21,7 @@ export interface AuditEntry {
 
 /** Admin action history (keys, combos, accounts, settings writes) from the audit log. */
 export function Audit() {
+  const tr = useTranslator();
   const state = useFetch<{ entries?: AuditEntry[]; total?: number }>("/api/audit-log?limit=200");
   const [filter, setFilter] = useState("");
   const [actionFilter, setActionFilter] = useState("all");
@@ -49,21 +51,19 @@ export function Audit() {
     <div className="page">
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
-          <h1 style={{ marginBottom: 4 }}>Audit log</h1>
-          <p className="muted" style={{ margin: 0 }}>
-            Every admin mutation recorded by the router. Click any row to inspect the full payload.
-          </p>
+          <h1 style={{ marginBottom: 4 }}>{tr("Audit log")}</h1>
+          <p className="muted" style={{ margin: 0 }}>{tr("Every admin mutation recorded by the router. Click any row to inspect the full payload.")}</p>
         </div>
         <button type="button" className="btn-ghost" onClick={state.reload}>
           <RefreshCw size={14} />
-          <span>Reload</span>
+          <span>{tr("Reload")}</span>
         </button>
       </div>
 
       <div className="toolbar">
         <input
           type="search"
-          placeholder="Filter by action, target, actor, or detail…"
+          placeholder={tr("Filter by action, target, actor, or detail…")}
           value={filter}
           onChange={(e) => {
             setFilter(e.target.value);
@@ -72,14 +72,14 @@ export function Audit() {
           style={{ minWidth: 340 }}
         />
         <select
-          aria-label="Filter by action"
+          aria-label={tr("Filter by action")}
           value={actionFilter}
           onChange={(e) => {
             setActionFilter(e.target.value);
             setPage(1);
           }}
         >
-          <option value="all">All actions ({entries.length})</option>
+          <option value="all">{tr("All actions (")}{entries.length})</option>
           {actions.map((a) => (
             <option key={a} value={a}>
               {a}
@@ -87,16 +87,16 @@ export function Audit() {
           ))}
         </select>
         <span className="muted" style={{ marginLeft: "auto" }}>
-          {shown.length} {shown.length === 1 ? "entry" : "entries"}
+          {shown.length} {tr(shown.length === 1 ? "entry" : "entries")}
         </span>
       </div>
 
-      {state.status === "loading" && <LoadingState label="Loading audit log" />}
+      {state.status === "loading" && <LoadingState label={tr("Loading audit log")} />}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
       {state.status === "ok" && shown.length === 0 && (
         <EmptyState
-          title="No audit entries"
-          description={filter || actionFilter !== "all" ? "No entries match your active filters." : "Admin mutations will appear here once recorded."}
+          title={tr("No audit entries")}
+          description={filter || actionFilter !== "all" ? tr("No entries match your active filters.") : tr("Admin mutations will appear here once recorded.")}
           action={
             filter || actionFilter !== "all" ? (
               <button
@@ -128,11 +128,11 @@ export function Audit() {
               </colgroup>
               <thead>
                 <tr>
-                  <th>When</th>
-                  <th>Action</th>
-                  <th>Actor</th>
-                  <th>Target</th>
-                  <th>Details</th>
+                  <th>{tr("When")}</th>
+                  <th>{tr("Action")}</th>
+                  <th>{tr("Actor")}</th>
+                  <th>{tr("Target")}</th>
+                  <th>{tr("Details")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -141,7 +141,7 @@ export function Audit() {
                     key={e.id}
                     style={{ cursor: "pointer" }}
                     onClick={() => setSelected(e)}
-                    title="Click to inspect full audit entry"
+                    title={tr("Click to inspect full audit entry")}
                   >
                     <td title={e.timestamp}>{when(e.timestamp)}</td>
                     <td>
@@ -167,7 +167,7 @@ export function Audit() {
             onPageSizeChange={setPageSize}
             pageSizeOptions={[15, 20, 50, 100]}
             itemLabel="entries"
-            label="Audit pagination"
+            label={tr("Audit pagination")}
           />
         </>
       )}
@@ -177,7 +177,7 @@ export function Audit() {
         onOpenChange={(open) => {
           if (!open) setSelected(null);
         }}
-        title={`Audit entry #${selected?.id ?? ""}`}
+        title={tr("Audit entry #{0}", {0: String(selected?.id ?? "")})}
         description={selected ? `${when(selected.timestamp)} · ${selected.action}` : ""}
         maxWidth="620px"
       >
@@ -185,19 +185,19 @@ export function Audit() {
           <div className="stack-form" style={{ maxWidth: "100%" }}>
             <div className="two-col" style={{ gap: 12 }}>
               <div>
-                <small className="muted">Action</small>
+                <small className="muted">{tr("Action")}</small>
                 <div>
                   <code>{selected.action}</code>
                 </div>
               </div>
               <div>
-                <small className="muted">Actor & Status</small>
+                <small className="muted">{tr("Actor & Status")}</small>
                 <div>
                   {selected.actor} · <code>{selected.status ?? "ok"}</code>
                 </div>
               </div>
               <div style={{ gridColumn: "1 / -1" }}>
-                <small className="muted">Target</small>
+                <small className="muted">{tr("Target")}</small>
                 <div>
                   <code>{selected.target ?? DASH}</code>
                 </div>
@@ -205,7 +205,7 @@ export function Audit() {
             </div>
             <div>
               <div className="section-head" style={{ marginBottom: 6 }}>
-                <small className="muted">Recorded details (JSON)</small>
+                <small className="muted">{tr("Recorded details (JSON)")}</small>
                 <button
                   type="button"
                   className="btn-ghost"
@@ -216,7 +216,7 @@ export function Audit() {
                   }
                 >
                   <Copy size={13} />
-                  <span>Copy JSON</span>
+                  <span>{tr("Copy JSON")}</span>
                 </button>
               </div>
               <pre className="json" style={{ margin: 0, maxHeight: 320 }}>
@@ -224,9 +224,7 @@ export function Audit() {
               </pre>
             </div>
             <div className="row-actions">
-              <button type="button" className="btn-ghost" onClick={() => setSelected(null)}>
-                Close
-              </button>
+              <button type="button" className="btn-ghost" onClick={() => setSelected(null)}>{tr("Close")}</button>
             </div>
           </div>
         )}

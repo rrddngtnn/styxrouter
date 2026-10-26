@@ -1,3 +1,4 @@
+import { useTranslator } from "../lib/useTranslator.ts";
 import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -22,7 +23,8 @@ interface Props {
   onRefresh?: () => void;
 }
 function statusMessage(state: State<unknown>) {
-  return state.status === "error" ? <p role="alert" className="bad">{state.error?.message ?? "Data unavailable"}</p> : <p className="muted" role="status">Loading…</p>;
+  const tr = useTranslator();
+  return state.status === "error" ? <p role="alert" className="bad">{state.error?.message ?? tr("Data unavailable")}</p> : <p className="muted" role="status">{tr("Loading…")}</p>;
 }
 export function Dashboard() {
   const [range, setRange] = useState("7d");
@@ -43,6 +45,7 @@ export function Dashboard() {
   return <DashboardView range={range} onRange={setRange} now={useNow(30000)} health={health} stats={stats} conns={conns} provs={provs} nodes={nodes} logs={logs} onRefresh={refreshAll} />;
 }
 export function DashboardView({ range, onRange, now, health, stats, conns, provs, nodes, logs, onRefresh }: Props) {
+  const tr = useTranslator();
   const [metric, setMetric] = useState<ChartMetric>("requests");
   const [busyId, setBusyId] = useState<string | null>(null);
   const accounts = conns.data?.connections ?? [];
@@ -86,19 +89,17 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
   return <div className="page dashboard-page">
     <div className="section-head">
       <div>
-        <h1 style={{ marginBottom: 4 }}>Overview</h1>
+        <h1 style={{ marginBottom: 4 }}>{tr("Overview")}</h1>
         {health.status !== "ok" || !health.data?.ok ? (
           <span className={health.status === "ok" ? "bad" : "muted"}>
-            {health.status === "ok" ? "Gateway unhealthy" : "Gateway status unavailable"}
+            {health.status === "ok" ? tr("Gateway unhealthy") : tr("Gateway status unavailable")}
           </span>
         ) : (
-          <p className="muted" style={{ margin: 0 }}>
-            Real-time gateway throughput, upstream account pools, and live model dispatch.
-          </p>
+          <p className="muted" style={{ margin: 0 }}>{tr("Real-time gateway throughput, upstream account pools, and live model dispatch.")}</p>
         )}
       </div>
       <div className="row-actions">
-        <div className="seg" aria-label="Time range">
+        <div className="seg" aria-label={tr("Time range")}>
           {["1d", "7d", "30d", "90d"].map(value => (
             <button key={value} type="button" aria-pressed={range === value} className={range === value ? "seg-on" : ""} onClick={() => onRange(value)}>
               {value}
@@ -106,40 +107,40 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
           ))}
         </div>
         {onRefresh && (
-          <button type="button" className="btn-ghost" onClick={onRefresh} title="Refresh overview">
+          <button type="button" className="btn-ghost" onClick={onRefresh} title={tr("Refresh overview")}>
             <RefreshCw size={14} />
-            <span>Refresh</span>
+            <span>{tr("Refresh")}</span>
           </button>
         )}
       </div>
     </div>
     {health.status === "error" && statusMessage(health)}
     <dl className="dashboard-summary">
-      <div><dt>Requests · {range}</dt><dd>{summary ? int(summary.totalRequests) : "—"}</dd><small className="muted">{summary ? `${usd(summary.totalCost)} est. cost` : "\u00a0"}</small></div>
-      <div><dt>Tokens</dt><dd>{summary ? num(summary.totalTokens) : "—"}</dd><small className="muted">{summary ? `${num(summary.promptTokens)} in · ${num(summary.completionTokens)} out` : "\u00a0"}</small></div>
-      <div><dt>Success rate</dt><dd>{summary ? pctText(summary.successRatePct) : "—"}</dd><small className="muted">{summary ? `${int(Math.max(0, summary.totalRequests - Math.round(summary.totalRequests * (summary.successRatePct / 100))))} failed` : "\u00a0"}</small></div>
-      <div><dt>Average latency</dt><dd>{summary ? ms(summary.avgLatencyMs) : "—"}</dd><small className="muted">end-to-end dispatch</small></div>
-      <div><dt>Accounts enabled</dt><dd>{conns.status === "ok" ? `${accounts.filter(a => a.isActive).length}/${accounts.length}` : "—"}</dd><small className={problems.length > 0 ? "bad" : "muted"}>{conns.status === "ok" ? (problems.length > 0 ? `${problems.length} needing attention` : `${pools.length} provider pools`) : "\u00a0"}</small></div>
+      <div><dt>{tr("Requests ·")} {range}</dt><dd>{summary ? int(summary.totalRequests) : "—"}</dd><small className="muted">{summary ? tr("{0} est. cost", {0: String(usd(summary.totalCost))}) : "\u00a0"}</small></div>
+      <div><dt>{tr("Tokens")}</dt><dd>{summary ? num(summary.totalTokens) : "—"}</dd><small className="muted">{summary ? tr("{0} in · {1} out", {0: String(num(summary.promptTokens)),1: String(num(summary.completionTokens))}) : "\u00a0"}</small></div>
+      <div><dt>{tr("Success rate")}</dt><dd>{summary ? pctText(summary.successRatePct) : "—"}</dd><small className="muted">{summary ? tr("{0} failed", {0: String(int(Math.max(0, summary.totalRequests - Math.round(summary.totalRequests * (summary.successRatePct / 100)))))}) : "\u00a0"}</small></div>
+      <div><dt>{tr("Average latency")}</dt><dd>{summary ? ms(summary.avgLatencyMs) : "—"}</dd><small className="muted">{tr("end-to-end dispatch")}</small></div>
+      <div><dt>{tr("Accounts enabled")}</dt><dd>{conns.status === "ok" ? `${accounts.filter(a => a.isActive).length}/${accounts.length}` : "—"}</dd><small className={problems.length > 0 ? "bad" : "muted"}>{conns.status === "ok" ? (problems.length > 0 ? tr("{0} needing attention", {0: String(problems.length)}) : tr("{0} provider pools", {0: String(pools.length)})) : "\u00a0"}</small></div>
     </dl>
     <div className="dashboard-primary">
       <section className="dashboard-region">
         <div className="section-head">
-          <h2>Traffic</h2>
+          <h2>{tr("Traffic")}</h2>
           <div className="row-actions">
-            <div className="seg" role="group" aria-label="Chart metric">
+            <div className="seg" role="group" aria-label={tr("Chart metric")}>
               {(["requests", "totalTokens", "cost"] as const).map(m => (
                 <button key={m} type="button" className={metric === m ? "seg-on" : ""} onClick={() => setMetric(m)}>
-                  {m === "totalTokens" ? "tokens" : m}
+                  {tr(m === "totalTokens" ? "tokens" : m)}
                 </button>
               ))}
             </div>
-            <Link to="/usage">Usage report →</Link>
+            <Link to="/usage">{tr("Usage report →")}</Link>
           </div>
         </div>
         {stats.status === "ok" ? <TrafficGraph days={stats.data?.dailyTrend ?? []} metric={metric} /> : statusMessage(stats)}
       </section>
       <section className="dashboard-region">
-        <div className="section-head"><h2>Provider health</h2><Link to="/providers">Manage →</Link></div>
+        <div className="section-head"><h2>{tr("Provider health")}</h2><Link to="/providers">{tr("Manage →")}</Link></div>
         {conns.status !== "ok" ? statusMessage(conns) : pools.length ? (
           <ul className="dashboard-list">
             {pools.map(pool => {
@@ -149,10 +150,10 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
                 <li key={pool.id}>
                   <div className="section-head" style={{ marginBottom: 2 }}>
                     <Link to={`/providers/${encodeURIComponent(pool.id)}`}><strong>{pool.name}</strong></Link>
-                    <small>{pool.active}/{pool.total} enabled</small>
+                    <small>{pool.active}/{pool.total} {tr("enabled")}</small>
                   </div>
                   <span className={pool.problems ? "bad" : "muted"}>
-                    {pool.healthy} checked healthy · {pool.unchecked} unchecked{pool.problems ? ` · ${pool.problems} problems` : ""}
+                    {pool.healthy} {tr("checked healthy ·")} {pool.unchecked} {tr("unchecked")}{pool.problems ? ` · ${pool.problems} ${tr("problems")}` : ""}
                   </span>
                   <div className="meter" style={{ marginTop: 4 }}>
                     <div className={`meter-fill ${barTone}`} style={{ width: `${pool.active === 0 ? 0 : Math.max(8, pct)}%` }} />
@@ -161,19 +162,19 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
               );
             })}
           </ul>
-        ) : <p className="muted">Connect a provider to start routing requests.</p>}
+        ) : <p className="muted">{tr("Connect a provider to start routing requests.")}</p>}
       </section>
     </div>
     <div className="dashboard-secondary">
       <section className="dashboard-region">
-        <div className="section-head"><h2>Recent activity</h2><Link to="/activity?errors=true">View errors →</Link></div>
+        <div className="section-head"><h2>{tr("Recent activity")}</h2><Link to="/activity?errors=true">{tr("View errors →")}</Link></div>
         {logs.status !== "ok" ? statusMessage(logs) : logs.data?.length ? (
           <ul className="dashboard-list">
             {logs.data.slice(0, 6).map(log => (
               <li key={log.id}>
                 <div className="section-head" style={{ marginBottom: 0 }}>
                   <Link to={`/activity?q=${encodeURIComponent(log.model ?? "")}`} style={{ textDecoration: "none" }}>
-                    <code>{log.model ?? "Unknown model"}</code>
+                    <code>{log.model ?? tr("Unknown model")}</code>
                   </Link>
                   <Link className={log.status && log.status >= 400 ? "bad" : "ok"} to={log.status && log.status >= 400 ? "/activity?errors=true" : "/activity"}>
                     {log.status ?? "—"}
@@ -183,11 +184,11 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
               </li>
             ))}
           </ul>
-        ) : <p className="muted">No recent requests</p>}
+        ) : <p className="muted">{tr("No recent requests")}</p>}
       </section>
 
       <section className="dashboard-region">
-        <div className="section-head"><h2>Top models · {range}</h2><Link to="/models">Catalog →</Link></div>
+        <div className="section-head"><h2>{tr("Top models ·")} {range}</h2><Link to="/models">{tr("Catalog →")}</Link></div>
         {stats.status !== "ok" ? statusMessage(stats) : topModels.length ? (
           <ul className="dashboard-list">
             {topModels.map(m => {
@@ -207,11 +208,11 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
               );
             })}
           </ul>
-        ) : <p className="muted">No model usage recorded in this range.</p>}
+        ) : <p className="muted">{tr("No model usage recorded in this range.")}</p>}
       </section>
 
       <section className="dashboard-region">
-        <div className="section-head"><h2>Account problems</h2><Link to="/quota">Quotas →</Link></div>
+        <div className="section-head"><h2>{tr("Account problems")}</h2><Link to="/quota">{tr("Quotas →")}</Link></div>
         {conns.status !== "ok" ? statusMessage(conns) : problems.length ? (
           <ul className="dashboard-list">
             {problems.slice(0, 6).map(({ account, reason }) => (
@@ -219,19 +220,15 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
                 <div className="section-head" style={{ marginBottom: 2 }}>
                   <Link to={`/providers/${encodeURIComponent(account.provider)}`}>{account.name ?? account.id}</Link>
                   <div className="row-actions" style={{ gap: 4 }}>
-                    <button type="button" className="btn-ghost" style={{ padding: "2px 7px", fontSize: 11 }} disabled={busyId !== null} onClick={() => void releaseCooldown(account.id)}>
-                      Clear
-                    </button>
-                    <button type="button" className="btn-ghost" style={{ padding: "2px 7px", fontSize: 11 }} disabled={busyId !== null} onClick={() => void testAccount(account.id)}>
-                      Test
-                    </button>
+                    <button type="button" className="btn-ghost" style={{ padding: "2px 7px", fontSize: 11 }} disabled={busyId !== null} onClick={() => void releaseCooldown(account.id)}>{tr("Clear")}</button>
+                    <button type="button" className="btn-ghost" style={{ padding: "2px 7px", fontSize: 11 }} disabled={busyId !== null} onClick={() => void testAccount(account.id)}>{tr("Test")}</button>
                   </div>
                 </div>
                 <span className="bad">{reason}</span>
               </li>
             ))}
           </ul>
-        ) : <p className="muted">No account problems reported. Unchecked accounts are listed in provider health.</p>}
+        ) : <p className="muted">{tr("No account problems reported. Unchecked accounts are listed in provider health.")}</p>}
       </section>
     </div>
   </div>;

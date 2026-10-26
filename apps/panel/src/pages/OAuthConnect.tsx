@@ -1,3 +1,4 @@
+import { useTranslator } from "../lib/useTranslator.ts";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api.ts";
 import { useAction } from "../lib/actions.tsx";
@@ -10,6 +11,7 @@ const drop = (o: Json) => Object.fromEntries(Object.entries(o).filter(([, v]) =>
 
 /** Connect one OAuth account. The flow depends on the provider; all of them end in a saved account. */
 export function OAuthConnect({ provider, flow, legacyDevice, redirectUri, onDone, onClose }: { provider: string; flow: FlowType; legacyDevice?: boolean; redirectUri?: string; onDone: () => void; onClose: () => void }) {
+  const tr = useTranslator();
   const finish = () => {
     onDone();
     onClose();
@@ -24,7 +26,7 @@ export function OAuthConnect({ provider, flow, legacyDevice, redirectUri, onDone
         <CodeFlow provider={provider} redirectUri={redirectUri} onDone={finish} />
       )}
       <div>
-        <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn-ghost" onClick={onClose}>{tr("Cancel")}</button>
       </div>
     </div>
   );
@@ -32,6 +34,7 @@ export function OAuthConnect({ provider, flow, legacyDevice, redirectUri, onDone
 
 /** Sign in at the vendor, then paste back the address the browser lands on (it points at localhost and will not load). */
 function CodeFlow({ provider, redirectUri, onDone }: { provider: string; redirectUri?: string; onDone: () => void }) {
+  const tr = useTranslator();
   const [auth, setAuth] = useState<Json | null>(null);
   const [pasted, setPasted] = useState("");
   const { busy, error, run } = useAction();
@@ -68,8 +71,8 @@ function CodeFlow({ provider, redirectUri, onDone }: { provider: string; redirec
     <>
       {!auth && (
         <>
-          <p className="muted">Opens the vendor login in a new tab. Sign in, then come back here.</p>
-          <div><button type="button" className="btn-add" disabled={busy !== null} onClick={start}>{busy ? "..." : "Open login page"}</button></div>
+          <p className="muted">{tr("Opens the vendor login in a new tab. Sign in, then come back here.")}</p>
+          <div><button type="button" className="btn-add" disabled={busy !== null} onClick={start}>{busy ? "..." : tr("Open login page")}</button></div>
         </>
       )}
       {auth?.unsupported ? <p className="bad">{String(auth.unsupported)}</p> : null}
@@ -77,18 +80,11 @@ function CodeFlow({ provider, redirectUri, onDone }: { provider: string; redirec
         <form className="stack-form" onSubmit={submit}>
           {text(auth.authUrl) && (
             <p>
-              <a href={text(auth.authUrl)} target="_blank" rel="noopener noreferrer">
-                Open login page
-              </a>{" "}
-              (if the tab did not open automatically).
-            </p>
+              <a href={text(auth.authUrl)} target="_blank" rel="noopener noreferrer">{tr("Open login page")}</a>{" "}{tr("(if the tab did not open automatically).")}</p>
           )}
-          <p className="muted">
-            After you sign in, the browser is sent to an address that starts with <code>http://localhost</code> and usually shows an error page.
-            That is expected: copy the whole address from the address bar and paste it here.
-          </p>
+          <p className="muted">{tr("After you sign in, the browser is sent to an address that starts with")}<code>http://localhost</code>{tr("and usually shows an error page. That is expected: copy the whole address from the address bar and paste it here.")}</p>
           <textarea rows={3} placeholder="http://localhost:.../callback?code=..." value={pasted} onChange={(e) => setPasted(e.target.value)} required />
-          <div><button type="submit" className="btn-add" disabled={busy !== null || !pasted.trim()}>{busy ? "..." : "Connect"}</button></div>
+          <div><button type="submit" className="btn-add" disabled={busy !== null || !pasted.trim()}>{busy ? "..." : tr("Connect")}</button></div>
         </form>
       )}
       {error && <p className="bad">{error}</p>}
@@ -102,6 +98,7 @@ function CodeFlow({ provider, redirectUri, onDone }: { provider: string; redirec
  * generic device-code / poll actions.
  */
 function DeviceFlow({ provider, legacy, onDone }: { provider: string; legacy: boolean; onDone: () => void }) {
+  const tr = useTranslator();
   const [dev, setDev] = useState<Json | null>(null);
   const [status, setStatus] = useState("");
   const { busy, error, run } = useAction();
@@ -152,15 +149,15 @@ function DeviceFlow({ provider, legacy, onDone }: { provider: string; legacy: bo
     <>
       {!dev && (
         <>
-          <p className="muted">You will get a short code to type on the vendor's page.</p>
-          <div><button type="button" className="btn-add" disabled={busy !== null} onClick={async () => { const d = await run("start", () => (legacy ? startLegacy() : api.get<Json>(`/api/oauth/${provider}/device-code`))); if (d) setDev(d); }}>{busy ? "..." : "Get code"}</button></div>
+          <p className="muted">{tr("You will get a short code to type on the vendor's page.")}</p>
+          <div><button type="button" className="btn-add" disabled={busy !== null} onClick={async () => { const d = await run("start", () => (legacy ? startLegacy() : api.get<Json>(`/api/oauth/${provider}/device-code`))); if (d) setDev(d); }}>{busy ? "..." : tr("Get code")}</button></div>
         </>
       )}
       {dev && (
         <>
-          {userCode && <p>Code: <code className="secret-value">{userCode}</code></p>}
-          {link && <p><a href={link} target="_blank" rel="noopener noreferrer">Open the vendor page</a>, enter the code and approve.</p>}
-          <p className="muted">{status || "Waiting for you to approve..."}</p>
+          {userCode && <p>{tr("Code:")}<code className="secret-value">{userCode}</code></p>}
+          {link && <p><a href={link} target="_blank" rel="noopener noreferrer">{tr("Open the vendor page")}</a>{tr(", enter the code and approve.")}</p>}
+          <p className="muted">{status || tr("Waiting for you to approve...")}</p>
         </>
       )}
       {error && <p className="bad">{error}</p>}
@@ -170,6 +167,7 @@ function DeviceFlow({ provider, legacy, onDone }: { provider: string; legacy: bo
 
 /** Providers that hand you a token instead of a login screen. */
 function TokenImport({ provider, onDone }: { provider: string; onDone: () => void }) {
+  const tr = useTranslator();
   const [token, setToken] = useState("");
   const { busy, error, run } = useAction();
 
@@ -190,10 +188,10 @@ function TokenImport({ provider, onDone }: { provider: string; onDone: () => voi
 
   return (
     <form className="stack-form" onSubmit={submit}>
-      <p className="muted">Paste the token (or the JSON the vendor's tool saved). It is stored encrypted.</p>
+      <p className="muted">{tr("Paste the token (or the JSON the vendor's tool saved). It is stored encrypted.")}</p>
       <textarea rows={4} autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} required />
       {error && <p className="bad">{error}</p>}
-      <div><button type="submit" className="btn-add" disabled={busy !== null || !token.trim()}>{busy ? "..." : "Import"}</button></div>
+      <div><button type="submit" className="btn-add" disabled={busy !== null || !token.trim()}>{busy ? "..." : tr("Import")}</button></div>
     </form>
   );
 }

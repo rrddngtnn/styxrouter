@@ -1,3 +1,4 @@
+import { useTranslator } from "./lib/useTranslator.ts";
 import { useEffect, useState } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
 import { ShellFrame } from "./components/shell/ShellFrame.tsx";
@@ -26,6 +27,7 @@ export function BrandMark() {
 }
 
 export function App() {
+  const tr = useTranslator();
   const navigate = useNavigate();
   const [checking, setChecking] = useState(true);
   const [authed, setAuthed] = useState(false);
@@ -54,7 +56,7 @@ export function App() {
     navigate("/login", { replace: true });
   }
 
-  if (checking || !authed) return <div className="loading">Checking session…</div>;
+  if (checking || !authed) return <div className="loading">{tr("Checking session…")}</div>;
 
   return (
     <ShellFrame brand={<BrandMark />} logout={logout}><Outlet /></ShellFrame>

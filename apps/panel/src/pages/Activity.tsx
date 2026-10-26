@@ -1,3 +1,4 @@
+import { useTranslator } from "../lib/useTranslator.ts";
 import { useMemo, useState } from "react";
 import { Copy, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
@@ -27,6 +28,7 @@ export interface CallLog {
 }
 
 export function Activity() {
+  const tr = useTranslator();
   const [searchParams, setSearchParams] = useSearchParams();
   const [limit, setLimit] = useState(250);
   const [onlyErrors, setOnlyErrors] = useState(() => searchParams.get("errors") === "true");
@@ -80,21 +82,19 @@ export function Activity() {
     <div className="page">
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
-          <h1 style={{ marginBottom: 4 }}>Activity</h1>
-          <p className="muted" style={{ margin: 0 }}>
-            Recent request telemetry and upstream error diagnostics. Click any row to inspect full details.
-          </p>
+          <h1 style={{ marginBottom: 4 }}>{tr("Activity")}</h1>
+          <p className="muted" style={{ margin: 0 }}>{tr("Recent request telemetry and upstream error diagnostics. Click any row to inspect full details.")}</p>
         </div>
         <button type="button" className="btn-ghost" onClick={state.reload}>
           <RefreshCw size={14} />
-          <span>Refresh</span>
+          <span>{tr("Refresh")}</span>
         </button>
       </div>
 
       <div className="toolbar">
         <input
           type="search"
-          placeholder="Filter by model, provider, account, key, or error…"
+          placeholder={tr("Filter by model, provider, account, key, or error…")}
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
@@ -103,36 +103,33 @@ export function Activity() {
           style={{ minWidth: 340 }}
         />
         <label className="check">
-          <input type="checkbox" checked={onlyErrors} onChange={(e) => toggleErrors(e.target.checked)} /> errors only
-        </label>
+          <input type="checkbox" checked={onlyErrors} onChange={(e) => toggleErrors(e.target.checked)} />{tr("errors only")}</label>
         <select
           value={limit}
           onChange={(e) => {
             setLimit(Number(e.target.value));
             setPage(1);
           }}
-          aria-label="Fetch window"
+          aria-label={tr("Fetch window")}
         >
           {[100, 250, 500].map((n) => (
-            <option key={n} value={n}>
-              Last {n} requests
-            </option>
+            <option key={n} value={n}>{tr("Last {0} requests", {0: String(n)})}</option>
           ))}
         </select>
         <span className="muted" style={{ marginLeft: "auto" }}>
-          {rows.length} {rows.length === 1 ? "request" : "requests"}
+          {rows.length} {tr(rows.length === 1 ? "request" : "requests")}
         </span>
       </div>
 
-      {state.status === "loading" && <LoadingState label="Loading recent requests" />}
+      {state.status === "loading" && <LoadingState label={tr("Loading recent requests")} />}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
       {state.status === "ok" && rows.length === 0 && (
         <EmptyState
-          title="No matching requests"
+          title={tr("No matching requests")}
           description={
             onlyErrors || q
-              ? "No requests match the active filters."
-              : "Requests sent to /v1/chat/completions, /v1/messages, or /v1/responses will appear here."
+              ? tr("No requests match the active filters.")
+              : tr("Requests sent to /v1/chat/completions, /v1/messages, or /v1/responses will appear here.")
           }
           action={
             onlyErrors || q ? (
@@ -157,14 +154,14 @@ export function Activity() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Key</th>
-                  <th>Provider</th>
-                  <th>Account</th>
-                  <th>Model</th>
-                  <th>Status</th>
-                  <th>Latency</th>
-                  <th>Tokens in/out</th>
+                  <th>{tr("Time")}</th>
+                  <th>{tr("Key")}</th>
+                  <th>{tr("Provider")}</th>
+                  <th>{tr("Account")}</th>
+                  <th>{tr("Model")}</th>
+                  <th>{tr("Status")}</th>
+                  <th>{tr("Latency")}</th>
+                  <th>{tr("Tokens in/out")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -176,7 +173,7 @@ export function Activity() {
                       className={isErr ? "row-bad" : ""}
                       style={{ cursor: "pointer" }}
                       onClick={() => setSelected(r)}
-                      title="Click to inspect request details"
+                      title={tr("Click to inspect request details")}
                     >
                       <td className="nowrap">{when(r.timestamp)}</td>
                       <td>{r.apiKeyName ?? DASH}</td>
@@ -220,7 +217,7 @@ export function Activity() {
             onPageSizeChange={setPageSize}
             pageSizeOptions={[15, 20, 50, 100]}
             itemLabel="requests"
-            label="Activity pagination"
+            label={tr("Activity pagination")}
           />
         </>
       )}
@@ -230,7 +227,7 @@ export function Activity() {
         onOpenChange={(open) => {
           if (!open) setSelected(null);
         }}
-        title={`Request detail — HTTP ${selected?.status ?? "—"}`}
+        title={tr("Request detail — HTTP {0}", {0: String(selected?.status ?? "—")})}
         description={selected ? `${when(selected.timestamp)} · ${selected.method ?? "POST"} ${selected.path ?? "/v1/chat/completions"}` : ""}
         maxWidth="620px"
       >
@@ -238,33 +235,33 @@ export function Activity() {
           <div className="stack-form" style={{ maxWidth: "100%" }}>
             <div className="two-col" style={{ gap: 12 }}>
               <div>
-                <small className="muted">Model</small>
+                <small className="muted">{tr("Model")}</small>
                 <div>
                   <code>{selected.model ?? DASH}</code>
                 </div>
               </div>
               <div>
-                <small className="muted">Provider / Account</small>
+                <small className="muted">{tr("Provider / Account")}</small>
                 <div>
                   {resolveProvider(selected)} · <code>{selected.account ?? DASH}</code>
                 </div>
               </div>
               <div>
-                <small className="muted">Client API key</small>
+                <small className="muted">{tr("Client API key")}</small>
                 <div>{selected.apiKeyName ?? DASH}</div>
               </div>
               <div>
-                <small className="muted">Latency & Tokens</small>
+                <small className="muted">{tr("Latency & Tokens")}</small>
                 <div>
                   {ms(selected.duration)} ·{" "}
-                  {selected.tokens ? `${int(selected.tokens.in)} in / ${int(selected.tokens.out)} out` : DASH}
+                  {selected.tokens ? tr("{0} in / {1} out", {0: String(int(selected.tokens.in)),1: String(int(selected.tokens.out))}) : DASH}
                 </div>
               </div>
             </div>
             {selected.error ? (
               <div>
                 <div className="section-head" style={{ marginBottom: 6 }}>
-                  <small className="bad">Upstream error message</small>
+                  <small className="bad">{tr("Upstream error message")}</small>
                   <button
                     type="button"
                     className="btn-ghost"
@@ -273,7 +270,7 @@ export function Activity() {
                     }
                   >
                     <Copy size={13} />
-                    <span>Copy error</span>
+                    <span>{tr("Copy error")}</span>
                   </button>
                 </div>
                 <pre
@@ -293,14 +290,10 @@ export function Activity() {
                 </pre>
               </div>
             ) : (
-              <p className="muted" style={{ margin: 0 }}>
-                Completed without upstream errors.
-              </p>
+              <p className="muted" style={{ margin: 0 }}>{tr("Completed without upstream errors.")}</p>
             )}
             <div className="row-actions">
-              <button type="button" className="btn-ghost" onClick={() => setSelected(null)}>
-                Close
-              </button>
+              <button type="button" className="btn-ghost" onClick={() => setSelected(null)}>{tr("Close")}</button>
             </div>
           </div>
         )}

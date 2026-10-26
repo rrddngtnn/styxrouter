@@ -1,28 +1,19 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Dialog, DropdownMenu } from "@radix-ui/themes";
-import { Menu, X, PanelLeftClose, PanelLeftOpen, ChevronRight, UserRound, Terminal, KeyRound, Activity as ActivityIcon } from "lucide-react";
+import { Menu, X, PanelLeftClose, PanelLeftOpen, ChevronRight, UserRound, Sun, Moon, Monitor } from "lucide-react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { breadcrumbs } from "./breadcrumbs.ts";
 import { navigation } from "./navigation.ts";
 import { CommandPalette } from "./CommandPalette.tsx";
-import { useFetch } from "../../lib/useFetch.ts";
-
-function formatUptime(sec?: number): string {
-  if (!sec || sec < 0) return "";
-  const d = Math.floor(sec / 86400);
-  const h = Math.floor((sec % 86400) / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
+import { usePreferences } from "../../lib/preferences.tsx";
+import type { Language, ThemeMode } from "../../lib/preferences-core.ts";
 
 export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logout: () => void; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
-  const ping = useFetch<{ ok: boolean; uptime_seconds?: number; version?: string }>("/api/health/ping");
+  const { t, language, setLanguage, theme, setTheme } = usePreferences();
   useEffect(() => setOpen(false), [location]);
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 861px)");
@@ -34,52 +25,31 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
     return <>
       {brand}
       {['Gateway', 'Observability', 'System'].map(group => <div className="nav-section" key={group}>
-        <div className="nav-section-label">{group}</div>
-        {navigation.filter(item => item.group === group).map(({ label, to, icon: Icon }) => <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'} onClick={() => setOpen(false)}><Icon size={15} aria-hidden="true" /><span>{label}</span></NavLink>)}
+        <div className="nav-section-label">{t(group)}</div>
+        {navigation.filter(item => item.group === group).map(({ label, to, icon: Icon }) => <NavLink key={to} to={to} title={t(label)} aria-label={t(label)} end={to === '/'} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'} onClick={() => setOpen(false)}><Icon size={20} aria-hidden="true" /><span>{t(label)}</span></NavLink>)}
       </div>)}
     </>;
   }
   const crumbs = breadcrumbs(location.pathname);
-  const isOnline = ping.status === "ok" && ping.data?.ok;
-  const uptimeText = ping.status === "ok" ? formatUptime(ping.data?.uptime_seconds) : "";
+
   return <div className={`shell shell-responsive${collapsed ? " shell-collapsed" : ""}`}>
-    <a href="#main-content" className="shell-skip">Skip to content</a>
+    <a href="#main-content" className="shell-skip">{t("Skip to content")}</a>
     <nav className="sidebar shell-desktop-sidebar" aria-label="Main navigation">{links()}</nav>
     <div className="shell-workspace">
       <header className="shell-topbar">
         <Dialog.Root open={open} onOpenChange={setOpen}>
-          <Dialog.Trigger><button type="button" className="shell-icon-button shell-menu-trigger" aria-label="Open navigation"><Menu size={20} /></button></Dialog.Trigger>
+          <Dialog.Trigger><button type="button" className="shell-icon-button shell-menu-trigger" aria-label={t("Open navigation")}><Menu size={20} /></button></Dialog.Trigger>
           <Dialog.Content className="shell-drawer" aria-describedby={undefined}>
-            <div className="shell-dialog-head"><Dialog.Title className="shell-dialog-title">{brand}</Dialog.Title><Dialog.Close><button type="button" className="shell-icon-button" aria-label="Close navigation"><X size={16} /></button></Dialog.Close></div>
+            <div className="shell-dialog-head"><Dialog.Title className="shell-dialog-title">StyxRouter</Dialog.Title><Dialog.Close><button type="button" className="shell-icon-button" aria-label={t("Close navigation")}><X size={16} /></button></Dialog.Close></div>
             <nav className="sidebar shell-drawer-nav" aria-label="Mobile navigation">{links()}</nav>
           </Dialog.Content>
         </Dialog.Root>
-        <button type="button" className="shell-icon-button shell-collapse-trigger" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
-        {crumbs.length > 1 ? (
-          <nav className="shell-breadcrumbs" aria-label="Breadcrumb">
-            {crumbs.map((crumb, index) => (
-              <span key={index}>
-                {index > 0 && <ChevronRight size={12} />}
-                {crumb.to ? <Link to={crumb.to}>{crumb.label}</Link> : <span aria-current="page">{crumb.label}</span>}
-              </span>
-            ))}
-          </nav>
-        ) : (
-          <div className="shell-status-strip">
-            <span className={`shell-status-pill ${isOnline ? "online" : "offline"}`}>
-              <span className="shell-status-dot" />
-              <span>{isOnline ? "Gateway online" : "Checking gateway…"}</span>
-              {uptimeText ? <code className="shell-uptime">up {uptimeText}</code> : null}
-            </span>
-            <div className="shell-quick-links">
-              <Link to="/tools" className="shell-quick-link"><Terminal size={12} /><span>Connect tools</span></Link>
-              <Link to="/keys" className="shell-quick-link"><KeyRound size={12} /><span>API keys</span></Link>
-              <Link to="/activity" className="shell-quick-link"><ActivityIcon size={12} /><span>Live logs</span></Link>
-            </div>
-          </div>
-        )}
+        <button type="button" className="shell-icon-button shell-collapse-trigger" aria-label={t(collapsed ? "Expand sidebar" : "Collapse sidebar")} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
+        {crumbs.length > 1 && <nav className="shell-breadcrumbs" aria-label="Breadcrumb">{crumbs.map((crumb,index) => <span key={index}>{index > 0 && <ChevronRight size={14} />}{crumb.to ? <Link to={crumb.to}>{t(crumb.label)}</Link> : <span aria-current="page">{t(crumb.label)}</span>}</span>)}</nav>}
         <CommandPalette />
-        <DropdownMenu.Root><DropdownMenu.Trigger><button type="button" className="shell-icon-button" aria-label="Session menu"><UserRound size={17} /></button></DropdownMenu.Trigger><DropdownMenu.Content><DropdownMenu.Label>Administrator session</DropdownMenu.Label><DropdownMenu.Item onSelect={() => navigate('/settings')}>Settings</DropdownMenu.Item><DropdownMenu.Separator /><DropdownMenu.Item color="red" onSelect={logout}>Sign out</DropdownMenu.Item></DropdownMenu.Content></DropdownMenu.Root>
+        <select className="shell-language" aria-label={t('Language')} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="en">English</option><option value="id">Indonesia</option></select>
+        <DropdownMenu.Root><DropdownMenu.Trigger><button type="button" className="shell-icon-button" aria-label={t('Appearance')}>{theme === 'light' ? <Sun size={20}/> : theme === 'dark' ? <Moon size={20}/> : <Monitor size={20}/>}</button></DropdownMenu.Trigger><DropdownMenu.Content><DropdownMenu.RadioGroup value={theme} onValueChange={v => setTheme(v as ThemeMode)}><DropdownMenu.RadioItem value="light">{t('Light')}</DropdownMenu.RadioItem><DropdownMenu.RadioItem value="dark">{t('Dark')}</DropdownMenu.RadioItem><DropdownMenu.RadioItem value="system">{t('System theme')}</DropdownMenu.RadioItem></DropdownMenu.RadioGroup></DropdownMenu.Content></DropdownMenu.Root>
+        <DropdownMenu.Root><DropdownMenu.Trigger><button type="button" className="shell-icon-button" aria-label={t("Session menu")}><UserRound size={17} /></button></DropdownMenu.Trigger><DropdownMenu.Content><DropdownMenu.Label>{t("Administrator session")}</DropdownMenu.Label><DropdownMenu.Item onSelect={() => navigate('/settings')}>{t("Settings")}</DropdownMenu.Item><DropdownMenu.Separator /><DropdownMenu.Item color="red" onSelect={logout}>{t("Sign out")}</DropdownMenu.Item></DropdownMenu.Content></DropdownMenu.Root>
       </header>
       <main className="content" id="main-content" tabIndex={-1}>{children}</main>
     </div>
