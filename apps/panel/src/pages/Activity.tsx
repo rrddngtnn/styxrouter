@@ -188,7 +188,7 @@ export function Activity() {
                           <div
                             className="bad"
                             style={{
-                              fontSize: 11.5,
+                              fontSize: 14,
                               marginTop: 3,
                               maxWidth: 420,
                               overflow: "hidden",
@@ -281,7 +281,7 @@ export function Activity() {
                     background: "#08090a",
                     border: "1px solid rgba(248, 113, 113, 0.35)",
                     color: "#fca5a5",
-                    fontSize: 12,
+                    fontSize: 14,
                     whiteSpace: "pre-wrap",
                     overflowWrap: "anywhere",
                   }}

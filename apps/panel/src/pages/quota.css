@@ -29,7 +29,7 @@
 }
 .quota-provider small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 15px;
 }
 .quota-account {
   min-width: 0;
@@ -41,7 +41,7 @@
   flex-direction: column;
 }
 .quota-account h3 {
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 600;
   overflow-wrap: anywhere;
   margin: 0;
@@ -61,7 +61,7 @@
 .quota-window {
   padding: 10px 0;
   border-top: 1px solid var(--border-subtle);
-  font-size: 12px;
+  font-size: 15px;
 }
 .quota-window .meter {
   margin: 6px 0;
@@ -71,7 +71,7 @@
   overflow-wrap: anywhere;
   margin-top: 6px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 15px;
 }
 .quota-window summary {
   cursor: pointer;
@@ -101,14 +101,14 @@
   padding: 0 11px;
 }
 .quota-page .toolbar > .muted {
-  font-size: 14px;
+  font-size: 15px;
 }
 .quota-page .toolbar > button:last-child {
   margin-left: auto;
 }
 .quota-account .bad {
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: 15px;
   margin: 6px 0 0;
 }
 .quota-page {
@@ -120,7 +120,7 @@
   }
   .quota-provider {
     padding: 11px 12px;
-    font-size: 12px;
+    font-size: 15px;
   }
   .quota-account-grid {
     grid-template-columns: minmax(0, 1fr);

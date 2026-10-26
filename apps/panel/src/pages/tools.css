@@ -13,7 +13,7 @@
   display: grid;
   gap: 6px;
   min-width: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--fg-secondary);
 }
@@ -27,7 +27,7 @@
   padding: 7px 11px;
   border-radius: 6px;
   font: inherit;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .tools-field input:focus {
@@ -38,7 +38,7 @@
 }
 
 .tools-field small {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 400;
   line-height: 1.45;
 }
@@ -60,7 +60,7 @@
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 15px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -109,13 +109,13 @@
 }
 
 .tools-tab-top strong {
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 600;
 }
 
 .tools-tab small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 15px;
   line-height: 1.4;
 }
 
@@ -131,7 +131,7 @@
   background: rgba(245, 158, 11, 0.08);
   border: 1px solid rgba(245, 158, 11, 0.28);
   color: var(--warn);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .tools-snippet-card {
@@ -155,14 +155,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--fg-secondary);
 }
 
 .tools-snippet-body {
   margin: 0;
   padding: 16px;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.6;
   color: var(--fg);
   overflow-x: auto;

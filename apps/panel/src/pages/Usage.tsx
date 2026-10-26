@@ -138,7 +138,7 @@ export function Usage() {
             <section className="card" style={{ padding: 0, overflow: "hidden" }}>
               <div className="section-head" style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
                 <h2 style={{ margin: 0 }}>{tr("By account")}</h2>
-                {a.byAccount.length > 15 && <span className="muted" style={{ fontSize: 12 }}>{tr("Top 15 of")}{a.byAccount.length}</span>}
+                {a.byAccount.length > 15 && <span className="muted" style={{ fontSize: 14 }}>{tr("Top 15 of")}{a.byAccount.length}</span>}
               </div>
               <Table
                 head={[tr("Account"), tr("Requests"), tr("Tokens"), tr("Last used")]}

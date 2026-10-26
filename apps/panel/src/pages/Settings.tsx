@@ -293,7 +293,7 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
 
           <div style={{ display: "grid", gap: 10 }}>
             <h2 style={{ margin: 0 }}>{t("Wildcard model aliases")}</h2>
-            <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>{tr("Redirect matching model patterns to a canonical")}<code>provider/model</code>{tr("target before dispatch.")}</p>
+            <p className="muted" style={{ margin: 0, fontSize: 14 }}>{tr("Redirect matching model patterns to a canonical")}<code>provider/model</code>{tr("target before dispatch.")}</p>
             {parsedAliases.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {parsedAliases.map((a, idx) => (
@@ -357,7 +357,7 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
               </button>
             </div>
             <label>
-              <span className="muted" style={{ fontSize: 11.5 }}>{tr("Raw rules — one per line (")}<code>pattern = provider/model</code>)
+              <span className="muted" style={{ fontSize: 14 }}>{tr("Raw rules — one per line (")}<code>pattern = provider/model</code>)
               </span>
               <textarea
                 rows={4}

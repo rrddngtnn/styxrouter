@@ -35,7 +35,7 @@ export function Login() {
       <form className="login-card" onSubmit={onSubmit}>
         <div className="login-head">
           <BrandMark />
-          <p className="muted" style={{ margin: "6px 0 0", fontSize: "13px" }}>{tr("Sign in with your administrator passphrase to manage providers, routing, and keys.")}</p>
+          <p className="muted" style={{ margin: "6px 0 0", fontSize: 14 }}>{tr("Sign in with your administrator passphrase to manage providers, routing, and keys.")}</p>
         </div>
         <label>
           <span>{tr("Management password")}</span>

@@ -275,7 +275,7 @@ export function Routing() {
                   <td className="muted">{r.strategy ?? "priority"}</td>
                   <td>
                     <span className="tab-count">{r.steps ?? 0} steps</span>{" "}
-                    <span className="muted" style={{ fontSize: 12 }}>
+                    <span className="muted" style={{ fontSize: 14 }}>
                       {(r.models ?? []).slice(0, 3).map(stepLabel).join(" → ")}
                       {(r.models?.length ?? 0) > 3 ? " …" : ""}
                     </span>

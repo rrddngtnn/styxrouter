@@ -1,4 +1,4 @@
-.pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin-top: 16px; min-width: 0; font-size: 12px; }
+.pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin-top: 16px; min-width: 0; font-size: 14px; }
 .pagination-summary { display: grid; gap: 4px; font-variant-numeric: tabular-nums; }
 .pagination-pages, .pagination-options, .pagination-options form, .pagination-options label { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .pagination-pages { max-width: 100%; }

@@ -321,7 +321,7 @@ function CustomNodeCard({
           <span className="auth-type">{node.apiType ?? "chat"}</span>
           <span className="muted">{accounts > 0 ? tr("{0}/{1} active", {0: String(activeAccounts),1: String(accounts)}) : tr("0 accounts")}</span>
         </div>
-        <div className="muted" style={{ fontSize: 11, wordBreak: "break-all" }}>
+        <div className="muted" style={{ fontSize: 14, wordBreak: "break-all" }}>
           {node.baseUrl ?? DASH}
         </div>
       </div>
@@ -590,7 +590,7 @@ export function ProviderDetail() {
             <code className="provider-id">{target.code}</code>
             <span className="vendor-badge">{target.badge}</span>
           </h1>
-          <div className="provider-meta" style={{ fontSize: 13 }}>
+          <div className="provider-meta" style={{ fontSize: 14 }}>
             <span className={`health ${status}`}>{status === "disabled" ? tr("no accounts") : status}</span>
             <span>
               {providerAccounts.length > 0

@@ -220,8 +220,8 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
                 <div className="section-head" style={{ marginBottom: 2 }}>
                   <Link to={`/providers/${encodeURIComponent(account.provider)}`}>{account.name ?? account.id}</Link>
                   <div className="row-actions" style={{ gap: 4 }}>
-                    <button type="button" className="btn-ghost" style={{ padding: "2px 7px", fontSize: 11 }} disabled={busyId !== null} onClick={() => void releaseCooldown(account.id)}>{tr("Clear")}</button>
-                    <button type="button" className="btn-ghost" style={{ padding: "2px 7px", fontSize: 11 }} disabled={busyId !== null} onClick={() => void testAccount(account.id)}>{tr("Test")}</button>
+                    <button type="button" className="btn-ghost" style={{ padding: "2px 7px", fontSize: 14 }} disabled={busyId !== null} onClick={() => void releaseCooldown(account.id)}>{tr("Clear")}</button>
+                    <button type="button" className="btn-ghost" style={{ padding: "2px 7px", fontSize: 14 }} disabled={busyId !== null} onClick={() => void testAccount(account.id)}>{tr("Test")}</button>
                   </div>
                 </div>
                 <span className="bad">{reason}</span>

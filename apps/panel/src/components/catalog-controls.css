@@ -10,7 +10,7 @@
 .panel-model-picker { display: grid; gap: 6px; min-width: 0; flex: 1; }
 .panel-model-picker input { width: 100%; min-width: 0; box-sizing: border-box; }
 .panel-model-picker label { font-size: 14px; }
-.panel-model-picker small { font-size: 12px; line-height: 1.5; }
+.panel-model-picker small { font-size: 14px; line-height: 1.5; }
 .panel-provider-search { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px; margin: 16px 0 20px; }
 .panel-provider-search label { display: grid; gap: 5px; flex: 1; max-width: 420px; font-size: 14px; font-weight: 500; color: var(--fg-secondary); }
 .panel-provider-search input, .panel-model-picker input {
