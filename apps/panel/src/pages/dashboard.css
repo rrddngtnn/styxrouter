@@ -32,7 +32,9 @@
 .dashboard-gridline { stroke: var(--border); }
 .dashboard-chart-line { fill: none; stroke: var(--accent-bright); stroke-width: 2; }
 .dashboard-chart-fill { fill: var(--accent); opacity: .08; }
-.dashboard-chart-point { fill: var(--accent-bright); }
+.dashboard-chart-point { fill: var(--accent-bright); transition: r 160ms ease, fill 160ms ease; }
+.dashboard-chart-point:hover { fill: var(--fg); }
+@media (prefers-reduced-motion: reduce) { .dashboard-chart-point { transition: none; } }
 .dashboard-chart-readout { min-height: 28px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; font-size: 14px; margin-bottom: 6px; }
 .dashboard-chart-dates { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; color: var(--muted); margin-top: 6px; }
 .dashboard-chart-empty { min-height: 180px; display: grid; place-items: center; color: var(--muted); }

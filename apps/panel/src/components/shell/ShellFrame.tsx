@@ -51,7 +51,7 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
         <DropdownMenu.Root><DropdownMenu.Trigger><button type="button" className="shell-icon-button" aria-label={t('Appearance')}>{theme === 'light' ? <Sun size={20}/> : theme === 'dark' ? <Moon size={20}/> : <Monitor size={20}/>}</button></DropdownMenu.Trigger><DropdownMenu.Content><DropdownMenu.RadioGroup value={theme} onValueChange={v => setTheme(v as ThemeMode)}><DropdownMenu.RadioItem value="light">{t('Light')}</DropdownMenu.RadioItem><DropdownMenu.RadioItem value="dark">{t('Dark')}</DropdownMenu.RadioItem><DropdownMenu.RadioItem value="system">{t('System theme')}</DropdownMenu.RadioItem></DropdownMenu.RadioGroup></DropdownMenu.Content></DropdownMenu.Root>
         <DropdownMenu.Root><DropdownMenu.Trigger><button type="button" className="shell-icon-button" aria-label={t("Session menu")}><UserRound size={17} /></button></DropdownMenu.Trigger><DropdownMenu.Content><DropdownMenu.Label>{t("Administrator session")}</DropdownMenu.Label><DropdownMenu.Item onSelect={() => navigate('/settings')}>{t("Settings")}</DropdownMenu.Item><DropdownMenu.Separator /><DropdownMenu.Item color="red" onSelect={logout}>{t("Sign out")}</DropdownMenu.Item></DropdownMenu.Content></DropdownMenu.Root>
       </header>
-      <main className="content" id="main-content" tabIndex={-1}>{children}</main>
+      <main className="content" id="main-content" tabIndex={-1}><div key={location.pathname} className="page-motion">{children}</div></main>
     </div>
   </div>;
 }

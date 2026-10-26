@@ -134,6 +134,7 @@
   font-size: 15px;
 }
 
+.tools-snippet-card .btn-ghost:hover:not(:disabled) { border-color: var(--accent); }
 .tools-snippet-card {
   border: 1px solid var(--border);
   border-radius: 10px;
