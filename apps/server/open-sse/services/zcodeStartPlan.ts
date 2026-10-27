@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import zcodeSystem from "../config/zcode_system.json" with { type: "json" };
@@ -6,6 +7,26 @@ type JsonRecord = Record<string, unknown>;
 
 export const ZCODE_START_PLAN_ANTHROPIC_ENDPOINT =
   "https://zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages";
+
+// Read from the environment only. No operator path may live in public source.
+const SOUL_PATH = process.env.RATMAN_SOUL_PATH?.trim() ?? "";
+
+let cachedSoul: { mtimeMs: number; content: string } | null = null;
+
+function getRatmanSoul(): string {
+  if (!SOUL_PATH) return "";
+  try {
+    const st = fs.statSync(SOUL_PATH);
+    if (cachedSoul && cachedSoul.mtimeMs === st.mtimeMs) {
+      return cachedSoul.content;
+    }
+    const content = fs.readFileSync(SOUL_PATH, "utf8").trim();
+    cachedSoul = { mtimeMs: st.mtimeMs, content };
+    return content;
+  } catch {
+    return "";
+  }
+}
 
 function asRecord(value: unknown): JsonRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
@@ -134,7 +155,9 @@ export function applyZcodeStartPlanBodyTransform(
   provider = "zai"
 ): JsonRecord {
   const record = { ...(asRecord(body) ?? {}) };
-  const userSystemText = extractUserSystemText(record.system);
+  const rawUserSystem = extractUserSystemText(record.system);
+  const ratmanSoul = getRatmanSoul();
+  const userSystemText = [ratmanSoul, rawUserSystem].filter(Boolean).join("\n\n");
   record.system = buildZcodeStartPlanSystemBlocks(currentModel, provider);
 
   const rawMessages = Array.isArray(record.messages)
