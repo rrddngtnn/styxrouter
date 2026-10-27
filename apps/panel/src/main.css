@@ -168,7 +168,6 @@ a:hover {
   color: var(--fg);
   white-space: nowrap;
 }
-.brand-compact { justify-content: center; padding-inline: 0; gap: 0; }
 .login-head .brand-icon { height: 44px; }
 .login-head .brand-wordmark { font-size: 27px; }
 .shell-drawer .shell-dialog-head { padding: 4px 0 10px; }
@@ -1239,7 +1238,7 @@ td.grow {
   transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 :is(.btn-add,.btn-ghost,.btn-danger,.shell-icon-button,.shell-search-trigger):not(:disabled):active { transform: translateY(1px); }
-.styx-modal, .shell-drawer { transition: opacity 160ms ease, transform 160ms ease; }
+.styx-modal { transition: opacity 160ms ease, transform 160ms ease; }
 @media (prefers-reduced-motion: reduce) {
   .page-motion, .shell-palette.rt-DialogContent, .panel-skeleton-row { animation: none !important; }
   .page-motion, .provider-card, .quota-provider, .tools-tab, .card, .dashboard-region,
@@ -1249,7 +1248,7 @@ td.grow {
   }
   .page-motion { transform: none !important; opacity: 1 !important; }
   /* Nav drawer: instant state change, no slide, backdrop without fade. */
-  .shell-nav-scroller, .shell-nav-scroller .shell-drawer, .shell-collapse-trigger .icon-rotate {
+  .shell-nav-scroller, .shell-nav-scroller .shell-drawer {
     transition: none !important;
   }
   .shell-nav-scroller .shell-drawer { transform: none !important; }
@@ -1348,10 +1347,6 @@ td.grow {
 .shell-drawer .nav-link { min-height: 40px; }
 .shell-skip { position: fixed; top: 8px; left: 8px; transform: translateY(-160%); z-index: 100; padding: 10px 16px; background: var(--panel); border: 1px solid var(--accent); border-radius: 6px; }
 .shell-skip:focus { transform: none; }
-/* Desktop collapse narrows the workspace; the nav drawer itself stays a drawer at
-   every viewport so its slide animation is always identical. */
-.shell-collapsed .shell-workspace { margin-left: 0; }
-.shell-collapse-trigger .icon-rotate { transition: transform 180ms cubic-bezier(.2,.7,.2,1); }
 .shell-nav-trigger { order: -1; }
 .shell-responsive :is(button, a):focus-visible, .shell-drawer :is(button, a):focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
 .shell-search-trigger { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 13px; background: rgba(var(--surface-tint), 0.025); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 15px; cursor: pointer; transition: background 0.12s ease; }
@@ -1367,11 +1362,16 @@ td.grow {
 .shell-palette-option small, .shell-palette-status { color: var(--muted); font-size: 14px; }
 .shell-palette-status { padding: 10px 4px 0; margin-top: 6px; border-top: 1px solid var(--border-subtle); }
 @media (max-width: 860px) {
-  .shell-collapse-trigger { display: none !important; }
   .shell-breadcrumbs > span:not(:last-child) { display: none; }
   .shell-breadcrumbs [aria-current] { max-width: 140px; }
   .shell-topbar { gap: 8px; padding: 6px 16px; padding-top: max(6px, env(safe-area-inset-top)); }
   .shell-search-trigger kbd { display: none; }
   .shell-search-trigger { font-size: 12px; padding: 0 9px; gap: 6px; }
   .shell-responsive .content { padding: 20px 16px max(32px, env(safe-area-inset-bottom)); }
+}
+@media (max-width: 380px) {
+  .shell-search-trigger span { display: none; }
+  .shell-search-trigger { width: 40px; padding-inline: 0; justify-content: center; flex-shrink: 0; }
+  .shell-language { max-width: 86px; }
+  .shell-breadcrumbs { display: none; }
 }

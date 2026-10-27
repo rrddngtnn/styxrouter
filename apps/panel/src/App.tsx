@@ -9,26 +9,8 @@ interface AuthStatus {
   user?: { username?: string };
 }
 
-/**
- * Icon + live wordmark text. The wordmark is real text (themeable, translatable,
- * crisp at any DPI), so it follows the active light/dark palette instead of the
- * dark SVG lockup that disappeared on dark surfaces.
- */
-export function BrandMark({ compact = false }: { compact?: boolean }) {
-  if (compact) {
-    return (
-      <div className="brand brand-compact" role="img" aria-label="StyxRouter" title="StyxRouter">
-        <img className="brand-icon" src="brand/styx-icon.svg" alt="" />
-      </div>
-    );
-  }
-  return (
-    <div className="brand">
-      <img className="brand-icon" src="brand/styx-icon.svg" alt="" aria-hidden="true" />
-      <span className="brand-wordmark">StyxRouter</span>
-    </div>
-  );
-}
+import { BrandMark } from "./components/BrandMark.tsx";
+export { BrandMark } from "./components/BrandMark.tsx";
 
 export function App() {
   const tr = useTranslator();

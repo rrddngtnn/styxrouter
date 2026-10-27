@@ -1,8 +1,8 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { DropdownMenu } from "@radix-ui/themes";
 import { Menu, X, ChevronRight, UserRound, Sun, Moon, Monitor } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { BrandMark } from "../../App.tsx";
+import { BrandMark } from "../BrandMark.tsx";
 import { breadcrumbs } from "./breadcrumbs.ts";
 import { NavigationLinks } from "./NavigationLinks.tsx";
 import { useNavDisclosure } from "./useNavDisclosure.ts";
@@ -20,46 +20,80 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
   // Route change closes the drawer.
   useEffect(() => nav.close(), [location, nav.close]);
 
-  // Focus management: move focus into the drawer on open, return to the trigger on close.
-  useEffect(() => {
-    if (nav.open && drawerRef.current) {
-      drawerRef.current.focus();
-    } else if (!nav.open && triggerRef.current && document.activeElement !== triggerRef.current) {
-      // Only restore focus when closing (not on first render).
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nav.open]);
-
-  // Escape closes the drawer and returns focus to the trigger.
-  useEffect(() => {
+  // While open, the drawer behaves as a modal dialog: focus parks inside it,
+  // Tab/Shift+Tab cycle without escaping, Escape dismisses, and the workspace
+  // around it is `inert` so the rest of the document is unreachable. It stays
+  // CSS-mounted while closed so the exit transition can still play.
+  useLayoutEffect(() => {
     if (!nav.open) return;
+    const drawer = drawerRef.current;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
         nav.close();
-        triggerRef.current?.focus();
+        return;
       }
+      if (event.key !== "Tab" || !drawer) return;
+      // Re-query on every Tab so links added or hidden by navigation state stay
+      // in the cycle, and filter to what the browser actually paints.
+      const items = Array.from(drawer.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter((el) => el.getClientRects().length > 0);
+      if (!items.length) {
+        event.preventDefault();
+        drawer.focus();
+        return;
+      }
+      const index = items.indexOf(document.activeElement as HTMLElement);
+      const wrapping = event.shiftKey ? index <= 0 : index === -1 || index === items.length - 1;
+      if (!wrapping) return;
+      event.preventDefault();
+      (event.shiftKey ? items[items.length - 1] : items[0]).focus();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Capture every sibling outside the drawer's branch so the real prior inert
+    // flags are restored verbatim on close instead of assumed false.
+    const isolated: Array<[HTMLElement, boolean]> = [];
+    if (drawer) {
+      for (let branch: HTMLElement | null = drawer.parentElement; branch && branch !== document.body; branch = branch.parentElement) {
+        for (const sibling of branch.parentElement?.children ?? []) {
+          if (sibling === branch || !(sibling instanceof HTMLElement)) continue;
+          isolated.push([sibling, sibling.inert]);
+          sibling.inert = true;
+        }
+      }
+      const first = drawer.querySelector<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      (first ?? drawer).focus();
+    }
+    // Focus containment is enforced by the Tab handler above plus `inert` on the
+    // workspace. A capture-phase `focusin` retargeter is deliberately absent: it
+    // also fires for portalled Radix popovers and would fight them for focus.
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      for (const [element, priorInert] of isolated) element.inert = priorInert;
+      triggerRef.current?.focus();
+    };
   }, [nav.open, nav.close]);
 
   const trail = breadcrumbs(location.pathname);
 
-  return <div className={`shell shell-responsive${nav.collapsed ? " shell-collapsed" : ""}`}>
+  return <div className="shell shell-responsive">
     <a href="#main-content" className="shell-skip">{t("Skip to content")}</a>
 
-    {/* One nav drawer for every viewport. It slides in the same way on desktop and
-        mobile so the disclosure feels identical; the desktop-only collapse toggle
-        simply narrows the workspace without changing the drawer animation. */}
     <div
       className={`shell-nav-scroller${nav.open ? " is-open" : ""}`}
+      inert={!nav.open}
+      aria-hidden={!nav.open}
       onClick={(event) => {
         if ((event.target as HTMLElement).classList.contains("shell-nav-scroller")) nav.close();
       }}
     >
       <div
         className="shell-drawer"
-        role="dialog"
+        role={nav.open ? "dialog" : undefined}
         aria-modal={nav.open || undefined}
         aria-label={t("Main navigation")}
         tabIndex={-1}
@@ -67,13 +101,13 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
       >
         <div className="shell-dialog-head">
           <BrandMark />
-          <button type="button" className="shell-icon-button" aria-label={t("Close navigation")} onClick={() => { nav.close(); triggerRef.current?.focus(); }}>
+          <button type="button" className="shell-icon-button" aria-label={t("Close navigation")} onClick={nav.close}>
             <X size={16} />
           </button>
         </div>
         <nav id="styx-nav" className="sidebar shell-drawer-nav" aria-label="Main navigation">
           {brand}
-          <NavigationLinks onNavigate={() => { nav.close(); triggerRef.current?.focus(); }} />
+          <NavigationLinks onNavigate={nav.close} />
         </nav>
       </div>
     </div>
@@ -90,16 +124,6 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
           onClick={nav.toggle}
         >
           {nav.isExpanded ? <X size={20} /> : <Menu size={20} />}
-        </button>
-        <button
-          type="button"
-          className="shell-icon-button shell-collapse-trigger"
-          aria-label={t(nav.collapsed ? "Expand sidebar" : "Collapse sidebar")}
-          aria-expanded={!nav.collapsed}
-          onClick={nav.collapse}
-          hidden={!nav.desktop}
-        >
-          <ChevronRight size={17} className="icon-rotate" style={{ transform: nav.collapsed ? "rotate(0deg)" : "rotate(180deg)" }} />
         </button>
         {trail.length > 1 && <nav className="shell-breadcrumbs" aria-label="Breadcrumb">{trail.map((step,index) => <span key={index}>{index > 0 && <ChevronRight size={14} />}{step.to ? <Link to={step.to}>{t(step.label)}</Link> : <span aria-current="page">{t(step.label)}</span>}</span>)}</nav>}
         <CommandPalette />

@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Lock } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "../lib/api.ts";
-import { BrandMark } from "../App.tsx";
+import { BrandMark } from "../components/BrandMark.tsx";
 
 export function Login() {
   const tr = useTranslator();

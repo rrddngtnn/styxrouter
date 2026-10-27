@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 
 // Run a development-mode Vite server first (NODE_ENV=development npm run dev),
 // then: PANEL_TEST_URL=http://127.0.0.1:5173/panel/ node --test tests/shell.browser.mjs
+// NODE_ENV must be development: under production React resolves the JSX dev
+// runtime to its prod build, whose default export drops `jsxDEV`, so the page
+// stub below would throw "_jsxDEV is not a function" and every test would time
+// out instead of failing meaningfully.
 // Install Playwright externally and set PLAYWRIGHT_MODULE to its index.mjs if needed.
 // Every API call is intercepted; these tests never connect to a live database.
 // Use an existing Playwright install without changing the panel's dependencies.
@@ -61,13 +65,18 @@ test('mobile navigation is a modal drawer with focus, Escape, backdrop and route
 test('shell fits a 320px viewport and closes a drawer when switching to desktop', async t => {
   const { page } = await setup(t, { width: 320, height: 568 });
   await page.goto(`${baseURL}tools`);
-  await page.getByRole('button', { name: 'Open navigation' }).waitFor();
+  const trigger = page.getByRole('button', { name: 'Open navigation' });
+  await trigger.waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('dialog', { name: 'Navigation' }).waitFor();
+  await trigger.click();
+  await page.getByRole('dialog', { name: 'Main navigation' }).waitFor();
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.getByRole('dialog', { name: 'Navigation' }).waitFor({ state: 'hidden' });
-  assert.equal(await page.getByRole('navigation', { name: 'Main navigation' }).isVisible(), true);
+  // One transient drawer at every viewport: crossing the breakpoint closes it and
+  // returns focus to the trigger, leaving no stranded modal over the workspace.
+  await page.getByRole('dialog', { name: 'Main navigation' }).waitFor({ state: 'hidden' });
+  assert.equal(await page.getByRole('navigation', { name: 'Main navigation' }).isVisible(), false);
+  assert.equal(await trigger.evaluate(el => el === document.activeElement), true);
+  assert.equal(await page.locator('.shell-workspace').evaluate(el => el.inert), false);
 });
 
 test('provider lookup failure leaves route search working and can be retried', async t => {
@@ -83,6 +92,32 @@ test('provider lookup failure leaves route search working and can be retried', a
   await page.getByRole('button', { name: 'Search pages and providers' }).click();
   await dialog.getByRole('combobox').fill('codex');
   await dialog.getByRole('option', { name: /OpenAI Codex/ }).waitFor();
+});
+
+test('tabbing out of an open drawer wraps inside it instead of leaving', async t => {
+  const { page } = await setup(t);
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Main navigation' });
+  await dialog.waitFor();
+  // Backwards from the first stop must land on the last, never on the workspace.
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await dialog.evaluate(el => el.contains(document.activeElement)), true);
+  for (let i = 0; i < 20; i++) await page.keyboard.press('Tab');
+  assert.equal(await dialog.evaluate(el => el.contains(document.activeElement)), true);
+});
+
+test('drawer links navigate and leave the workspace interactive again', async t => {
+  const { page } = await setup(t);
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Main navigation' });
+  await dialog.waitFor();
+  // The header behind the drawer is inert while it owns modality, so the drawer's
+  // own link list is the only interactive surface and must dismiss on click.
+  assert.equal(await page.locator('.shell-workspace').evaluate(el => el.inert), true);
+  await dialog.getByRole('link', { name: 'Models', exact: true }).click();
+  await dialog.waitFor({ state: 'hidden' });
+  assert.match(page.url(), /\/models$/);
+  assert.equal(await page.locator('.shell-workspace').evaluate(el => el.inert), false);
 });
 
 test('Ctrl+K searches routes and lazily loaded providers with keyboard selection', async t => {
