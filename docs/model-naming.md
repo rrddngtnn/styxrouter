@@ -78,9 +78,9 @@ Codex API (`/backend-api/codex/models`).
 **Behavior:**
 
 - Sync is triggered via `POST /api/providers/:id/sync-models` (authenticated).
-  The `?quiet=1` query parameter is accepted by the internal scheduler's
-  startup revalidation path to suppress log noise; it is not part of the
-  operator-facing API contract.
+  The internal scheduler's startup revalidation path appends `?quiet=1` to its
+  self-fetch URLs; the parameter is currently informational only and has no
+  server-side effect.
 - The periodic scheduler syncs only connections with `autoSync: true` in their
   `providerSpecificData`. It never touches accounts that did not opt in.
 - A successful sync replaces the stored catalog for that account. A failed,
