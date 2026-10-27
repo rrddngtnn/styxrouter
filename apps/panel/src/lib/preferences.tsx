@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
 import { Theme } from '@radix-ui/themes';
 import { Toaster } from 'sonner';
-import { localeFor, normalizePreferences, PREFERENCES_KEY, resolveAppearance, translate, type Language, type ThemeMode } from './preferences-core.ts';
-const defaults = { language: 'en' as Language, theme: 'system' as ThemeMode, locale: 'en-US', appearance: 'dark' as 'dark' | 'light', setLanguage: (_: Language) => {}, setTheme: (_: ThemeMode) => {}, t: (s: string, values?: Record<string,string|number>) => translate("en",s,values) };
+import { localeFor, normalizePreferences, PREFERENCES_KEY, resolveAppearance, translate, type Language, type ProviderView, type ThemeMode } from './preferences-core.ts';
+const defaults = { language: 'en' as Language, theme: 'system' as ThemeMode, providerView: 'cards' as ProviderView, locale: 'en-US', appearance: 'dark' as 'dark' | 'light', setLanguage: (_: Language) => {}, setTheme: (_: ThemeMode) => {}, setProviderView: (_: ProviderView) => {}, t: (s: string, values?: Record<string,string|number>) => translate("en",s,values) };
 const PreferencesContext = createContext(defaults);
 export const usePreferences = () => useContext(PreferencesContext);
 export function PreferencesProvider({ children }: { children: ReactNode }) {
@@ -35,6 +35,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({ ...prefs, appearance, locale: localeFor(prefs.language),
     setLanguage: (language: Language) => setPrefs(p => ({ ...p, language })),
     setTheme: (theme: ThemeMode) => setPrefs(p => ({ ...p, theme })),
+    setProviderView: (providerView: ProviderView) => setPrefs(p => ({ ...p, providerView })),
     t: (text: string, values?:Record<string,string|number>) => translate(prefs.language, text, values),
   }), [prefs, appearance]);
   return <PreferencesContext.Provider value={value}><Theme appearance={appearance} accentColor="indigo" grayColor="slate" panelBackground="solid" radius="medium"><>{children}<Toaster theme={appearance} position="bottom-right" toastOptions={{ style: { background: 'var(--panel-2)', color: 'var(--fg)', border: '1px solid var(--border)', fontFamily: 'var(--font-sans)' } }} /></></Theme></PreferencesContext.Provider>;

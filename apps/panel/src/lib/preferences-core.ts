@@ -1,11 +1,16 @@
 import { pageMessages } from "./messages-pages.ts";
 export type Language = "en" | "id";
 export type ThemeMode = "system" | "light" | "dark";
-export interface Preferences { language: Language; theme: ThemeMode }
+export interface Preferences { language: Language; theme: ThemeMode; providerView: ProviderView }
+export type ProviderView = "cards" | "rows";
 export const PREFERENCES_KEY = "styx-panel-preferences";
 export function normalizePreferences(value: unknown): Preferences {
   const p = value && typeof value === 'object' ? value as Record<string, unknown> : {};
-  return { language: p.language === 'id' ? 'id' : 'en', theme: p.theme === 'light' || p.theme === 'dark' ? p.theme : 'system' };
+  return {
+    language: p.language === 'id' ? 'id' : 'en',
+    theme: p.theme === 'light' || p.theme === 'dark' ? p.theme : 'system',
+    providerView: p.providerView === 'rows' ? 'rows' : 'cards',
+  };
 }
 export const resolveAppearance = (mode: ThemeMode, dark: boolean): 'light' | 'dark' => mode === 'system' ? dark ? 'dark' : 'light' : mode;
 export const localeFor = (language: Language) => language === 'id' ? 'id-ID' : 'en-US';

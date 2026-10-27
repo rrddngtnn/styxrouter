@@ -1,51 +1,107 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Dialog, DropdownMenu } from "@radix-ui/themes";
-import { Menu, X, PanelLeftClose, PanelLeftOpen, ChevronRight, UserRound, Sun, Moon, Monitor } from "lucide-react";
-import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useRef, type ReactNode } from "react";
+import { DropdownMenu } from "@radix-ui/themes";
+import { Menu, X, ChevronRight, UserRound, Sun, Moon, Monitor } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { BrandMark } from "../../App.tsx";
 import { breadcrumbs } from "./breadcrumbs.ts";
-import { navigation } from "./navigation.ts";
+import { NavigationLinks } from "./NavigationLinks.tsx";
+import { useNavDisclosure } from "./useNavDisclosure.ts";
 import { CommandPalette } from "./CommandPalette.tsx";
 import { usePreferences } from "../../lib/preferences.tsx";
 import type { Language, ThemeMode } from "../../lib/preferences-core.ts";
 
 export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logout: () => void; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const [collapsed, setCollapsed] = useState(false);
+  const nav = useNavDisclosure();
   const { t, language, setLanguage, theme, setTheme } = usePreferences();
-  useEffect(() => setOpen(false), [location]);
-  useEffect(() => {
-    const desktop = window.matchMedia("(min-width: 861px)");
-    const close = () => { if (desktop.matches) setOpen(false); };
-    desktop.addEventListener("change", close);
-    return () => desktop.removeEventListener("change", close);
-  }, []);
-  function links() {
-    return <>
-      {brand}
-      {['Gateway', 'Observability', 'System'].map(group => <div className="nav-section" key={group}>
-        <div className="nav-section-label">{t(group)}</div>
-        {navigation.filter(item => item.group === group).map(({ label, to, icon: Icon }) => <NavLink key={to} to={to} title={t(label)} aria-label={t(label)} end={to === '/'} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'} onClick={() => setOpen(false)}><Icon size={20} aria-hidden="true" /><span>{t(label)}</span></NavLink>)}
-      </div>)}
-    </>;
-  }
-  const crumbs = breadcrumbs(location.pathname);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  // Route change closes the drawer.
+  useEffect(() => nav.close(), [location, nav.close]);
 
-  return <div className={`shell shell-responsive${collapsed ? " shell-collapsed" : ""}`}>
+  // Focus management: move focus into the drawer on open, return to the trigger on close.
+  useEffect(() => {
+    if (nav.open && drawerRef.current) {
+      drawerRef.current.focus();
+    } else if (!nav.open && triggerRef.current && document.activeElement !== triggerRef.current) {
+      // Only restore focus when closing (not on first render).
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav.open]);
+
+  // Escape closes the drawer and returns focus to the trigger.
+  useEffect(() => {
+    if (!nav.open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        nav.close();
+        triggerRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [nav.open, nav.close]);
+
+  const trail = breadcrumbs(location.pathname);
+
+  return <div className={`shell shell-responsive${nav.collapsed ? " shell-collapsed" : ""}`}>
     <a href="#main-content" className="shell-skip">{t("Skip to content")}</a>
-    <nav className="sidebar shell-desktop-sidebar" aria-label="Main navigation">{links()}</nav>
+
+    {/* One nav drawer for every viewport. It slides in the same way on desktop and
+        mobile so the disclosure feels identical; the desktop-only collapse toggle
+        simply narrows the workspace without changing the drawer animation. */}
+    <div
+      className={`shell-nav-scroller${nav.open ? " is-open" : ""}`}
+      onClick={(event) => {
+        if ((event.target as HTMLElement).classList.contains("shell-nav-scroller")) nav.close();
+      }}
+    >
+      <div
+        className="shell-drawer"
+        role="dialog"
+        aria-modal={nav.open || undefined}
+        aria-label={t("Main navigation")}
+        tabIndex={-1}
+        ref={drawerRef}
+      >
+        <div className="shell-dialog-head">
+          <BrandMark />
+          <button type="button" className="shell-icon-button" aria-label={t("Close navigation")} onClick={() => { nav.close(); triggerRef.current?.focus(); }}>
+            <X size={16} />
+          </button>
+        </div>
+        <nav id="styx-nav" className="sidebar shell-drawer-nav" aria-label="Main navigation">
+          {brand}
+          <NavigationLinks onNavigate={() => { nav.close(); triggerRef.current?.focus(); }} />
+        </nav>
+      </div>
+    </div>
+
     <div className="shell-workspace">
       <header className="shell-topbar">
-        <Dialog.Root open={open} onOpenChange={setOpen}>
-          <Dialog.Trigger><button type="button" className="shell-icon-button shell-menu-trigger" aria-label={t("Open navigation")}><Menu size={20} /></button></Dialog.Trigger>
-          <Dialog.Content className="shell-drawer" aria-describedby={undefined}>
-            <div className="shell-dialog-head"><Dialog.Title className="shell-dialog-title">StyxRouter</Dialog.Title><Dialog.Close><button type="button" className="shell-icon-button" aria-label={t("Close navigation")}><X size={16} /></button></Dialog.Close></div>
-            <nav className="sidebar shell-drawer-nav" aria-label="Mobile navigation">{links()}</nav>
-          </Dialog.Content>
-        </Dialog.Root>
-        <button type="button" className="shell-icon-button shell-collapse-trigger" aria-label={t(collapsed ? "Expand sidebar" : "Collapse sidebar")} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
-        {crumbs.length > 1 && <nav className="shell-breadcrumbs" aria-label="Breadcrumb">{crumbs.map((crumb,index) => <span key={index}>{index > 0 && <ChevronRight size={14} />}{crumb.to ? <Link to={crumb.to}>{t(crumb.label)}</Link> : <span aria-current="page">{t(crumb.label)}</span>}</span>)}</nav>}
+        <button
+          type="button"
+          className="shell-icon-button shell-nav-trigger"
+          aria-label={t(nav.label)}
+          aria-expanded={nav.isExpanded}
+          aria-controls="styx-nav"
+          ref={triggerRef}
+          onClick={nav.toggle}
+        >
+          {nav.isExpanded ? <X size={20} /> : <Menu size={20} />}
+        </button>
+        <button
+          type="button"
+          className="shell-icon-button shell-collapse-trigger"
+          aria-label={t(nav.collapsed ? "Expand sidebar" : "Collapse sidebar")}
+          aria-expanded={!nav.collapsed}
+          onClick={nav.collapse}
+          hidden={!nav.desktop}
+        >
+          <ChevronRight size={17} className="icon-rotate" style={{ transform: nav.collapsed ? "rotate(0deg)" : "rotate(180deg)" }} />
+        </button>
+        {trail.length > 1 && <nav className="shell-breadcrumbs" aria-label="Breadcrumb">{trail.map((step,index) => <span key={index}>{index > 0 && <ChevronRight size={14} />}{step.to ? <Link to={step.to}>{t(step.label)}</Link> : <span aria-current="page">{t(step.label)}</span>}</span>)}</nav>}
         <CommandPalette />
         <select className="shell-language" aria-label={t('Language')} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="en">English</option><option value="id">Indonesia</option></select>
         <DropdownMenu.Root><DropdownMenu.Trigger><button type="button" className="shell-icon-button" aria-label={t('Appearance')}>{theme === 'light' ? <Sun size={20}/> : theme === 'dark' ? <Moon size={20}/> : <Monitor size={20}/>}</button></DropdownMenu.Trigger><DropdownMenu.Content><DropdownMenu.RadioGroup value={theme} onValueChange={v => setTheme(v as ThemeMode)}><DropdownMenu.RadioItem value="light">{t('Light')}</DropdownMenu.RadioItem><DropdownMenu.RadioItem value="dark">{t('Dark')}</DropdownMenu.RadioItem><DropdownMenu.RadioItem value="system">{t('System theme')}</DropdownMenu.RadioItem></DropdownMenu.RadioGroup></DropdownMenu.Content></DropdownMenu.Root>

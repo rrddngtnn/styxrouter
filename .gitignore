@@ -70,3 +70,6 @@ apps/server/build/
 
 # Operator-specific hygiene patterns: names the operator identity, never track.
 scripts/hygiene_private.py
+
+# Local runtime helper libs (headless-browser deps for visual verification). Never track.
+.runtime-libs/

@@ -27,7 +27,7 @@ const FALLBACK_STRATEGIES = [
 
 export function Settings() {
   const tr = useTranslator();
-  const { t, language, setLanguage, theme, setTheme } = usePreferences();
+  const { t } = usePreferences();
   const [tab, setTab] = useState<SettingsTab>("runtime");
   const state = useFetch<SettingsBag>("/api/settings");
 
@@ -40,10 +40,6 @@ export function Settings() {
         </div>
       </div>
 
-      <section className="settings-personal" aria-label={t("Appearance")}>
-        <label>{t("Language")}<select value={language} onChange={e => setLanguage(e.target.value as "en" | "id")}><option value="en">English</option><option value="id">Bahasa Indonesia</option></select></label>
-        <label>{t("Appearance")}<select value={theme} onChange={e => setTheme(e.target.value as "system" | "dark" | "light")}><option value="system">{t("System theme")}</option><option value="dark">{t("Dark")}</option><option value="light">{t("Light")}</option></select></label>
-      </section>
       <div className="tabs" role="tablist" aria-label={tr("Settings sections")}>
         <button
           type="button"

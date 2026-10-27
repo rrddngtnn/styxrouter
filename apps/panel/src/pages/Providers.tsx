@@ -1,8 +1,9 @@
 import { useTranslator } from "../lib/useTranslator.ts";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, KeyRound, Layers, Link2, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { ArrowLeft, KeyRound, Layers, LayoutGrid, Link2, List, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { usePreferences } from "../lib/preferences.tsx";
 import {
   accountsForProvider,
   resolveProviderTarget,
@@ -76,6 +77,7 @@ export function Providers() {
   const nodesState = useFetch<{ nodes?: Node[] }>("/api/provider-nodes");
   const [editingNode, setEditingNode] = useState<"new" | null>(null);
   const [search, setSearch] = useState("");
+  const { providerView, setProviderView } = usePreferences();
 
   const providers = state.status === "ok" ? state.data.providers ?? [] : [];
   const accounts = accountsState.status === "ok" ? accountsState.data.connections ?? [] : [];
@@ -116,7 +118,6 @@ export function Providers() {
 
   const list = filterProviders(tab === "oauth" ? oauthList : apikeyList, search);
   const filteredNodes = filterProviders(nodes, search);
-
   return (
     <div className="page">
       <h1>{tr("Providers")}</h1>
@@ -156,15 +157,38 @@ export function Providers() {
                 value={search} onChange={(event) => setSearch(event.target.value)} />
             </label>
             {search && <button type="button" className="btn-ghost" onClick={() => setSearch("")}>{tr("Clear search")}</button>}
-            <small className="muted" role="status">{tab === "custom" ? filteredNodes.length : list.length} {tr("results")}</small>
+            <small className="muted provider-result-count" role="status">{tab === "custom" ? filteredNodes.length : list.length} {tr("results")}</small>
+            <div className="view-toggle" role="group" aria-label={tr("Provider layout")}>
+              <button
+                type="button"
+                className={providerView === "cards" ? "view-toggle-btn active" : "view-toggle-btn"}
+                aria-pressed={providerView === "cards"}
+                aria-label={tr("Card layout")}
+                title={tr("Card layout")}
+                onClick={() => setProviderView("cards")}
+              >
+                <LayoutGrid size={16} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className={providerView === "rows" ? "view-toggle-btn active" : "view-toggle-btn"}
+                aria-pressed={providerView === "rows"}
+                aria-label={tr("Row layout")}
+                title={tr("Row layout")}
+                onClick={() => setProviderView("rows")}
+              >
+                <List size={16} aria-hidden="true" />
+              </button>
+            </div>
           </div>
           {tab !== "custom" ? (
-            <div className="provider-grid">
+            <div className={providerView === "rows" ? "provider-grid provider-grid-rows" : "provider-grid"}>
               {list.map((p) => (
                 <ProviderCard
                   key={p.id + "-" + tab}
                   provider={p}
                   tab={tab}
+                  view={providerView}
                   accounts={counts[p.id]?.total ?? 0}
                   activeAccounts={counts[p.id]?.active ?? 0}
                 />
@@ -242,11 +266,12 @@ export function Providers() {
 interface CardProps {
   provider: Provider;
   tab: Tab;
+  view?: "cards" | "rows";
   accounts: number;
   activeAccounts: number;
 }
 
-function ProviderCard({ provider, tab, accounts, activeAccounts }: CardProps) {
+function ProviderCard({ provider, tab, view = "cards", accounts, activeAccounts }: CardProps) {
   const tr = useTranslator();
   const navigate = useNavigate();
   const name = provider.name ?? provider.id;
@@ -256,9 +281,17 @@ function ProviderCard({ provider, tab, accounts, activeAccounts }: CardProps) {
 
   return (
     <article
-      className={`provider-card status-${status}`}
-      style={{ cursor: "pointer" }}
+      className={`provider-card status-${status}${view === "rows" ? " provider-card-row" : ""}`}
+      tabIndex={0}
+      role="link"
+      aria-label={`${name} — ${status === "disabled" ? tr("no accounts") : status}, ${accounts} ${tr("accounts")}`}
       onClick={() => navigate(href)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          navigate(href);
+        }
+      }}
     >
       <header>
         <code className="provider-id">{provider.id}</code>

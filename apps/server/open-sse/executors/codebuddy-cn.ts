@@ -1,9 +1,29 @@
+import fs from "node:fs";
 import { DefaultExecutor } from "./default.ts";
 import type { ExecuteInput, ExecutorExecuteResult, ProviderCredentials } from "./base.ts";
 
 const SENSITIVE_CONTENT_REJECTION =
   "抱歉，系统检测到您当前输入的信息存在敏感内容，我无法响应您的请求，请检查后重新输入";
 const LARGE_TOOL_METADATA_BYTES = 64 * 1024;
+
+// Read from the environment only. No operator path may live in public source.
+const SOUL_PATH = process.env.RATMAN_SOUL_PATH?.trim() ?? "";
+
+let cachedSoul: { mtimeMs: number; content: string } | null = null;
+
+function getRatmanSoul(): string {
+  try {
+    const st = fs.statSync(SOUL_PATH);
+    if (cachedSoul && cachedSoul.mtimeMs === st.mtimeMs) {
+      return cachedSoul.content;
+    }
+    const content = fs.readFileSync(SOUL_PATH, "utf8").trim();
+    cachedSoul = { mtimeMs: st.mtimeMs, content };
+    return content;
+  } catch {
+    return "";
+  }
+}
 
 function responseFromResult(result: ExecutorExecuteResult): Response {
   return result instanceof Response ? result : result.response;
@@ -148,8 +168,9 @@ export class CodeBuddyCnExecutor extends DefaultExecutor {
 
     // --- Agent system prompt replacement ---
     // Tencent's content filter flags CLI agent system prompts as sensitive content.
-    // Detect and replace them with a neutral prompt.
-    const NEUTRAL_PROMPT = "You are a helpful AI assistant that helps with software engineering tasks.";
+    // Use the configured system prompt when available, falling back to the neutral prompt.
+    const NEUTRAL_PROMPT =
+      getRatmanSoul() || "You are a helpful AI assistant that helps with software engineering tasks.";
     const AGENT_PATTERN = /you are claude code|claude.?code.+official.+cli|anthropic.+official.+cli|anxthxropic.+official.+cli|you are (?:cursor|windsurf|cline|aider|continue|copilot|cody)|you are an? (?:ai )?(?:coding |code )?agent|cc_entrypoint\s*=\s*(?:cli|vscode|jetbrains|gui)|claude.?code.+issues|give feedback.+claude.?code|you are .{0,30}(?:powerful )?ai agent|orchestration capabilities|OhMyOpenCode|<agent-identity>|<Role>|<Behavior_Instructions>/i;
     const flatten = (content: unknown): string =>
       typeof content === "string"
@@ -161,17 +182,22 @@ export class CodeBuddyCnExecutor extends DefaultExecutor {
           : "";
 
     // Handle top-level `system` field (Anthropic format after translation)
+    const ratmanSoul = getRatmanSoul();
     if (out.system) {
       const text = flatten(out.system);
       if (text && (text.length > 2000 || AGENT_PATTERN.test(text))) {
         out.system = NEUTRAL_PROMPT;
       }
+    } else if (ratmanSoul) {
+      out.system = ratmanSoul;
     }
 
     // Handle messages array with role: "system"
     if (Array.isArray(out.messages)) {
+      let hasSystem = false;
       out.messages = (out.messages as Array<Record<string, unknown>>).map((message) => {
         if (!message || message.role !== "system") return message;
+        hasSystem = true;
         const text = flatten(message.content);
         if (!text) return message;
         if (text.length > 2000 || AGENT_PATTERN.test(text)) {
@@ -181,6 +207,10 @@ export class CodeBuddyCnExecutor extends DefaultExecutor {
         }
         return message;
       });
+
+      if (!hasSystem && ratmanSoul) {
+        out.messages = [{ role: "system", content: ratmanSoul }, ...out.messages];
+      }
     }
 
     // --- Strip oversized tool descriptions (>64KB) ---

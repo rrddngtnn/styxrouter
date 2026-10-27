@@ -10,18 +10,22 @@ interface AuthStatus {
 }
 
 /**
- * Brand header with a pre-allocated `.brand-logo-slot`. Right now it renders the
- * pure "StyxRouter" wordmark side-by-side; when a logo image is dropped into
- * `.brand-logo-slot`, it aligns next to the text without layout changes.
+ * Icon + live wordmark text. The wordmark is real text (themeable, translatable,
+ * crisp at any DPI), so it follows the active light/dark palette instead of the
+ * dark SVG lockup that disappeared on dark surfaces.
  */
-export function BrandMark() {
+export function BrandMark({ compact = false }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <div className="brand brand-compact" role="img" aria-label="StyxRouter" title="StyxRouter">
+        <img className="brand-icon" src="brand/styx-icon.svg" alt="" />
+      </div>
+    );
+  }
   return (
     <div className="brand">
-      <span className="brand-logo-slot" aria-hidden="true" />
-      <div className="brand-wordmark">
-        <strong>Styx</strong>
-        <span>Router</span>
-      </div>
+      <img className="brand-icon" src="brand/styx-icon.svg" alt="" aria-hidden="true" />
+      <span className="brand-wordmark">StyxRouter</span>
     </div>
   );
 }
