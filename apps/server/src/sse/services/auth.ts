@@ -1175,16 +1175,16 @@ function materializeConnection(
  * providers so connection selection can drop hosts that never advertised the
  * requested model.
  *
- * Scoped to SELF_HOSTED_CHAT_PROVIDER_IDS: those are the providers where one
- * provider id fans out to several independent hosts with genuinely different
- * inventories. Hosted providers share one catalog per provider, so filtering
- * there would only add a DB read.
+ * Scoped to self-hosted chat providers and Codex. Codex OAuth accounts can
+ * have different model entitlements even under the same provider ID.
+ * Last-good catalogs remain restrictive regardless of age until refreshed;
+ * missing/empty inventories fail open, rather than claiming absence.
  *
  * Returns an empty map (= no filtering) when there is no model to match, when
  * no candidate is self-hosted, or when the persisted rows are malformed — a
  * partial read must never silently shrink the pool.
  */
-async function loadAdvertisedModelsForSelfHostedConnections(
+export async function loadAdvertisedModelsForSelfHostedConnections(
   connections: ProviderConnectionView[],
   requestedModel: string | null
 ): Promise<Map<string, Set<string>>> {
@@ -1194,7 +1194,7 @@ async function loadAdvertisedModelsForSelfHostedConnections(
   const selfHostedProviders = new Set(
     connections
       .map((c) => c.provider)
-      .filter((p): p is string => typeof p === "string" && isSelfHostedChatProvider(p))
+      .filter((p): p is string => typeof p === "string" && (p === "codex" || isSelfHostedChatProvider(p)))
   );
   if (selfHostedProviders.size === 0) return advertised;
 
@@ -1513,7 +1513,7 @@ export async function getProviderCredentials(
       }
       if (
         requestedModel &&
-        !isModelAdvertisedByConnection(requestedModel, advertisedModelsByConnection.get(c.id))
+        !isModelAdvertisedByConnection(requestedModel, advertisedModelsByConnection.get(c.id), c.provider)
       ) {
         connectionFilterStatus.set(c.id, "modelNotAdvertised");
         return false;

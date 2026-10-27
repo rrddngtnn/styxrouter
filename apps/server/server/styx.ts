@@ -27,6 +27,8 @@ import { createUpstreamApi } from "./upstream.ts";
 import { createBackupsApi, startBackupScheduler } from "./backups.ts";
 import { createV1Api } from "./v1.ts";
 import { startProviderLimitsAutoSync } from "./providerLimitsSync.ts";
+import { createModelSyncApi } from "./modelSync.ts";
+import { startModelSyncScheduler } from "../src/shared/services/modelSyncScheduler.ts";
 
 const app = new Hono<ModelMetadataEnv>();
 // Registered first so it runs before every route below, including the mounted sub-app.
@@ -454,6 +456,10 @@ app.route("/api", await createUpstreamApi());
 app.route("/api", createBackupsApi());
 startBackupScheduler();
 startProviderLimitsAutoSync();
+app.route("/api", createModelSyncApi());
+if (process.env.STYX_TEST_MODE !== "1" && !process.env.BUN_TEST) {
+  startModelSyncScheduler(undefined, undefined, { revalidateCodexCatalogOnStartup: false });
+}
 
 const panelRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../panel");
 app.use(

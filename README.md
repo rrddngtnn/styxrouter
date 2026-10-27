@@ -19,6 +19,12 @@ styxrouter/
 └── package.json       # Bun workspace root
 ```
 
+## Model naming and routing
+
+All model IDs, display names, effort variants, and per-account catalog
+semantics are documented in [`docs/model-naming.md`](docs/model-naming.md).
+Follow that document when adding or changing any model in this repository.
+
 ## Supported providers
 
 Retained from upstream and verified end-to-end live in this repo:

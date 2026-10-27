@@ -270,7 +270,8 @@ async function runSyncCycle(apiBaseUrl: string): Promise<void> {
  */
 export function startModelSyncScheduler(
   apiBaseUrl = getModelSyncInternalBaseUrl(),
-  intervalMs = DEFAULT_INTERVAL_MS
+  intervalMs = DEFAULT_INTERVAL_MS,
+  options: { revalidateCodexCatalogOnStartup?: boolean } = {}
 ): void {
   if (schedulerTimer) {
     console.log("[ModelSync] Scheduler already running — skipping start");
@@ -289,14 +290,16 @@ export function startModelSyncScheduler(
   const startupDelay = setTimeout(() => runSyncCycle(trustedApiBaseUrl), 5_000);
   startupDelay.unref?.();
 
-  // Codex-only: revalidate catalog only on first-start or app upgrade (not every boot).
-  void import("./codexCatalogRevalidation")
-    .then(({ scheduleCodexCatalogRevalidation }) => {
-      scheduleCodexCatalogRevalidation({ apiBaseUrl: trustedApiBaseUrl });
-    })
-    .catch(() => {
-      // silent
-    });
+  // Legacy callers retain first-start/upgrade revalidation; Hono opts into autoSync only.
+  if (options.revalidateCodexCatalogOnStartup !== false) {
+    void import("./codexCatalogRevalidation")
+      .then(({ scheduleCodexCatalogRevalidation }) => {
+        scheduleCodexCatalogRevalidation({ apiBaseUrl: trustedApiBaseUrl });
+      })
+      .catch(() => {
+        // silent
+      });
+  }
 
   // Then run on the regular interval
   schedulerTimer = setInterval(() => runSyncCycle(trustedApiBaseUrl), effectiveIntervalMs);

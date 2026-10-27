@@ -1,3 +1,4 @@
+import { splitCodexReasoningSuffix } from "@styxrouter/open-sse/executors/codex/reasoningSuffix.ts";
 import { wildcardMatch } from "@styxrouter/open-sse/services/wildcardRouter.ts";
 
 type JsonRecord = Record<string, unknown>;
@@ -96,10 +97,14 @@ export function hasEligibleConnectionForModel(
  */
 export function isModelAdvertisedByConnection(
   modelId: unknown,
-  advertisedModelIds: ReadonlySet<string> | null | undefined
+  advertisedModelIds: ReadonlySet<string> | null | undefined,
+  provider?: string
 ): boolean {
   if (!advertisedModelIds || advertisedModelIds.size === 0) return true;
   if (typeof modelId !== "string" || modelId.trim().length === 0) return true;
 
-  return getModelMatchCandidates(modelId).some((candidate) => advertisedModelIds.has(candidate));
+  return getModelMatchCandidates(modelId).some((candidate) =>
+    advertisedModelIds.has(candidate) ||
+    (provider === "codex" && advertisedModelIds.has(splitCodexReasoningSuffix(candidate).baseModel))
+  );
 }

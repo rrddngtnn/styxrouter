@@ -65,11 +65,15 @@ export function clientIp(c: Context): string | null {
 const denied = (c: Context, status: 401 | 403, message: string) =>
   c.json({ error: { message, type: status === 401 ? "authentication_error" : "forbidden" } }, status);
 
+import { isModelSyncInternalRequest } from "../src/shared/services/modelSyncScheduler.ts";
+
 export const requireAuth: MiddlewareHandler = async (c, next) => {
   const path = new URL(c.req.url).pathname.replace(/\/+$/, "") || "/";
 
   if (path === "/api" || path.startsWith("/api/")) {
     if (PUBLIC_API.has(path)) return next();
+    if (c.req.method === "POST" && /^\/api\/providers\/[^/]+\/sync-models$/.test(path) &&
+        isModelSyncInternalRequest(c.req.raw)) return next();
     if (!(await hasSession(c))) return denied(c, 401, "Authentication required");
     if (!SAFE_METHODS.has(c.req.method) && foreignOrigin(c)) return denied(c, 403, "Cross-origin request refused");
     return next();
