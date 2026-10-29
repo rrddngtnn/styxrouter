@@ -6,6 +6,9 @@ import { v4 as uuidv4 } from "uuid";
 import { getDbInstance, rowToCamel, cleanNulls } from "./core";
 import { backupDbFile } from "./backup";
 import {
+  encrypt,
+  decrypt,
+  hasCurrentEncryptionKey,
   encryptConnectionFields,
   decryptConnectionFields,
   migrateLegacyEncryptedString,
@@ -33,6 +36,7 @@ import {
 } from "./webSessionDedup";
 import { pickCodexConnectionForUser } from "@/lib/oauth/utils/codexConnectionSelection";
 import { reconcileCodexUsageHistory } from "./providers/usageIdentityReconciliation";
+import { reconcileCodexContextWindowsInTransaction } from "../contextWindowResolver";
 
 /**
  * normalizeProviderSpecificData + the Codex fingerprint-seed invariant: Codex
@@ -99,9 +103,9 @@ export class ManagementPasswordAsCredentialError extends Error {
  * repairing the connection by hand, so the refusal has to sit on the write
  * path that all of those forms funnel into.
  *
- * Only an actual match blocks the write. A settings row that cannot be read,
- * or a bcrypt call that throws, logs and allows -- a guard against one specific
- * operator mistake must not become a way to lock out every connection write.
+ * By default only an actual match blocks the write; legacy callers tolerate
+ * settings or bcrypt failures. Security-sensitive imports opt into fail-closed
+ * handling, which suppresses exception details and aborts before persistence.
  *
  * Deliberately narrower than CONNECTION_CREDENTIAL_FIELDS. The OAuth tokens
  * arrive from a provider's token endpoint, and the refresh path writes them
@@ -109,7 +113,7 @@ export class ManagementPasswordAsCredentialError extends Error {
  * would put a bcrypt round on a renewal path to defend a field no autofill
  * reaches. apiKey is the only credential an operator types into a form.
  */
-async function assertApiKeyIsNotManagementPassword(apiKey: unknown): Promise<void> {
+export async function assertApiKeyIsNotManagementPassword(apiKey: unknown, options?: { failClosed?: boolean }): Promise<void> {
   if (typeof apiKey !== "string") return;
   const trimmed = apiKey.trim();
   if (!trimmed) return;
@@ -129,6 +133,7 @@ async function assertApiKeyIsNotManagementPassword(apiKey: unknown): Promise<voi
       (trimmed !== apiKey && (await verifyManagementPassword(apiKey, stored)));
     if (!matches) return;
   } catch (err) {
+    if (options?.failClosed) throw new Error("Could not verify credential safety");
     console.warn(
       "[Providers] could not check the credential against the dashboard password:",
       err instanceof Error ? err.message : String(err)
@@ -507,32 +512,39 @@ export async function createProviderConnection(data: JsonRecord) {
   if (existing) {
     const existingId = toStringOrNull(existing.id);
     if (!existingId) return null;
-    const rawExisting = toRecord(rowToCamel(existing));
-    const decryptedExisting = decryptConnectionFields({ ...rawExisting });
-    const merged: JsonRecord = { ...decryptedExisting, ...data, updatedAt: now };
-    merged.providerSpecificData = normalizeConnectionProviderSpecificData(
-      toStringOrNull(merged.provider),
-      merged.providerSpecificData,
-      merged,
-      decryptedExisting.providerSpecificData
-    );
-    const persistence: JsonRecord = { ...merged };
-    for (const field of CONNECTION_CREDENTIAL_FIELDS) {
-      if (!Object.hasOwn(data, field)) {
-        persistence[field] = rawExisting[field];
+    let merged: JsonRecord = {};
+    (db as unknown as ReturnType<typeof getDbInstance>).immediate(() => {
+      const current = db.prepare("SELECT * FROM provider_connections WHERE id = ?").get(existingId);
+      if (!current) throw new Error("Connection disappeared during upsert");
+      const rawExisting = toRecord(rowToCamel(current));
+      const decryptedExisting = decryptConnectionFields({ ...rawExisting });
+      merged = { ...decryptedExisting, ...data, updatedAt: now };
+      if (Object.hasOwn(data, "providerSpecificData")) {
+        const previous = toRecord(decryptedExisting.providerSpecificData);
+        const incoming = { ...toRecord(data.providerSpecificData) };
+        delete incoming.tags;
+        if (Object.hasOwn(previous, "tags")) incoming.tags = previous.tags;
+        merged.providerSpecificData = incoming;
       }
-    }
-    db.transaction(() => {
+      merged.providerSpecificData = normalizeConnectionProviderSpecificData(
+        toStringOrNull(merged.provider), merged.providerSpecificData, merged,
+        decryptedExisting.providerSpecificData
+      );
+      const persistence: JsonRecord = { ...merged };
+      for (const field of CONNECTION_CREDENTIAL_FIELDS) {
+        if (!Object.hasOwn(data, field)) persistence[field] = rawExisting[field];
+      }
       if (promotedCodexIdentity) {
         reconcileCodexUsageHistory(db, {
           connectionId: existingId,
-          existing,
+          existing: toRecord(current),
           merged,
           matchedExistingCodexByWorkspace: true,
         });
       }
       _updateConnectionRow(db, existingId, encryptConnectionFields(persistence));
-    })();
+    });
+    invalidateDbCache("connections");
     backupDbFile("pre-write");
     return withNullableRateLimitOverrides(
       withNullableQuotaWindowThresholds(
@@ -588,6 +600,7 @@ export async function createProviderConnection(data: JsonRecord) {
     "accessToken",
     "refreshToken",
     "expiresAt",
+    "tokenExpiresAt",
     "tokenType",
     "scope",
     "idToken",
@@ -834,61 +847,198 @@ function _updateConnectionRow(db: DbLike, id: string, data: JsonRecord) {
   ).run(_buildUpdateConnectionRowParams(id, data, now));
 }
 
-export async function updateProviderConnection(id: string, data: JsonRecord) {
-  const db = getDbInstance() as unknown as DbLike;
-  const existing = db.prepare("SELECT * FROM provider_connections WHERE id = ?").get(id);
-  if (!existing) return null;
+// A rename derives its new value and records its audit entry under the same
+// cross-process write lock. Do not read credentials or rewrite unrelated fields.
+export function patchProviderConnectionTagsWithAudit(id: string, operation: "add" | "remove" | "replace", tags: string[]) {
+  const db = getDbInstance();
+  let result: { success: boolean; tags?: string[]; error?: string } = { success: false, error: "Connection not found" };
+  db.immediate(() => {
+    const row = db.prepare("SELECT provider_specific_data FROM provider_connections WHERE id = ?").get(id) as { provider_specific_data: string | null } | null;
+    if (!row) return;
+    const data = row.provider_specific_data ? JSON.parse(row.provider_specific_data) : {};
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid provider metadata");
+    const current = Array.isArray(data.tags) ? data.tags : typeof data.tags === "string" ? data.tags.split(",").filter((tag: string) => tag.trim()) : [];
+    if (current.some((tag: unknown) => typeof tag !== "string" || !tag.trim() || tag.trim().length > 64)) throw new Error("Invalid existing tags");
+    const normalize = (values: string[]) => [...new Set(values.map(tag => tag.trim().toLowerCase()))];
+    const incoming = normalize(tags);
+    const existing = normalize(current);
+    const next = operation === "replace" ? incoming : operation === "add" ? normalize([...existing, ...incoming]) : existing.filter(tag => !incoming.includes(tag));
+    if (next.length > 50) { result = { success: false, error: "Too many tags" }; return; }
+    data.tags = next;
+    const now = new Date().toISOString();
+    db.prepare("UPDATE provider_connections SET provider_specific_data = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(data), now, id);
+    db.prepare("INSERT INTO audit_log (timestamp, action, actor, target, details, resource_type, status, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(now, "connection.tags", "admin", id, JSON.stringify({ operation, tags: next }), "admin_api", "success", JSON.stringify({ operation, tags: next }));
+    result = { success: true, tags: next };
+  });
+  if (result.success) {
+    invalidateDbCache("connections");
+    bumpProxyConfigGeneration();
+    backupDbFile("pre-write");
+  }
+  return result;
+}
 
+export function setProviderConnectionActiveWithAudit(id: string, isActive: boolean) {
+  const db = getDbInstance();
+  let success = false;
+  db.immediate(() => {
+    const now = new Date().toISOString();
+    const updated = db.prepare("UPDATE provider_connections SET is_active = ?, updated_at = ? WHERE id = ?").run(isActive ? 1 : 0, now, id);
+    if (!updated.changes) return;
+    const details = JSON.stringify({ isActive });
+    db.prepare("INSERT INTO audit_log (timestamp, action, actor, target, details, resource_type, status, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(now, "connection.update", "admin", id, details, "admin_api", "success", details);
+    success = true;
+  });
+  if (success) {
+    invalidateDbCache("connections");
+    bumpProxyConfigGeneration();
+  }
+  return success ? { success: true, isActive } : { success: false, error: "Connection not found" };
+}
+
+export function releaseProviderConnectionCooldownWithAudit(id: string, preserveTerminal = true) {
+  const db = getDbInstance();
+  let success = false;
+  db.immediate(() => {
+    const now = new Date().toISOString();
+    const terminalCondition = preserveTerminal ? "test_status IN ('banned', 'expired', 'credits_exhausted')" : "0";
+    const updated = db.prepare(`UPDATE provider_connections SET
+      backoff_level = 0,
+      test_status = CASE WHEN ${terminalCondition} THEN test_status ELSE 'active' END,
+      last_error = CASE WHEN ${terminalCondition} THEN last_error ELSE NULL END,
+      last_error_at = CASE WHEN ${terminalCondition} THEN last_error_at ELSE NULL END,
+      last_error_type = CASE WHEN ${terminalCondition} THEN last_error_type ELSE NULL END,
+      last_error_source = CASE WHEN ${terminalCondition} THEN last_error_source ELSE NULL END,
+      error_code = CASE WHEN ${terminalCondition} THEN error_code ELSE NULL END,
+      rate_limited_until = NULL, updated_at = ? WHERE id = ?`).run(now, id);
+    if (!updated.changes) return;
+    db.prepare("INSERT INTO audit_log (timestamp, action, actor, target, resource_type, status) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(now, "connection.release-cooldown", "admin", id, "admin_api", "success");
+    success = true;
+  });
+  if (success) {
+    invalidateDbCache("connections");
+    bumpProxyConfigGeneration();
+  }
+  return success ? { success: true } : { success: false, error: "Connection not found" };
+}
+
+export function renameProviderConnectionWithAudit(id: string, pattern: string, index: number) {
+  const db = getDbInstance();
+  let result: { success: boolean; name?: string; error?: string } = { success: false, error: "Connection not found" };
+  db.immediate(() => {
+    const row = db.prepare("SELECT name FROM provider_connections WHERE id = ?").get(id) as { name: string | null } | null;
+    if (!row) return;
+    const name = pattern.replace(/\{name\}|\{index\}/g, token => token === "{name}" ? String(row.name || "") : String(index)).trim();
+    if (!name || name.length > 200) { result = { success: false, error: "Invalid resulting name" }; return; }
+    const now = new Date().toISOString();
+    db.prepare("UPDATE provider_connections SET name = ?, updated_at = ? WHERE id = ?").run(name, now, id);
+    db.prepare("INSERT INTO audit_log (timestamp, action, actor, target, details, resource_type, status, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(now, "connection.update", "admin", id, JSON.stringify({ name }), "admin_api", "success", JSON.stringify({ name }));
+    result = { success: true, name };
+  });
+  if (result.success) {
+    invalidateDbCache("connections");
+    bumpProxyConfigGeneration();
+    backupDbFile("pre-write");
+  }
+  return result;
+}
+
+// Metadata snapshots do not own routing tags. Callers intentionally editing tags
+// must opt in; the audited bulk-tag operation is the normal tag owner.
+export async function updateProviderConnection(id: string, data: JsonRecord, options: { tags?: "replace" } = {}) {
+  const db = getDbInstance() as unknown as DbLike;
   // The incoming value only. A connection that already holds the password has
   // to stay editable, or an operator cannot repair the one this guard exists
   // to prevent -- and re-checking the merged value would spend a bcrypt round
   // on every unrelated field edit.
   await assertApiKeyIsNotManagementPassword(data.apiKey);
 
-  const existingCamel = toRecord(rowToCamel(existing));
-  const merged: JsonRecord = {
-    ...existingCamel,
-    ...data,
-    updatedAt: new Date().toISOString(),
-  };
-  merged.providerSpecificData = normalizeConnectionProviderSpecificData(
-    toStringOrNull(merged.provider),
-    merged.providerSpecificData,
-    merged,
-    existingCamel.providerSpecificData
-  );
-  // Mirror the sanitization the create path applies — keep the returned
-  // object in lockstep with what we persist.
-  if ("quotaWindowThresholds" in merged) {
-    const result = sanitizeQuotaWindowThresholds(merged.quotaWindowThresholds);
-    if (result.rejected.length > 0) {
-      throw new Error(
-        `Refusing to persist quotaWindowThresholds with rejected keys: ${result.rejected.join(", ")}`
-      );
+  // Read and merge under the same cross-process write lock as the update.
+  let result: { existing: unknown; merged: JsonRecord } | null = null;
+  (db as unknown as ReturnType<typeof getDbInstance>).immediate(() => {
+    const existing = db.prepare("SELECT * FROM provider_connections WHERE id = ?").get(id);
+    if (!existing) return null;
+    const existingCamel = toRecord(rowToCamel(existing));
+    const merged: JsonRecord = {
+      ...existingCamel,
+      ...data,
+      updatedAt: new Date().toISOString(),
+    };
+    // Imports promise encrypted-at-rest credentials even if the general DB
+    // encryption helper is in development passthrough mode. Validate each new
+    // secret before the transaction writes any part of the rotated pair.
+    if ((existingCamel.providerSpecificData as any)?.importedToken) {
+      for (const field of ["apiKey", "accessToken", "refreshToken", "idToken"] as const) {
+        const value = data[field];
+        if (typeof value !== "string" || !value) continue;
+        if (!hasCurrentEncryptionKey() || value.startsWith("enc:v1:")) {
+          throw new Error("Secure credential persistence unavailable");
+        }
+        const ciphertext = encrypt(value);
+        if (typeof ciphertext !== "string" || !ciphertext.startsWith("enc:v1:") || decrypt(ciphertext, { quiet: true }) !== value) {
+          throw new Error("Secure credential persistence unavailable");
+        }
+        merged[field] = ciphertext;
+      }
     }
-    // For updates we always carry the key forward (even as null) so the read
-    // path surfaces the cleared state to callers that merged it.
-    merged.quotaWindowThresholds = result.sanitized;
-  }
-  if ("rateLimitOverrides" in merged) {
-    const result = sanitizeRateLimitOverrides(merged.rateLimitOverrides);
-    if (result.rejected.length > 0) {
-      throw new Error(
-        `Refusing to persist rateLimitOverrides with rejected keys: ${result.rejected.join(", ")}`
-      );
+    if (Object.hasOwn(data, "providerSpecificData") && options.tags !== "replace") {
+      const previous = toRecord(existingCamel.providerSpecificData);
+      const incoming = { ...toRecord(data.providerSpecificData) };
+      delete incoming.tags;
+      if (Object.hasOwn(previous, "tags")) incoming.tags = previous.tags;
+      merged.providerSpecificData = incoming;
     }
-    merged.rateLimitOverrides = result.sanitized;
-  }
-  const existingRecord = toRecord(existing);
+    merged.providerSpecificData = normalizeConnectionProviderSpecificData(
+      toStringOrNull(merged.provider),
+      merged.providerSpecificData,
+      merged,
+      existingCamel.providerSpecificData
+    );
+    // Mirror the sanitization the create path applies — keep the returned
+    // object in lockstep with what we persist.
+    if ("quotaWindowThresholds" in merged) {
+      const result = sanitizeQuotaWindowThresholds(merged.quotaWindowThresholds);
+      if (result.rejected.length > 0) {
+        throw new Error(
+          `Refusing to persist quotaWindowThresholds with rejected keys: ${result.rejected.join(", ")}`
+        );
+      }
+      // For updates we always carry the key forward (even as null) so the read
+      // path surfaces the cleared state to callers that merged it.
+      merged.quotaWindowThresholds = result.sanitized;
+    }
+    if ("rateLimitOverrides" in merged) {
+      const result = sanitizeRateLimitOverrides(merged.rateLimitOverrides);
+      if (result.rejected.length > 0) {
+        throw new Error(
+          `Refusing to persist rateLimitOverrides with rejected keys: ${result.rejected.join(", ")}`
+        );
+      }
+      merged.rateLimitOverrides = result.sanitized;
+    }
+    const existingRecord = toRecord(existing);
 
-  db.transaction(() => {
     reconcileCodexUsageHistory(db, {
       connectionId: id,
       existing: existingRecord,
       merged,
     });
     _updateConnectionRow(db, id, encryptConnectionFields({ ...merged }));
-  })();
+    if (data.isActive !== undefined && (existingRecord.provider === "codex" || merged.provider === "codex")) {
+      if (normalizeBooleanColumn(data.isActive, true) !== normalizeBooleanColumn(existingCamel.isActive, true)) {
+        (db as unknown as ReturnType<typeof getDbInstance>).prepare("DELETE FROM key_value WHERE namespace = 'codexSyncFence' AND key = ?").run(id);
+      }
+      reconcileCodexContextWindowsInTransaction();
+    }
+    result = { existing, merged };
+  });
+  const committed = result as { existing: unknown; merged: JsonRecord } | null;
+  if (!committed) return null;
+  const { existing, merged } = committed;
   backupDbFile("pre-write");
   invalidateDbCache("connections"); // Bust connections read cache
   bumpProxyConfigGeneration();

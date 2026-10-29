@@ -36,7 +36,7 @@ export async function updateCodexScopedQuotaState(
   if (toRecord(candidate).provider !== "codex") return null;
 
   backupDbFile("pre-write");
-  const persisted = db.transaction(() => {
+  const persisted = (db as unknown as ReturnType<typeof getDbInstance>).immediate(() => {
     const existing = db.prepare("SELECT * FROM provider_connections WHERE id = ?").get(id);
     if (!existing) return null;
 
@@ -100,7 +100,7 @@ export async function updateCodexScopedQuotaState(
        WHERE id = ?`
     ).run(JSON.stringify(nextProviderSpecificData), new Date().toISOString(), id);
     return nextProviderSpecificData;
-  })();
+  });
 
   if (persisted) invalidateDbCache("connections");
   return persisted;

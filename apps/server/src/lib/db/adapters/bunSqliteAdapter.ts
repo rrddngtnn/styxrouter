@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import { requireSynchronous, requireSynchronousCallback } from "./synchronous";
 import type { PreparedStatement, RunResult, SqliteAdapter } from "./types";
 
 /**
@@ -7,6 +7,7 @@ import type { PreparedStatement, RunResult, SqliteAdapter } from "./types";
  * better-sqlite3, node:sqlite, and sql.js.
  */
 export interface BunSqliteDatabaseLike {
+  readonly inTransaction: boolean;
   query(sql: string): {
     run(...params: unknown[]): { changes: number | bigint; lastInsertRowid: number | bigint };
     get(...params: unknown[]): unknown;
@@ -62,12 +63,20 @@ function normalizeParams(params: unknown[]): unknown[] {
 
 export function createBunSqliteAdapter(db: BunSqliteDatabaseLike, filePath: string): SqliteAdapter {
   let isOpen = true;
+  // Bun's run().changes includes trigger and foreign-key cascade writes. The
+  // shared adapter contract counts only rows changed by the top-level statement,
+  // matching SQLite changes() and the other drivers.
+  const directChanges = db.query("SELECT changes() AS changes");
 
   return {
     driver: "bun:sqlite",
 
     get open() {
       return isOpen;
+    },
+
+    get inTransaction() {
+      return db.inTransaction;
     },
 
     get name() {
@@ -78,7 +87,9 @@ export function createBunSqliteAdapter(db: BunSqliteDatabaseLike, filePath: stri
       const statement = db.query(sql);
       return {
         run(...params: unknown[]): RunResult {
-          return normalizeRunResult(statement.run(...normalizeParams(params)));
+          const result = statement.run(...normalizeParams(params));
+          const row = directChanges.get() as { changes: number | bigint };
+          return normalizeRunResult({ ...result, changes: row.changes });
         },
         get(...params: unknown[]): unknown {
           const row = statement.get(...normalizeParams(params));
@@ -104,19 +115,20 @@ export function createBunSqliteAdapter(db: BunSqliteDatabaseLike, filePath: stri
     },
 
     transaction<T>(fn: (...args: unknown[]) => T): (...args: unknown[]) => T {
-      return db.transaction(fn);
+      return db.transaction((...args) => { requireSynchronousCallback(fn); return requireSynchronous(fn(...args)); });
     },
 
-    immediate(fn: () => void): void {
-      const transaction = db.transaction(fn);
+    immediate<T>(fn: () => T): T {
+      requireSynchronousCallback(fn);
+      const transaction = db.transaction(() => requireSynchronous(fn()));
       if (typeof transaction.immediate === "function") {
-        transaction.immediate();
-        return;
+        return transaction.immediate();
       }
       db.exec("BEGIN IMMEDIATE");
       try {
-        fn();
+        const result = requireSynchronous(fn());
         db.exec("COMMIT");
+        return result;
       } catch (error) {
         try {
           db.exec("ROLLBACK");
@@ -126,11 +138,9 @@ export function createBunSqliteAdapter(db: BunSqliteDatabaseLike, filePath: stri
     },
 
     async backup(destination: string): Promise<void> {
-      if (filePath === ":memory:") return;
-      try {
-        db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-      } catch {}
-      await fs.promises.copyFile(filePath, destination);
+      // VACUUM INTO creates a consistent SQLite snapshot, including committed WAL
+      // frames even when another connection prevents checkpointing.
+      db.exec(`VACUUM INTO '${destination.replace(/'/g, "''")}'`);
     },
 
     checkpoint(mode = "TRUNCATE"): void {

@@ -16,7 +16,13 @@ import { routingConfigRepositories } from "./repositories/routingConfigRepositor
 
 const repository = routingConfigRepositories.combos;
 
-export function getCombos(limit?: number, offset?: number): Promise<ComboRecord[]> {
+async function ensureQuotaProjection(): Promise<void> {
+  const { ensureQuotaCombosCurrent } = await import("./quotaComboGeneration");
+  await ensureQuotaCombosCurrent();
+}
+
+export async function getCombos(limit?: number, offset?: number): Promise<ComboRecord[]> {
+  await ensureQuotaProjection();
   return repository.list(limit, offset);
 }
 
@@ -25,15 +31,18 @@ export function getCombosCount(): number {
   return routingConfigRepositories.legacySync.getCombosCount();
 }
 
-export function getComboById(id: string): Promise<ComboRecord | null> {
+export async function getComboById(id: string): Promise<ComboRecord | null> {
+  await ensureQuotaProjection();
   return repository.findById(id);
 }
 
-export function getComboByName(name: string): Promise<ComboRecord | null> {
+export async function getComboByName(name: string): Promise<ComboRecord | null> {
+  await ensureQuotaProjection();
   return repository.findByName(name);
 }
 
-export function getComboByNameInsensitive(name: string): Promise<ComboRecord | null> {
+export async function getComboByNameInsensitive(name: string): Promise<ComboRecord | null> {
+  await ensureQuotaProjection();
   return repository.findByNameInsensitive(name);
 }
 

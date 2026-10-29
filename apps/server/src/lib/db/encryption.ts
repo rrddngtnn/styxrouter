@@ -41,6 +41,7 @@ const PREFIX = "enc:v1:";
 const STATIC_SALT = "styx-field-encryption-v1";
 
 let _staticKey: Buffer | null = null;
+let _staticKeySecret: string | null = null;
 let _legacyDynamicKey: Buffer | null = null;
 /** Connection object with potentially encrypted credential fields. */
 export interface ConnectionFields {
@@ -89,6 +90,7 @@ function getStaticKey(): Buffer | null {
 
   try {
     _staticKey = scryptSync(secret, STATIC_SALT, KEY_LENGTH);
+    _staticKeySecret = secret;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(
@@ -120,6 +122,14 @@ function getLegacyDynamicKey(): Buffer | null {
     return null;
   }
   return _legacyDynamicKey;
+}
+
+/** Whether the cached canonical key still matches the configured secret. */
+export function hasCurrentEncryptionKey(): boolean {
+  const secret = process.env.STORAGE_ENCRYPTION_KEY;
+  if (!secret?.trim()) return false;
+  const key = getStaticKey();
+  return key !== null && _staticKeySecret === secret;
 }
 
 /** Check if encryption is enabled. */
@@ -164,12 +174,8 @@ export function encrypt(plaintext: string | null | undefined): string | null | u
     const authTag = cipher.getAuthTag().toString("hex");
 
     return `${PREFIX}${iv.toString("hex")}:${encrypted}:${authTag}`;
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      `[Encryption] Encryption failed: ${message}. ` +
-        `Check your STORAGE_ENCRYPTION_KEY — generate one with: openssl rand -base64 32`
-    );
+  } catch {
+    console.error("[Encryption] Encryption failed. Check STORAGE_ENCRYPTION_KEY configuration.");
     return plaintext; // fallback to plaintext rather than crashing
   }
 }

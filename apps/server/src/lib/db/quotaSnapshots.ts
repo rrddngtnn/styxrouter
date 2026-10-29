@@ -54,7 +54,7 @@ export function getQuotaSnapshots(opts: {
   until?: string;
 }): QuotaSnapshotRow[] {
   const db = getDbInstance() as unknown as DbLike;
-  const conditions: string[] = ["created_at >= ?"];
+  const conditions: string[] = ["julianday(created_at) >= julianday(?)"];
   const params: unknown[] = [opts.since];
 
   if (opts.provider) {
@@ -68,7 +68,7 @@ export function getQuotaSnapshots(opts: {
   }
 
   if (opts.until) {
-    conditions.push("created_at <= ?");
+    conditions.push("julianday(created_at) <= julianday(?)");
     params.push(opts.until);
   }
 

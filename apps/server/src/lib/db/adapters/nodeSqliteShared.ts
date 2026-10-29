@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { requireSynchronous, requireSynchronousCallback } from "./synchronous";
 import type { PreparedStatement, RunResult, SqliteAdapter } from "./types";
 
 export interface NodeSqliteDatabaseLike {
@@ -107,10 +108,11 @@ export function createNodeSqliteAdapterFromDatabase(
   }
 
   function runSavepoint<T>(fn: (...args: unknown[]) => T, ...args: unknown[]): T {
+    requireSynchronousCallback(fn);
     const sp = `sp_${Math.random().toString(36).slice(2)}`;
     db.exec(`SAVEPOINT "${sp}"`);
     try {
-      const result = fn(...args);
+      const result = requireSynchronous(fn(...args));
       db.exec(`RELEASE "${sp}"`);
       return result;
     } catch (err) {
@@ -122,17 +124,18 @@ export function createNodeSqliteAdapterFromDatabase(
     }
   }
 
-  function runImmediate(fn: () => void): void {
+  function runImmediate<T>(fn: () => T): T {
+    requireSynchronousCallback(fn);
     if (transactionDepth > 0) {
-      runSavepoint(fn);
-      return;
+      return runSavepoint(fn);
     }
 
     db.exec("BEGIN IMMEDIATE");
     transactionDepth += 1;
     try {
-      fn();
+      const result = requireSynchronous(fn());
       db.exec("COMMIT");
+      return result;
     } catch (error) {
       try {
         db.exec("ROLLBACK");
@@ -209,8 +212,8 @@ export function createNodeSqliteAdapterFromDatabase(
         }
       };
     },
-    immediate(fn: () => void): void {
-      runImmediate(fn);
+    immediate<T>(fn: () => T): T {
+      return runImmediate(fn);
     },
     async backup(destination: string): Promise<void> {
       const { backup } = await import("node:sqlite");

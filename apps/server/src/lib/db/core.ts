@@ -100,6 +100,33 @@ export const isBuildPhase = isNextBuildPhase();
 
 // ──────────────── Paths ────────────────
 
+// Bun's test preload does not run for ad-hoc scripts. Refuse recognizable
+// scratch/probe entrypoints before resolving or creating any database path.
+// This is an accident guard, not a sandbox against malicious code.
+const entrypoint = (process.argv[1] || "").replace(/\\/g, "/");
+const entryName = entrypoint.split("/").pop() || "";
+const parentName = entrypoint.split("/").at(-2) || "";
+// Resolve both sides so a symlink to a scratch entrypoint cannot evade the
+// accident guard. TMPDIR is the configured scratch root, not a security boundary.
+let entryInScratch = false;
+if (entrypoint && process.env.TMPDIR) {
+  try {
+    const scratch = fs.realpathSync(process.env.TMPDIR);
+    const entry = fs.realpathSync(entrypoint);
+    const relative = path.relative(scratch, entry);
+    entryInScratch = relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+  } catch {
+    // Preserve the existing name-based guard when paths cannot be resolved.
+  }
+}
+if (entryInScratch || /^(?:scratch|experiments|tests?)$/i.test(parentName) ||
+    /(?:^|[._-])(?:probe|scratch)(?:[._-]|$)/i.test(entryName) ||
+    /\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(entryName)) {
+  if (process.env.STYX_ISOLATED_TEST !== "1") {
+    throw new Error("Refusing scratch/test database import: use the isolated test runner (bun scripts/test-isolated.ts).");
+  }
+}
+
 export const DATA_DIR = resolveWritableDataDir({ isCloud });
 const LEGACY_DATA_DIR = isCloud ? null : getLegacyDotDataDir();
 export const SQLITE_FILE = isCloud ? null : path.join(DATA_DIR, "storage.sqlite");
@@ -529,8 +556,12 @@ declare global {
   var __styxDbOomFailureCount: number | undefined;
 }
 
-function getDb(): SqliteDatabase | null {
+export function getOpenDbInstance(): SqliteDatabase | null {
   return globalThis.__styxDb ?? null;
+}
+
+function getDb(): SqliteDatabase | null {
+  return getOpenDbInstance();
 }
 
 function setDb(db: SqliteDatabase | null): void {
@@ -1054,7 +1085,7 @@ export function getDbInstance(): SqliteDatabase {
         exec: () => {},
         pragma: () => undefined,
         transaction: <T>(fn: (...args: unknown[]) => T) => fn,
-        immediate: (fn: () => void) => fn(),
+        immediate: <T>(fn: () => T) => fn(),
         backup: async () => {},
         checkpoint: () => {},
         close: () => {},

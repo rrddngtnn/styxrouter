@@ -66,32 +66,27 @@ export function parseCompressionEnabled(value: unknown): boolean {
 }
 
 export function parseAccessSchedule(value: unknown): AccessSchedule | null {
-  if (!value || typeof value !== "string" || value.trim() === "") return null;
+  // Only an absent SQL value means unrestricted; corrupt persisted policy is
+  // not equivalent to a deliberately cleared schedule.
+  if (value == null) return null;
   try {
+    if (typeof value !== "string") throw new Error();
     const parsed: unknown = JSON.parse(value);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
     const obj = parsed as Record<string, unknown>;
+    const time = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
     if (
-      typeof obj["enabled"] !== "boolean" ||
-      typeof obj["from"] !== "string" ||
-      typeof obj["until"] !== "string" ||
-      !Array.isArray(obj["days"]) ||
-      typeof obj["tz"] !== "string"
-    ) {
-      return null;
-    }
-    const days = (obj["days"] as unknown[]).filter(
-      (d): d is number => typeof d === "number" && Number.isInteger(d) && d >= 0 && d <= 6
-    );
-    return {
-      enabled: obj["enabled"],
-      from: obj["from"],
-      until: obj["until"],
-      days,
-      tz: obj["tz"],
-    };
+      typeof obj.enabled !== "boolean" ||
+      typeof obj.from !== "string" || !time.test(obj.from) ||
+      typeof obj.until !== "string" || !time.test(obj.until) ||
+      !Array.isArray(obj.days) || obj.days.length < 1 || obj.days.length > 7 ||
+      obj.days.some((d: unknown) => typeof d !== "number" || !Number.isInteger(d) || d < 0 || d > 6) ||
+      typeof obj.tz !== "string" || !obj.tz || obj.tz.length > 100
+    ) throw new Error();
+    new Intl.DateTimeFormat("en-US", { timeZone: obj.tz });
+    return { enabled: obj.enabled, from: obj.from, until: obj.until, days: obj.days, tz: obj.tz };
   } catch {
-    return null;
+    throw new Error("Invalid API key access schedule");
   }
 }
 
@@ -129,21 +124,19 @@ export function parseAllowedConnections(value: unknown): string[] {
   }
 }
 
-/**
- * Helper function to safely parse allowed_quotas JSON
- */
+/** Parse persisted quota permissions without confusing corruption with allow-all. */
 export function parseAllowedQuotas(value: unknown): string[] {
-  if (!value || typeof value !== "string" || value.trim() === "") {
-    return [];
-  }
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed)
-      ? parsed.filter((entry): entry is string => typeof entry === "string")
-      : [];
+    if (typeof value !== "string") throw new Error();
+    parsed = JSON.parse(value);
   } catch {
-    return [];
+    throw new Error("Invalid API key quota policy");
   }
+  if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== "string")) {
+    throw new Error("Invalid API key quota policy");
+  }
+  return parsed;
 }
 
 export function parseStringList(value: unknown): string[] {

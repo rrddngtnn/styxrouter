@@ -17,6 +17,7 @@ interface StatementLike<TRow = unknown> {
 
 interface DbLike {
   prepare: <TRow = unknown>(sql: string) => StatementLike<TRow>;
+  immediate: (fn: () => void) => void;
 }
 
 export async function getProviderNodes(filter: JsonRecord = {}, limit?: number, offset?: number) {
@@ -70,6 +71,16 @@ export async function resolveProviderNodeForConnection(idOrType: string) {
   return selectProviderNodeForConnection(idOrType, all);
 }
 
+export class DuplicateProviderNodePrefixError extends Error {
+  constructor() { super("Provider node prefix already exists"); }
+}
+
+function assertPrefixAvailable(db: DbLike, prefix: unknown, id: unknown) {
+  if (prefix && db.prepare("SELECT id FROM provider_nodes WHERE prefix = ? AND id <> ? LIMIT 1").get(prefix, id)) {
+    throw new DuplicateProviderNodePrefixError();
+  }
+}
+
 export async function createProviderNode(data: JsonRecord) {
   const db = getDbInstance() as unknown as DbLike;
   const now = new Date().toISOString();
@@ -92,12 +103,15 @@ export async function createProviderNode(data: JsonRecord) {
     updatedAt: now,
   };
 
-  db.prepare(
+  db.immediate(() => {
+    assertPrefixAvailable(db, node.prefix, node.id);
+    db.prepare(
     `
     INSERT INTO provider_nodes (id, type, name, prefix, api_type, base_url, chat_path, models_path, icon_url, custom_headers_json, created_at, updated_at)
     VALUES (@id, @type, @name, @prefix, @apiType, @baseUrl, @chatPath, @modelsPath, @iconUrl, @customHeadersJson, @createdAt, @updatedAt)
   `
   ).run(node);
+  });
 
   backupDbFile("pre-write");
   invalidateDbCache("nodes");
@@ -118,10 +132,14 @@ export async function createProviderNode(data: JsonRecord) {
 
 export async function updateProviderNode(id: string, data: JsonRecord) {
   const db = getDbInstance() as unknown as DbLike;
+  let merged: JsonRecord | null = null;
+  db.immediate(() => {
   const existing = db.prepare("SELECT * FROM provider_nodes WHERE id = ?").get(id);
-  if (!existing) return null;
+  if (!existing) return;
+  const oldPrefix = (existing as JsonRecord).prefix;
+  if (data.prefix !== undefined && data.prefix !== oldPrefix) assertPrefixAvailable(db, data.prefix, id);
 
-  const merged: JsonRecord = {
+  merged = {
     ...toRecord(rowToCamel(existing)),
     ...data,
     updatedAt: new Date().toISOString(),
@@ -162,6 +180,8 @@ export async function updateProviderNode(id: string, data: JsonRecord) {
     customHeadersJson: merged["customHeadersJson"] || null,
     updatedAt: merged["updatedAt"],
   });
+  });
+  if (!merged) return null;
 
   backupDbFile("pre-write");
   invalidateDbCache("nodes");

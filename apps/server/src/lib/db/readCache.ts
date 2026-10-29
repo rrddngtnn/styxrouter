@@ -12,6 +12,8 @@
  *   const settings = await dbCache.getSettings();
  */
 
+import { getCatalogContextRevision } from "./catalogContextRevision";
+
 type CacheEntry<T> = {
   value: T;
   expiresAt: number;
@@ -65,7 +67,9 @@ const PRICING_TTL_MS = 30_000;
 const CONNECTIONS_TTL_MS = 5_000;
 const settingsCache = new TTLCache<Record<string, unknown>>(SETTINGS_TTL_MS);
 const pricingCache = new TTLCache<Record<string, unknown>>(PRICING_TTL_MS);
-const connectionsCache = new TTLCache<unknown[]>(CONNECTIONS_TTL_MS, 500);
+type ConnectionCacheValue<T> = { revision: number; value: T };
+const connectionsCache = new TTLCache<ConnectionCacheValue<unknown[]>>(CONNECTIONS_TTL_MS, 500);
+let connectionsCacheEpoch = 0;
 
 /**
  * Cached wrapper for getSettings.
@@ -104,16 +108,20 @@ export async function getCachedProviderConnections(
 ): Promise<unknown[]> {
   const cacheKey = filter && Object.keys(filter).length > 0 ? JSON.stringify(filter) : "all";
 
+  const revision = getCatalogContextRevision();
   const cached = connectionsCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached && cached.revision === revision) return cached.value;
 
+  const epoch = connectionsCacheEpoch;
   const { getProviderConnections } = await import("@/lib/db/providers");
   const value = await getProviderConnections(filter);
-  connectionsCache.set(cacheKey, value);
+  if (epoch === connectionsCacheEpoch && revision === getCatalogContextRevision()) {
+    connectionsCache.set(cacheKey, { revision, value });
+  }
   return value;
 }
 
-const rawConnectionsCache = new TTLCache<unknown[]>(CONNECTIONS_TTL_MS, 500);
+const rawConnectionsCache = new TTLCache<ConnectionCacheValue<unknown[]>>(CONNECTIONS_TTL_MS, 500);
 
 /**
  * Cached wrapper for getRawProviderConnections.
@@ -126,15 +134,19 @@ export async function getCachedRawProviderConnections(
   filter?: Record<string, unknown>
 ): Promise<unknown[]> {
   const key = JSON.stringify(filter ?? {});
+  const revision = getCatalogContextRevision();
   const cached = rawConnectionsCache.get(key);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined && cached.revision === revision) return cached.value;
+  const epoch = connectionsCacheEpoch;
   const { getRawProviderConnections } = await import("./providers");
   const rows = await getRawProviderConnections(filter);
-  rawConnectionsCache.set(key, rows);
+  if (epoch === connectionsCacheEpoch && revision === getCatalogContextRevision()) {
+    rawConnectionsCache.set(key, { revision, value: rows });
+  }
   return rows;
 }
 
-const connectionByIdCache = new TTLCache<Record<string, unknown> | null>(
+const connectionByIdCache = new TTLCache<ConnectionCacheValue<Record<string, unknown> | null>>(
   CONNECTIONS_TTL_MS,
   10_000
 );
@@ -149,12 +161,16 @@ export async function getCachedProviderConnectionById(
   id: string
 ): Promise<Record<string, unknown> | null> {
   if (!id) return null;
+  const revision = getCatalogContextRevision();
   const cached = connectionByIdCache.get(id);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined && cached.revision === revision) return cached.value;
 
+  const epoch = connectionsCacheEpoch;
   const { getProviderConnectionById } = await import("@/lib/db/providers");
   const value = await getProviderConnectionById(id);
-  connectionByIdCache.set(id, value);
+  if (epoch === connectionsCacheEpoch && revision === getCatalogContextRevision()) {
+    connectionByIdCache.set(id, { revision, value });
+  }
   return value;
 }
 
@@ -284,6 +300,7 @@ export function invalidateDbCache(
   if (!scope || scope === "settings") settingsCache.invalidate();
   if (!scope || scope === "pricing") pricingCache.invalidate();
   if (!scope || scope === "connections") {
+    connectionsCacheEpoch++;
     connectionsCache.invalidate();
     rawConnectionsCache.invalidate();
     if (id) {

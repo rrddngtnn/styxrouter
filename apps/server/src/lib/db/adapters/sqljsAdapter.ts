@@ -1,6 +1,7 @@
 // src/lib/db/adapters/sqljsAdapter.ts
 import fs from "node:fs";
 import path from "node:path";
+import { requireSynchronous, requireSynchronousCallback } from "./synchronous";
 import type { SqliteAdapter, PreparedStatement, RunResult } from "./types";
 
 const SAVE_DEBOUNCE_MS = 100;
@@ -130,6 +131,18 @@ async function loadSqlJs(): Promise<typeof _sqlJsLib> {
 }
 
 export async function createSqlJsAdapter(filePath: string): Promise<SqliteAdapter> {
+  // sql.js keeps a private snapshot and rewrites the entire file. Neither native
+  // SQLite clients nor other processes participate in a lock that could make
+  // that snapshot authoritative. A cooperative lock here would therefore still
+  // allow stale authorization decisions and lost writes. Refuse this backend
+  // rather than silently running an unsafe deployment.
+  if (filePath !== ":memory:") {
+    throw new Error(
+      "[sqljsAdapter] file-backed sql.js is disabled: it cannot safely coordinate " +
+      "authorization or writes across processes or native SQLite clients. " +
+      "Install a supported native SQLite driver (bun:sqlite, better-sqlite3, or node:sqlite)."
+    );
+  }
   const SQLLib = await loadSqlJs();
   if (!SQLLib) throw new Error("[sqljsAdapter] Failed to load sql.js");
 
@@ -215,10 +228,11 @@ export async function createSqlJsAdapter(filePath: string): Promise<SqliteAdapte
   }
 
   function runSavepoint<T>(fn: (...args: unknown[]) => T, ...args: unknown[]): T {
+    requireSynchronousCallback(fn);
     const sp = `sp_${Math.random().toString(36).slice(2)}`;
     db.run(`SAVEPOINT "${sp}"`);
     try {
-      const result = fn(...args);
+      const result = requireSynchronous(fn(...args));
       db.run(`RELEASE "${sp}"`);
       scheduleSave();
       return result;
@@ -347,13 +361,14 @@ export async function createSqlJsAdapter(filePath: string): Promise<SqliteAdapte
       return (...args: unknown[]) => runSavepoint(fn, ...args);
     },
 
-    immediate(fn: () => void): void {
-      runSavepoint(() => fn());
+    immediate<T>(fn: () => T): T {
+      return runSavepoint(fn);
     },
 
     async backup(destination: string): Promise<void> {
-      if (dirty) persist();
-      if (filePath !== ":memory:") await fs.promises.copyFile(filePath, destination);
+      // Export before the first await so subsequent writes cannot enter the snapshot.
+      const snapshot = db.export();
+      await fs.promises.writeFile(destination, snapshot);
     },
 
     checkpoint(_mode = "TRUNCATE"): void {

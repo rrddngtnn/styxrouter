@@ -18,7 +18,7 @@ function readPricingNamespace(
   namespace: string
 ): PricingByProvider {
   const rows = db.prepare("SELECT key, value FROM key_value WHERE namespace = ?").all(namespace);
-  const pricing: PricingByProvider = {};
+  const pricing: PricingByProvider = Object.create(null);
 
   for (const row of rows) {
     const record = toRecord(row);
@@ -37,12 +37,12 @@ function readPricingNamespace(
 }
 
 function mergePricingLayers(layers: PricingByProvider[]): PricingByProvider {
-  const mergedPricing: PricingByProvider = {};
+  const mergedPricing: PricingByProvider = Object.create(null);
 
   for (const layer of layers) {
     for (const [provider, models] of Object.entries(layer)) {
       if (!mergedPricing[provider]) {
-        mergedPricing[provider] = { ...models };
+        mergedPricing[provider] = Object.assign(Object.create(null), models);
         continue;
       }
 
@@ -63,7 +63,7 @@ function buildPricingSourceMap(layers: {
   modelsDev: PricingByProvider;
   user: PricingByProvider;
 }): PricingSourceMap {
-  const sourceMap: PricingSourceMap = {};
+  const sourceMap: PricingSourceMap = Object.create(null);
   const mergedPricing = mergePricingLayers([
     layers.defaults,
     layers.litellm,
@@ -72,14 +72,14 @@ function buildPricingSourceMap(layers: {
   ]);
 
   for (const [provider, models] of Object.entries(mergedPricing)) {
-    sourceMap[provider] = {};
+    sourceMap[provider] = Object.create(null);
 
     for (const model of Object.keys(models)) {
-      if (layers.user[provider]?.[model]) {
+      if (Object.hasOwn(layers.user, provider) && Object.hasOwn(layers.user[provider], model) && layers.user[provider][model]) {
         sourceMap[provider][model] = "user";
-      } else if (layers.modelsDev[provider]?.[model]) {
+      } else if (Object.hasOwn(layers.modelsDev, provider) && Object.hasOwn(layers.modelsDev[provider], model) && layers.modelsDev[provider][model]) {
         sourceMap[provider][model] = "modelsDev";
-      } else if (layers.litellm[provider]?.[model]) {
+      } else if (Object.hasOwn(layers.litellm, provider) && Object.hasOwn(layers.litellm[provider], model) && layers.litellm[provider][model]) {
         sourceMap[provider][model] = "litellm";
       } else {
         sourceMap[provider][model] = "default";
@@ -179,7 +179,7 @@ export async function updatePricing(pricingData: PricingByProvider) {
   );
 
   const rows = db.prepare("SELECT key, value FROM key_value WHERE namespace = 'pricing'").all();
-  const existing: PricingByProvider = {};
+  const existing: PricingByProvider = Object.create(null);
   for (const row of rows) {
     const record = toRecord(row);
     const key = typeof record.key === "string" ? record.key : null;
@@ -196,7 +196,7 @@ export async function updatePricing(pricingData: PricingByProvider) {
   tx();
   backupDbFile("pre-write");
   invalidateDbCache("pricing"); // Bust the pricing read cache
-  const updated: PricingByProvider = {};
+  const updated: PricingByProvider = Object.create(null);
   const allRows = db.prepare("SELECT key, value FROM key_value WHERE namespace = 'pricing'").all();
   for (const row of allRows) {
     const record = toRecord(row);
@@ -235,7 +235,7 @@ export async function resetPricing(provider: string, model?: string) {
 
   backupDbFile("pre-write");
   const allRows = db.prepare("SELECT key, value FROM key_value WHERE namespace = 'pricing'").all();
-  const result: Record<string, unknown> = {};
+  const result: Record<string, unknown> = Object.create(null);
   for (const row of allRows) {
     const record = toRecord(row);
     const key = typeof record.key === "string" ? record.key : null;

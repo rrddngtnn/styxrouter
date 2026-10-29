@@ -6,6 +6,7 @@ import { createHash } from "crypto";
 import { v4 as uuidv4 } from "uuid";
 import { getDbInstance, rowToCamel } from "./core";
 import { backupDbFile } from "./backup";
+import { backupBeforeDestructiveWrite } from "./preWriteBackup";
 import { registerDbStateResetter } from "./stateReset";
 import { invalidateReasoningRoutingRuleCache } from "./reasoningRoutingRules";
 import { getKeyGroupsForApiKey, checkKeyModelAccess } from "./apiKeyGroups";
@@ -54,16 +55,13 @@ import {
 } from "./apiKeys/rowParsers";
 import {
   clearModelPermissionCache,
-  getCachedModelPermission,
-  setCachedModelPermission,
-  evictModelPermissionCache,
 } from "./apiKeys/modelPermissionCache";
 import type { ModelAccessMode } from "./apiKeys/modelAccessMode";
 import {
   normalizeApiKeyPermissionsUpdate,
   type ApiKeyPermissionsUpdate,
 } from "./apiKeys/permissionsUpdate";
-import { getModelCatalogCacheVersion, invalidateModelCatalogCache } from "./readCache";
+import { invalidateModelCatalogCache } from "./readCache";
 import type { AccessSchedule, RateLimitRule } from "./apiKeys/types";
 
 // ──────────────── Performance Optimizations ────────────────
@@ -72,11 +70,6 @@ import type { AccessSchedule, RateLimitRule } from "./apiKeys/types";
 let _schemaChecked = false;
 
 type JsonRecord = Record<string, unknown>;
-
-interface CacheEntry<TValue> {
-  timestamp: number;
-  value: TValue;
-}
 
 export type { AccessSchedule, RateLimitRule } from "./apiKeys/types";
 
@@ -215,13 +208,8 @@ interface ApiKeyView extends JsonRecord {
   compressionEnabled: boolean;
 }
 
-// LRU cache for API key validation (valid keys only)
-const _keyValidationCache = new Map<string, { valid: boolean; timestamp: number }>();
-const _keyMetadataCache = new Map<string, CacheEntry<ApiKeyMetadata>>();
 const _lastUsedUpdateCache = new Map<string, number>();
-const CACHE_TTL = 60 * 1000; // 1 minute TTL
 const LAST_USED_UPDATE_TTL = 5 * 60 * 1000;
-const MAX_CACHE_SIZE = 1000;
 const EXCLUSIVE_LEASE_SCOPE = "lease:exclusive";
 
 export class ApiKeyPolicyInvariantError extends Error {
@@ -251,8 +239,6 @@ let _stmtDeleteKey: ApiKeysStatements["deleteKey"] | null = null;
  * Clear all caches (called on key create/update/delete)
  */
 function invalidateCaches() {
-  _keyValidationCache.clear();
-  _keyMetadataCache.clear();
   clearModelPermissionCache();
   _lastUsedUpdateCache.clear();
 }
@@ -311,17 +297,6 @@ function markApiKeyUsed(db: ApiKeysDbLike, id: unknown, now: number): void {
     lastUsedAt: new Date(now).toISOString(),
   });
   _lastUsedUpdateCache.set(id, now);
-}
-
-function evictIfNeeded<TKey, TValue>(cache: Map<TKey, TValue>) {
-  if (cache.size > MAX_CACHE_SIZE) {
-    const entriesToRemove = Math.floor(MAX_CACHE_SIZE * 0.2);
-    let i = 0;
-    for (const key of cache.keys()) {
-      if (i++ >= entriesToRemove) break;
-      cache.delete(key);
-    }
-  }
 }
 
 async function getModelPermissionCandidates(modelId: string): Promise<string[]> {
@@ -864,11 +839,21 @@ export async function updateApiKeyPermissions(
   const allowedQuotasUpdate = (normalized as Record<string, unknown>).allowedQuotas;
   if (allowedQuotasUpdate !== undefined) {
     // Empty array means no quota-pool restriction; non-empty restricts to listed pools
+    if (!Array.isArray(allowedQuotasUpdate)) {
+      throw new Error("Invalid API key quota policy");
+    }
+    const quotaValues: string[] = [];
+    for (let index = 0; index < allowedQuotasUpdate.length; index++) {
+      const value = allowedQuotasUpdate[index];
+      if (!Object.hasOwn(allowedQuotasUpdate, index) || typeof value !== "string") {
+        throw new Error("Invalid API key quota policy");
+      }
+      quotaValues.push(value);
+    }
+    const serializedQuotas = JSON.stringify(quotaValues);
+    parseAllowedQuotas(serializedQuotas);
     updates.push("allowed_quotas = @allowedQuotas");
-    const nextQuotas: string[] = Array.isArray(allowedQuotasUpdate)
-      ? (allowedQuotasUpdate as unknown[]).filter((s): s is string => typeof s === "string")
-      : [];
-    params.allowedQuotas = JSON.stringify(nextQuotas);
+    params.allowedQuotas = serializedQuotas;
   }
 
   if (normalized.noLog !== undefined) {
@@ -1134,6 +1119,8 @@ export async function deleteApiKey(id: string) {
   const db = getDbInstance() as ApiKeysDbLike;
   const stmt = getPreparedStatements(db);
   const row = stmt.getKeyById.get(id) as ApiKeyRow | undefined;
+  if (!row) return false;
+  await backupBeforeDestructiveWrite();
   const result = stmt.deleteKey.run(id);
 
   if (result.changes === 0) return false;
@@ -1147,14 +1134,12 @@ export async function deleteApiKey(id: string) {
   invalidateReasoningRoutingRuleCache();
   await deleteRedisAuthCacheEntry(row?.key_hash);
 
-  backupDbFile("pre-write");
   return true;
 }
 
 /**
  * Revoke an API key by id. Logical, not destructive: the row stays so it can
- * be audited, but validateApiKey() rejects it immediately after caches expire
- * (or sooner because invalidateCaches() runs here).
+ * be audited, but validateApiKey() rejects it after the write commits.
  */
 export async function revokeApiKey(id: string): Promise<boolean> {
   const db = getDbInstance() as ApiKeysDbLike;
@@ -1202,10 +1187,7 @@ export async function setApiKeyExpiry(id: string, expiresAt: string | null): Pro
  *   - revoked_at IS NULL,
  *   - expires_at IS NULL OR expires_at > now.
  *
- * Cache TTL is short (CACHE_TTL) and the metadata cache is also invalidated
- * by revokeApiKey/updateApiKeyPermissions/deleteApiKey, so a revoke takes
- * effect within at most CACHE_TTL even without an explicit clear in the
- * caller.
+ * SQLite is authoritative on every validation, including across processes.
  */
 export async function validateApiKey(key: string | null | undefined) {
   if (!key || typeof key !== "string") return false;
@@ -1214,42 +1196,6 @@ export async function validateApiKey(key: string | null | undefined) {
 
   const now = Date.now();
   const hashedKey = await hashKey(key);
-  const cacheKey = hashedKey;
-
-  const cached = _keyValidationCache.get(cacheKey);
-  if (cached && now - cached.timestamp < CACHE_TTL) {
-    return cached.valid;
-  }
-
-  if (isRedisAuthCacheEnabled()) {
-    // Try Redis cache for multi-instance consistency
-    try {
-      const { getRedisClient, isRedisConfigured } = await import("@/shared/utils/rateLimiter");
-      if (isRedisConfigured()) {
-        const redis = await getRedisClient();
-        const redisKey = `auth:api_key:${hashedKey}`;
-        const redisData = await redis.get(redisKey);
-        if (redisData) {
-          const data = JSON.parse(redisData);
-          const isBanned = !!data.isBanned;
-          const isActive = !!data.isActive;
-          const revokedAt = data.revokedAt;
-          const expiresAt = data.expiresAt;
-
-          if (isBanned || !isActive) return false;
-          if (typeof revokedAt === "string" && revokedAt.trim() !== "") return false;
-          if (typeof expiresAt === "string" && expiresAt.trim() !== "") {
-            const expiresMs = Date.parse(expiresAt);
-            if (Number.isFinite(expiresMs) && expiresMs <= now) return false;
-          }
-          return true;
-        }
-      }
-    } catch {
-      // Redis lookup failures fall through to SQLite.
-    }
-  }
-
   const db = getDbInstance() as ApiKeysDbLike;
   const stmt = getPreparedStatements(db);
   const row = stmt.validateKey.get(key, hashedKey) as JsonRecord | undefined;
@@ -1268,35 +1214,7 @@ export async function validateApiKey(key: string | null | undefined) {
   const expiresAt = row.expires_at ?? row.expiresAt;
   if (typeof expiresAt === "string" && expiresAt.trim() !== "") {
     const expiresMs = Date.parse(expiresAt);
-    if (Number.isFinite(expiresMs) && expiresMs <= now) return false;
-  }
-
-  evictIfNeeded(_keyValidationCache);
-  _keyValidationCache.set(cacheKey, { valid: true, timestamp: now });
-
-  if (isRedisAuthCacheEnabled()) {
-    // Update Redis cache for fast validation
-    try {
-      const { getRedisClient, isRedisConfigured } = await import("@/shared/utils/rateLimiter");
-      if (isRedisConfigured()) {
-        const redis = await getRedisClient();
-        const redisKey = `auth:api_key:${hashedKey}`;
-        await redis.set(
-          redisKey,
-          JSON.stringify({
-            id: row.id,
-            isBanned: parseIsBanned(row.is_banned),
-            isActive: parseIsActive(row.is_active),
-            expiresAt: row.expires_at,
-            revokedAt: row.revoked_at,
-          }),
-          "EX",
-          3600, // 1 hour cache
-        );
-      }
-    } catch {
-      // Redis cache update failures do not block successful SQLite validation.
-    }
+    if (!Number.isFinite(expiresMs) || expiresMs <= now) return false;
   }
 
   markApiKeyUsed(db, row.id, now);
@@ -1305,14 +1223,12 @@ export async function validateApiKey(key: string | null | undefined) {
 }
 
 /**
- * Get API key metadata with caching for performance
+ * Read API key metadata from the database for each policy decision.
  */
 export async function getApiKeyMetadata(
   key: string | null | undefined,
 ): Promise<ApiKeyMetadata | null> {
   if (!key || typeof key !== "string") return null;
-
-  const now = Date.now();
 
   // persistent env-var key support (persistent passthrough keys) (#1350)
   if (isConfiguredEnvApiKey(key)) {
@@ -1377,12 +1293,9 @@ export async function getApiKeyMetadata(
     };
   }
 
-  // Check cache first
+  // Pool transactions can update quota policy in another process. A local TTL
+  // cache cannot safely observe a transition from unrestricted to restricted.
   const hashedKey = await hashKey(key);
-  const cached = _keyMetadataCache.get(hashedKey);
-  if (cached && now - cached.timestamp < CACHE_TTL) {
-    return cached.value;
-  }
 
   const db = getDbInstance() as ApiKeysDbLike;
   const stmt = getPreparedStatements(db);
@@ -1470,10 +1383,6 @@ export async function getApiKeyMetadata(
 
   setNoLog(metadata.id, metadata.noLog === true);
 
-  // Cache the result
-  evictIfNeeded(_keyMetadataCache);
-  _keyMetadataCache.set(hashedKey, { value: metadata, timestamp: now });
-
   return metadata;
 }
 
@@ -1491,18 +1400,6 @@ export async function isModelAllowedForKey(
   // If no modelId provided, deny (invalid request)
   if (!key) return true;
   if (!modelId) return false;
-
-  // Create cache key
-  const cacheKey = `${key}:${modelId}`;
-  const now = Date.now();
-  const catalogGeneration = getModelCatalogCacheVersion();
-  const usesSettingDependentClaudeRouting = isPotentialUnprefixedClaudeCodeModel(modelId);
-
-  // Check permission cache
-  const cached = getCachedModelPermission(cacheKey, now, catalogGeneration);
-  if (!usesSettingDependentClaudeRouting && cached !== undefined) {
-    return cached;
-  }
 
   const metadata = await getApiKeyMetadata(key);
   // SECURITY: Key not found in database = deny access (invalid/non-existent key)
@@ -1563,11 +1460,6 @@ export async function isModelAllowedForKey(
     const targetOk = checkKeyModelAccess(metadata.id, modelTarget, provider).allowed;
     const fullOk = checkKeyModelAccess(metadata.id, modelId || "", provider).allowed;
     if (!targetOk || !fullOk) allowed = false;
-  }
-  // Cache the result
-  if (!usesSettingDependentClaudeRouting) {
-    evictModelPermissionCache();
-    setCachedModelPermission(cacheKey, allowed, now, catalogGeneration);
   }
 
   return allowed;

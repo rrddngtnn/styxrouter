@@ -1,3 +1,4 @@
+import { requireSynchronous, requireSynchronousCallback } from "./synchronous";
 import type { SqliteAdapter, PreparedStatement, RunResult } from "./types";
 
 export function createBetterSqliteAdapter(db: import("better-sqlite3").Database): SqliteAdapter {
@@ -34,11 +35,12 @@ export function createBetterSqliteAdapter(db: import("better-sqlite3").Database)
     },
 
     transaction<T>(fn: (...args: unknown[]) => T): (...args: unknown[]) => T {
-      return db.transaction(fn) as (...args: unknown[]) => T;
+      return db.transaction((...args: unknown[]) => { requireSynchronousCallback(fn); return requireSynchronous(fn(...args)); }) as (...args: unknown[]) => T;
     },
 
-    immediate(fn: () => void): void {
-      (db.transaction(fn) as unknown as { immediate: () => void }).immediate();
+    immediate<T>(fn: () => T): T {
+      requireSynchronousCallback(fn);
+      return (db.transaction(() => requireSynchronous(fn())) as unknown as { immediate: () => T }).immediate();
     },
 
     async backup(destination: string): Promise<void> {

@@ -3,6 +3,7 @@ import {
   type ProviderBillingStatus,
 } from "@/shared/utils/providerBilling";
 import { getDbInstance, isBuildPhase, isCloud } from "./core";
+import { requireSynchronous, requireSynchronousCallback } from "./adapters/synchronous";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -15,6 +16,7 @@ interface StatementLike<TRow = unknown> {
 interface DbLike {
   prepare: <TRow = unknown>(sql: string) => StatementLike<TRow>;
   transaction: <T extends (...args: any[]) => unknown>(fn: T) => T;
+  immediate: (fn: () => void) => void;
 }
 
 interface KeyValueRow {
@@ -27,6 +29,9 @@ export interface ProviderLimitsCacheEntry {
   plan: unknown;
   message: string | null;
   fetchedAt: string;
+  windowFetchedAt?: Record<string, string>;
+  staleWindows?: string[];
+  refreshFailed?: boolean;
   source?: string | null;
   bankedResetCredits?: number;
   billing?: ProviderBillingStatus;
@@ -63,8 +68,15 @@ function normalizeCacheEntry(value: unknown): ProviderLimitsCacheEntry | null {
   const bankedResetCredits = Number(record.bankedResetCredits);
   const billing = sanitizeProviderBillingStatus(record.billing);
 
+  const windowFetchedAt = toRecord(record.windowFetchedAt);
+  const validWindowFetchedAt = windowFetchedAt
+    ? Object.fromEntries(Object.entries(windowFetchedAt).filter(([, v]) => typeof v === "string" && v.trim() && Number.isFinite(Date.parse(v)))) as Record<string, string>
+    : undefined;
   return {
     quotas: toRecord(record.quotas),
+    ...(validWindowFetchedAt ? { windowFetchedAt: validWindowFetchedAt } : {}),
+    ...(Array.isArray(record.staleWindows) ? { staleWindows: record.staleWindows.filter((v): v is string => typeof v === "string") } : {}),
+    ...(record.refreshFailed === true ? { refreshFailed: true } : {}),
     plan: record.plan ?? null,
     message: typeof record.message === "string" ? record.message : null,
     fetchedAt,
@@ -82,6 +94,16 @@ export function getProviderLimitsCache(connectionId: string): ProviderLimitsCach
     .get(PROVIDER_LIMITS_CACHE_NAMESPACE, connectionId) as KeyValueRow | undefined;
   if (!row?.value) return null;
   return normalizeCacheEntry(parseJson(row.value));
+}
+
+/** Read the cache and its durable per-key revision in one SQLite snapshot. */
+export function getProviderLimitsCacheSnapshot(connectionId: string): { entry: ProviderLimitsCacheEntry | null; revision: number } {
+  if (isBuildPhase || isCloud) return { entry: null, revision: 0 };
+  const db = getDbInstance() as unknown as DbLike;
+  const row = db.prepare(`SELECT (SELECT value FROM key_value WHERE namespace = ? AND key = ?) AS value,
+    COALESCE((SELECT revision FROM provider_limits_cache_revisions WHERE key = ?), 0) AS revision`)
+    .get(PROVIDER_LIMITS_CACHE_NAMESPACE, connectionId, connectionId) as { value: string | null; revision: number };
+  return { entry: row.value ? normalizeCacheEntry(parseJson(row.value)) : null, revision: row.revision };
 }
 
 export function getAllProviderLimitsCache(): Record<string, ProviderLimitsCacheEntry> {
@@ -114,6 +136,23 @@ export function setProviderLimitsCache(
     JSON.stringify(sanitized)
   );
   return sanitized;
+}
+
+/** Atomically read and merge under the SQLite write lock, including across processes. */
+export function updateProviderLimitsCache(
+  connectionId: string,
+  update: (previous: ProviderLimitsCacheEntry | null, revision: number) => ProviderLimitsCacheEntry | null
+): ProviderLimitsCacheEntry | null {
+  requireSynchronousCallback(update);
+  if (isBuildPhase || isCloud) return requireSynchronous(update(null, 0));
+  const db = getDbInstance() as unknown as DbLike;
+  let result: ProviderLimitsCacheEntry | null = null;
+  db.immediate(() => {
+    const snapshot = getProviderLimitsCacheSnapshot(connectionId);
+    result = requireSynchronous(update(snapshot.entry, snapshot.revision));
+    if (result && result !== snapshot.entry) setProviderLimitsCache(connectionId, result);
+  });
+  return result;
 }
 
 export function setProviderLimitsCacheBatch(

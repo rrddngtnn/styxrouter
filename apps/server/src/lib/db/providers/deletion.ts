@@ -9,7 +9,7 @@
  */
 
 import { getDbInstance } from "../core";
-import { backupDbFile } from "../backup";
+import { backupBeforeDestructiveWrite } from "../preWriteBackup";
 import { cleanupComboConnectionRefs } from "../combos";
 import { deleteLKGPByConnectionIds } from "../settings/lkgp";
 import {
@@ -20,6 +20,7 @@ import { invalidateDbCache } from "../readCache";
 import { invalidateReasoningRoutingRuleCache } from "../reasoningRoutingRules";
 import { bumpProxyConfigGeneration } from "../settings";
 import { toRecord } from "./columns";
+import { reconcileCodexContextWindowsInTransaction } from "../../contextWindowResolver";
 
 interface StatementLike<TRow = unknown> {
   all: (...params: unknown[]) => TRow[];
@@ -82,10 +83,12 @@ export async function deleteProviderConnection(id: string) {
   const existing = db.prepare("SELECT provider FROM provider_connections WHERE id = ?").get(id);
   if (!existing) return false;
 
+  await backupBeforeDestructiveWrite();
   db.transaction(() => {
     _deleteAccountProxyAssignments(db, [id]);
     db.prepare("DELETE FROM quota_snapshots WHERE connection_id = ?").run(id);
     db.prepare("DELETE FROM provider_connections WHERE id = ?").run(id);
+    if (toRecord(existing).provider === "codex") reconcileCodexContextWindowsInTransaction();
   })();
 
   await _cleanupDeletedComboConnectionRefs(id);
@@ -103,7 +106,7 @@ export async function deleteProviderConnection(id: string) {
       ? existingRecord.provider
       : String(existingRecord.provider || "");
   reorderConnections(db, providerId);
-  backupDbFile("pre-write");
+  // No post-write backup: the attempt precedes deletion.
   invalidateDbCache("connections"); // Bust connections read cache
   invalidateReasoningRoutingRuleCache();
   return true;
@@ -115,24 +118,28 @@ export async function deleteProviderConnections(ids: string[]): Promise<number> 
   const db = getDbInstance() as unknown as DbLike;
   const existingIds = _selectExistingConnectionIds(db, ids);
 
+  if (existingIds.length === 0) return 0;
+  await backupBeforeDestructiveWrite();
   const deletedCount = db.transaction(() => {
-    const placeholders = ids.map(() => "?").join(",");
+    const placeholders = existingIds.map(() => "?").join(",");
+    const hasCodex = !!db.prepare(`SELECT 1 FROM provider_connections WHERE provider = 'codex' AND id IN (${placeholders}) LIMIT 1`).get(...existingIds);
 
-    db.prepare(`DELETE FROM quota_snapshots WHERE connection_id IN (${placeholders})`).run(...ids);
+    db.prepare(`DELETE FROM quota_snapshots WHERE connection_id IN (${placeholders})`).run(...existingIds);
 
-    _deleteAccountProxyAssignments(db, ids);
+    _deleteAccountProxyAssignments(db, existingIds);
 
     const result = db
       .prepare(`DELETE FROM provider_connections WHERE id IN (${placeholders})`)
-      .run(...ids);
+      .run(...existingIds);
 
+    if (hasCodex) reconcileCodexContextWindowsInTransaction();
     return result.changes ?? 0;
   })();
 
   await _cleanupDeletedComboConnectionRefs(existingIds);
   await _cleanupDeletedLKGPConnectionRefs(existingIds);
 
-  for (const id of ids) {
+  for (const id of existingIds) {
     removeConnectionHealth(id);
     removeConnectionIndex(id);
     void import("@styxrouter/open-sse/services/combo/nativeCodexTurnPin.ts")
@@ -140,7 +147,7 @@ export async function deleteProviderConnections(ids: string[]): Promise<number> 
       .catch(() => {});
   }
 
-  backupDbFile("pre-write");
+  // No post-write backup: the attempt precedes deletion.
   invalidateDbCache("connections");
   invalidateReasoningRoutingRuleCache();
 
@@ -158,6 +165,7 @@ export async function deleteProviderConnectionsByProvider(providerId: string) {
     })
     .filter((id): id is string => id !== null);
 
+  if (connectionIds.length > 0) await backupBeforeDestructiveWrite();
   const result = db.transaction(() => {
     if (connectionIds.length > 0) {
       const deleteSnapshots = db.prepare("DELETE FROM quota_snapshots WHERE connection_id = ?");
@@ -166,7 +174,11 @@ export async function deleteProviderConnectionsByProvider(providerId: string) {
       }
       _deleteAccountProxyAssignments(db, connectionIds);
     }
-    return db.prepare("DELETE FROM provider_connections WHERE provider = ?").run(providerId);
+    if (connectionIds.length === 0) return { changes: 0 };
+    const placeholders = connectionIds.map(() => "?").join(",");
+    const deleted = db.prepare(`DELETE FROM provider_connections WHERE provider = ? AND id IN (${placeholders})`).run(providerId, ...connectionIds);
+    if (providerId === "codex" && deleted.changes) reconcileCodexContextWindowsInTransaction();
+    return deleted;
   })();
 
   await _cleanupDeletedComboConnectionRefs(connectionIds);
@@ -179,7 +191,7 @@ export async function deleteProviderConnectionsByProvider(providerId: string) {
       .then((module) => module.revokeNativeCodexTurnPinsForConnection(connectionId))
       .catch(() => {});
   }
-  backupDbFile("pre-write");
+  // No post-write backup: the attempt precedes deletion.
   invalidateDbCache("connections");
   invalidateReasoningRoutingRuleCache();
   return result.changes;

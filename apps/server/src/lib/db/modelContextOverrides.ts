@@ -110,15 +110,29 @@ export function setModelContextOverride(
   if (!key || !isPositiveInteger(realContext)) return false;
   const normalizedSource: ModelContextOverrideSource =
     source === "auto:discovery" ? "auto:discovery" : "manual";
-  getDbInstance()
+  const info = getDbInstance()
     .prepare(
-      "INSERT OR REPLACE INTO model_context_overrides " +
+      "INSERT INTO model_context_overrides " +
         "(provider, model_id, real_context, source, refreshed_at) " +
-        "VALUES (?, ?, ?, ?, datetime('now'))"
+        "VALUES (?, ?, ?, ?, datetime('now')) " +
+        "ON CONFLICT(provider, model_id) DO UPDATE SET real_context = excluded.real_context, " +
+        "source = excluded.source, refreshed_at = excluded.refreshed_at " +
+        "WHERE excluded.source = 'manual' OR model_context_overrides.source = 'auto:discovery'"
     )
     .run(key.provider, key.modelId, realContext, normalizedSource);
-  invalidateDbCache("model-capabilities");
-  return true;
+  if (info.changes > 0) invalidateDbCache("model-capabilities");
+  return info.changes > 0;
+}
+
+/** Remove a discovered override only, atomically preserving concurrent manual writes. */
+export function removeAutoModelContextOverride(provider: string, modelId: string): boolean {
+  const key = normalizeKey(provider, modelId);
+  if (!key) return false;
+  const info = getDbInstance().prepare(
+    "DELETE FROM model_context_overrides WHERE provider = ? AND model_id = ? AND source = 'auto:discovery'"
+  ).run(key.provider, key.modelId);
+  if (info.changes > 0) invalidateDbCache("model-capabilities");
+  return info.changes > 0;
 }
 
 /** Remove an override. Returns true when a row was deleted. */

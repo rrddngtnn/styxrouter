@@ -21,10 +21,10 @@ export interface SqliteAdapter {
   pragma(pragmaStr: string, options?: { simple?: boolean }): unknown;
 
   /** Retorna uma função que quando chamada executa fn em uma transação DEFERRED */
-  transaction<T>(fn: (...args: unknown[]) => T): (...args: unknown[]) => T;
+  transaction<T>(fn: (...args: unknown[]) => T & (T extends PromiseLike<unknown> ? never : unknown)): (...args: unknown[]) => T;
 
   /** Executa fn em uma transação IMMEDIATE (adquire write lock imediatamente) */
-  immediate(fn: () => void): void;
+  immediate<T>(fn: () => T & (T extends PromiseLike<unknown> ? never : unknown)): T;
 
   /** Backup nativo ou file-copy fallback */
   backup(destination: string): Promise<void>;

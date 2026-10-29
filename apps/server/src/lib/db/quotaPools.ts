@@ -10,6 +10,7 @@
 
 import { getDbInstance } from "./core";
 import { clearApiKeyCaches } from "./apiKeys";
+import { parseAllowedQuotas } from "./apiKeys/rowParsers";
 import { invalidateModelCatalogCache } from "./readCache";
 // Phase B2: auto-mint/prune quotaShared-* combos when pool allocations change.
 // Imported lazily (dynamic import in the hook) to avoid circular-dependency
@@ -20,14 +21,17 @@ const quotaComboMaintenance = new Map<string, Promise<unknown>>();
 const deletingPools = new Set<string>();
 
 function serializeQuotaComboMaintenance<T>(
-  poolId: string,
+  _poolId: string,
   operation: () => Promise<T>
 ): Promise<T> {
-  const previous = quotaComboMaintenance.get(poolId);
+  // Pools sharing a slug mutate the same combo rows. Serialize all CRUD
+  // maintenance in-process, including group moves and slug collisions.
+  const key = "quota-combos";
+  const previous = quotaComboMaintenance.get(key);
   const current = previous ? previous.catch(() => undefined).then(operation) : operation();
-  quotaComboMaintenance.set(poolId, current);
+  quotaComboMaintenance.set(key, current);
   const cleanup = () => {
-    if (quotaComboMaintenance.get(poolId) === current) quotaComboMaintenance.delete(poolId);
+    if (quotaComboMaintenance.get(key) === current) quotaComboMaintenance.delete(key);
   };
   void current.then(cleanup, cleanup);
   return current;
@@ -43,10 +47,10 @@ async function syncQuotaCombosGuarded(poolId: string): Promise<void> {
   }
 }
 
-async function removeQuotaCombosGuarded(poolId: string): Promise<void> {
+async function removeQuotaCombosGuarded(poolId: string, snapshot: Awaited<ReturnType<typeof import("@/lib/quota/quotaCombos").resolvePoolForSync>>): Promise<void> {
   try {
     const { removeQuotaCombosForPool } = await import("@/lib/quota/quotaCombos");
-    await removeQuotaCombosForPool(poolId);
+    await removeQuotaCombosForPool(poolId, snapshot);
   } catch (err) {
     console.warn(
       "[quota-pools] removeQuotaCombosForPool failed (non-fatal):",
@@ -72,6 +76,7 @@ export interface PoolAllocation {
 
 export interface QuotaPool {
   id: string;
+  exclusive: boolean | null;
   /** Primary / legacy single connection. Kept for back-compat. */
   connectionId: string;
   /** All member connections (≥1 after backfill). Primary is always connectionIds[0]. */
@@ -86,6 +91,7 @@ export interface QuotaPool {
 export interface PoolCreate {
   connectionId: string;
   name: string;
+  exclusive?: boolean;
   /** Group to assign this pool to. Defaults to 'group-demo' when omitted. */
   groupId?: string;
   allocations?: PoolAllocation[];
@@ -99,6 +105,7 @@ export interface PoolCreate {
 
 export interface PoolUpdate {
   name?: string;
+  exclusive?: boolean;
   /** When provided, updates the pool's group assignment. */
   groupId?: string;
   allocations?: PoolAllocation[];
@@ -134,6 +141,30 @@ function getDb(): DbLike {
   return getDbInstance() as unknown as DbLike;
 }
 
+// Called only inside the same SQLite write transaction as the pool mutation.
+// Read and write the current value under the write lock to avoid lost updates
+// when different pools share a key. Invalid metadata must fail the transaction.
+function reconcileExclusiveKeys(db: DbLike, poolId: string, previous: string[], next: string[], exclusive: boolean): void {
+  const read = db.prepare<{ allowed_quotas: string | null }>("SELECT allowed_quotas FROM api_keys WHERE id = ?");
+  const write = db.prepare("UPDATE api_keys SET allowed_quotas = ? WHERE id = ?");
+  const nextSet = new Set(next);
+  for (const id of new Set([...previous, ...next])) {
+    const row = read.get(id);
+    if (!row) throw new Error(`Quota allocation references missing API key: ${id}`);
+    const quotas = parseAllowedQuotas(row.allowed_quotas);
+    const desired = quotas.filter((value: string) => value !== poolId);
+    if (exclusive && nextSet.has(id)) {
+      const denied = desired.indexOf("__quota_access_revoked__");
+      if (denied !== -1) desired.splice(denied, 1);
+      desired.push(poolId);
+    } else if (quotas.includes(poolId) && desired.length === 0) {
+      // Empty means unrestricted, so retain an unresolvable deny marker instead.
+      desired.push("__quota_access_revoked__");
+    }
+    if (JSON.stringify(quotas) !== JSON.stringify(desired)) write.run(JSON.stringify(desired), id);
+  }
+}
+
 /**
  * Asserts that all connections in the list belong to the same provider.
  * Throws if mixed providers are detected. No-op when list has 0 or 1 entry.
@@ -157,6 +188,7 @@ function assertSingleProvider(connectionIds: string[]): void {
 }
 
 interface PoolRow {
+  exclusive: number | null;
   id: string;
   connection_id: string;
   name: string;
@@ -218,6 +250,7 @@ function getConnectionIds(poolId: string, fallbackConnectionId: string): string[
 function rowToPool(row: PoolRow, allocations: PoolAllocation[]): QuotaPool {
   return {
     id: row.id,
+    exclusive: row.exclusive == null ? null : Boolean(row.exclusive),
     connectionId: row.connection_id,
     connectionIds: getConnectionIds(row.id, row.connection_id),
     name: row.name,
@@ -267,6 +300,7 @@ function batchBuildPools(rows: PoolRow[]): QuotaPool[] {
 
   return rows.map((row) => ({
     id: row.id,
+    exclusive: row.exclusive == null ? null : Boolean(row.exclusive),
     connectionId: row.connection_id,
     connectionIds: connsByPool.get(row.id) || [row.connection_id],
     name: row.name,
@@ -299,7 +333,7 @@ function makeId(): string {
  */
 export function getPoolsByGroup(groupId: string, limit?: number, offset?: number): QuotaPool[] {
   let sql =
-    "SELECT id, connection_id, name, group_id, created_at FROM quota_pools WHERE group_id = ? ORDER BY created_at ASC";
+    "SELECT id, connection_id, name, group_id, created_at, exclusive FROM quota_pools WHERE group_id = ? ORDER BY created_at ASC";
   const params: unknown[] = [groupId];
   if (limit !== undefined && limit > 0) {
     sql += " LIMIT ?";
@@ -325,7 +359,7 @@ export function listPools(options?: { limit?: number; offset?: number }): {
   const limit = options?.limit;
   const offset = options?.offset;
   let sql =
-    "SELECT id, connection_id, name, group_id, created_at FROM quota_pools ORDER BY created_at ASC";
+    "SELECT id, connection_id, name, group_id, created_at, exclusive FROM quota_pools ORDER BY created_at ASC";
   const params: unknown[] = [];
   if (limit !== undefined && limit > 0) {
     sql += " LIMIT ?";
@@ -350,7 +384,7 @@ export function listPools(options?: { limit?: number; offset?: number }): {
 export function getPool(id: string): QuotaPool | null {
   const row = getDb()
     .prepare<PoolRow>(
-      "SELECT id, connection_id, name, group_id, created_at FROM quota_pools WHERE id = ?",
+      "SELECT id, connection_id, name, group_id, created_at, exclusive FROM quota_pools WHERE id = ?",
     )
     .get(id);
   if (!row) return null;
@@ -384,9 +418,9 @@ export function createPool(input: PoolCreate): QuotaPool {
   const doCreate = database.transaction(() => {
     database
       .prepare(
-        "INSERT INTO quota_pools (id, connection_id, name, group_id, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO quota_pools (id, connection_id, name, group_id, created_at, exclusive) VALUES (?, ?, ?, ?, ?, ?)",
       )
-      .run(id, primaryConnectionId, input.name, groupId, now);
+      .run(id, primaryConnectionId, input.name, groupId, now, input.exclusive ? 1 : 0);
 
     const insertConn = database.prepare(
       "INSERT OR IGNORE INTO quota_pool_connections (pool_id, connection_id) VALUES (?, ?)",
@@ -411,8 +445,10 @@ export function createPool(input: PoolCreate): QuotaPool {
         );
       }
     }
+    if (input.exclusive) reconcileExclusiveKeys(database, id, [], (input.allocations ?? []).map(a => a.apiKeyId), true);
   });
   doCreate();
+  if (input.exclusive) clearApiKeyCaches();
 
   const result = rowToPool(
     {
@@ -421,6 +457,7 @@ export function createPool(input: PoolCreate): QuotaPool {
       name: input.name,
       group_id: groupId,
       created_at: now,
+      exclusive: input.exclusive ? 1 : 0,
     },
     getAllocations(id),
   );
@@ -465,11 +502,13 @@ export function ensurePool(input: PoolCreate): EnsurePoolResult {
   const membersChanged =
     existing.connectionIds.length !== members.length ||
     existing.connectionIds.some((id) => !members.includes(id));
-  if (!allocationsChanged && !membersChanged) {
+  const exclusivityChanged = input.exclusive !== undefined && existing.exclusive !== input.exclusive;
+  if (!allocationsChanged && !membersChanged && !exclusivityChanged) {
     return { pool: existing, created: false, updated: false };
   }
 
   const update: PoolUpdate = { connectionIds: members };
+  if (input.exclusive !== undefined) update.exclusive = input.exclusive;
   if (input.allocations !== undefined) update.allocations = input.allocations;
   if (input.groupId !== undefined) update.groupId = input.groupId;
   const updated = updatePool(existing.id, update);
@@ -489,7 +528,7 @@ export function updatePool(id: string, input: PoolUpdate): QuotaPool | null {
   const database = getDb();
   const existing = database
     .prepare<PoolRow>(
-      "SELECT id, connection_id, name, group_id, created_at FROM quota_pools WHERE id = ?",
+      "SELECT id, connection_id, name, group_id, created_at, exclusive FROM quota_pools WHERE id = ?",
     )
     .get(id);
   if (!existing) return null;
@@ -500,6 +539,16 @@ export function updatePool(id: string, input: PoolUpdate): QuotaPool | null {
   }
 
   const doUpdate = database.transaction(() => {
+    if (input.allocations !== undefined && input.exclusive === undefined) {
+      const current = database.prepare<{ exclusive: number | null }>("SELECT exclusive FROM quota_pools WHERE id = ?").get(id);
+      if (current?.exclusive == null) throw new Error(`Quota pool exclusivity is unknown: ${id}; explicitly set exclusive before changing allocations`);
+    }
+    const previousIds = (input.exclusive !== undefined || input.allocations !== undefined)
+      ? getAllocations(id).map(a => a.apiKeyId) : [];
+    if (input.exclusive !== undefined) {
+      database.prepare("UPDATE quota_pools SET exclusive = ? WHERE id = ?").run(input.exclusive ? 1 : 0, id);
+      existing.exclusive = input.exclusive ? 1 : 0;
+    }
     if (input.name !== undefined) {
       database.prepare("UPDATE quota_pools SET name = ? WHERE id = ?").run(input.name, id);
       existing.name = input.name;
@@ -543,8 +592,14 @@ export function updatePool(id: string, input: PoolUpdate): QuotaPool | null {
         );
       }
     }
+    if (input.exclusive !== undefined || input.allocations !== undefined) {
+      const persisted = database.prepare<{ exclusive: number }>("SELECT exclusive FROM quota_pools WHERE id = ?").get(id);
+      if (!persisted) throw new Error(`Quota pool not found: ${id}`);
+      reconcileExclusiveKeys(database, id, previousIds, getAllocations(id).map(a => a.apiKeyId), Boolean(persisted.exclusive));
+    }
   });
   doUpdate();
+  if (input.exclusive !== undefined || input.allocations !== undefined) clearApiKeyCaches();
 
   const result = rowToPool(existing, getAllocations(id));
 
@@ -568,23 +623,23 @@ export async function deletePool(id: string): Promise<boolean> {
   deletingPools.add(id);
 
   const deletion = serializeQuotaComboMaintenance(id, async () => {
-    // Phase B2: remove quota combos BEFORE deleting the pool row so that
-    // removeQuotaCombosForPool can still resolve the pool name → slug.
-    await removeQuotaCombosGuarded(id);
+    // Capture metadata without side effects; clean up only after a successful commit.
+    const { resolvePoolForSync } = await import("@/lib/quota/quotaCombos");
+    const snapshot = await resolvePoolForSync(id);
 
     const database = getDb();
     const doDelete = database.transaction(() => {
       database.prepare("DELETE FROM quota_pool_connections WHERE pool_id = ?").run(id);
-      // Prune this pool id from every key's allowed_quotas JSON array.
-      database
-        .prepare(
-          `UPDATE api_keys SET allowed_quotas = COALESCE(
-         (SELECT json_group_array(value) FROM json_each(api_keys.allowed_quotas) WHERE value != ?),
-         '[]')
-       WHERE allowed_quotas IS NOT NULL AND allowed_quotas != '[]'
-         AND EXISTS (SELECT 1 FROM json_each(api_keys.allowed_quotas) WHERE value = ?)`
-        )
-        .run(id, id);
+      // Parse and serialize in JS to preserve all legal string values (SQLite's
+      // json_each converts lone surrogates through UTF-8 and changes them).
+      const policies = database.prepare<{ id: string; allowed_quotas: unknown }>("SELECT id, allowed_quotas FROM api_keys").all();
+      const writePolicy = database.prepare("UPDATE api_keys SET allowed_quotas = ? WHERE id = ?");
+      for (const policy of policies) {
+        const quotas = parseAllowedQuotas(policy.allowed_quotas);
+        if (!quotas.includes(id)) continue;
+        const remaining = quotas.filter((quota) => quota !== id);
+        writePolicy.run(JSON.stringify(remaining.length ? remaining : ["__quota_access_revoked__"]), policy.id);
+      }
       return database.prepare("DELETE FROM quota_pools WHERE id = ?").run(id);
     });
     const result = doDelete();
@@ -594,6 +649,7 @@ export async function deletePool(id: string): Promise<boolean> {
     // caches so any primed permission entries pick up the new allowed_quotas set.
     clearApiKeyCaches();
     invalidateModelCatalogCache();
+    await removeQuotaCombosGuarded(id, snapshot);
 
     return true;
   });
@@ -620,16 +676,7 @@ export async function deletePool(id: string): Promise<boolean> {
  * - Single-pool group: trivially correct — the group loop has exactly one pool.
  * - Cross-group isolation: pools in OTHER groups are never touched.
  *
- * Exclusivity reconciliation (reconcilePoolExclusivity, Phase C3):
- * That function operates at the key's allowedQuotas level and is invoked at the
- * API route layer (src/app/api/quota/pools/[id]/route.ts PATCH handler) after
- * updatePool, NOT inside upsertAllocations. We do NOT call reconcilePoolExclusivity
- * here to avoid double-firing side-effects on sibling pools; reconcile is keyed on
- * the exclusive flag which is a route-level concern, not a per-pool propagation
- * concern. The original target pool's reconcile call (from the route handler) is
- * sufficient — it updates the key's allowedQuotas to reference the target pool, and
- * the group-level expansion in resolveQuotaKeyScope then makes all sibling pools
- * accessible automatically.
+ * Exclusivity reconciliation occurs for each affected pool in the same transaction.
  *
  * Combo sync (Phase B2):
  * Only the target pool triggers syncQuotaCombosGuarded. Sibling pools are already
@@ -658,7 +705,7 @@ export function upsertAllocations(poolId: string, allocations: PoolAllocation[])
   // Defensive: fall back to [poolId] (single-pool semantics) if pool not found.
   const targetPool = database
     .prepare<PoolRow>(
-      "SELECT id, connection_id, name, group_id, created_at FROM quota_pools WHERE id = ?",
+      "SELECT id, connection_id, name, group_id, created_at, exclusive FROM quota_pools WHERE id = ?",
     )
     .get(poolId);
 
@@ -680,6 +727,7 @@ export function upsertAllocations(poolId: string, allocations: PoolAllocation[])
        VALUES (?, ?, ?, ?, ?, ?)`,
     );
     for (const pid of poolIdsInGroup) {
+      const previousIds = getAllocations(pid).map(a => a.apiKeyId);
       database.prepare("DELETE FROM quota_allocations WHERE pool_id = ?").run(pid);
       for (const alloc of normalizedAllocations) {
         insert.run(
@@ -691,9 +739,14 @@ export function upsertAllocations(poolId: string, allocations: PoolAllocation[])
           alloc.policy,
         );
       }
+      const pool = database.prepare<{ exclusive: number | null }>("SELECT exclusive FROM quota_pools WHERE id = ?").get(pid);
+      if (!pool) throw new Error(`Quota pool not found: ${pid}`);
+      if (pool.exclusive == null) throw new Error(`Quota pool exclusivity is unknown: ${pid}; explicitly set exclusive before changing allocations`);
+      reconcileExclusiveKeys(database, pid, previousIds, normalizedAllocations.map(a => a.apiKeyId), Boolean(pool.exclusive));
     }
   });
   doUpsert();
+  clearApiKeyCaches();
 
   // Phase B2: fire-and-forget combo sync for the target pool only; failures are
   // logged but never thrown. Sibling pools' combos are synced on their own lifecycle.

@@ -72,7 +72,7 @@ export function hashLeaseOwnerId(leaseOwnerId: string): string {
   return createHash("sha256").update(leaseOwnerId).digest("hex");
 }
 
-function immediate<T>(operation: () => T): T {
+function immediate<T>(operation: () => T & (T extends PromiseLike<unknown> ? never : unknown)): T {
   let result: T | undefined;
   database().immediate(() => (result = operation()));
   if (result === undefined) throw new Error("lease transaction did not produce a result");

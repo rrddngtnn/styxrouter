@@ -6,14 +6,12 @@ import path from "path";
 import fs from "fs";
 import {
   getDbInstance,
-  resetDbInstance,
   isBuildPhase,
   isCloud,
   SQLITE_FILE,
   DB_BACKUPS_DIR,
   DATA_DIR,
 } from "./core";
-import { resetAllDbModuleState } from "./stateReset";
 import {
   MAX_DB_BACKUPS,
   DEFAULT_DB_BACKUP_RETENTION_DAYS,
@@ -22,6 +20,8 @@ import {
   pruneBackupDirectory,
 } from "./backupRetention";
 import { isAutomatedTestProcess } from "@/shared/utils/testProcess";
+import { backupHasSpace, backupHeadroomBytes } from "./backupSpace";
+import { tryOpenSync } from "./adapters/driverFactory";
 
 type CountRow = { cnt?: number };
 
@@ -264,10 +264,12 @@ export function backupDbFile(reason = "auto") {
     const now = Date.now();
     if (reason !== "manual" && reason !== "pre-restore" && now - _lastBackupAt < BACKUP_THROTTLE_MS)
       return null;
-    _lastBackupAt = now;
-
     const backupDir = getBackupDir();
     if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+    if (!backupHasSpace(SQLITE_FILE, backupDir, backupHeadroomBytes())) {
+      console.warn("[DB] Backup SKIPPED — not enough free disk space");
+      return null;
+    }
 
     if (reason !== "manual" && reason !== "pre-restore") {
       // Shrink detection is useful for automatic safety backups, but it should
@@ -286,20 +288,40 @@ export function backupDbFile(reason = "auto") {
       }
     }
 
+    _lastBackupAt = now;
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupFile = path.join(backupDir, `db_${timestamp}_${reason}.sqlite`);
+    const stagingDir = fs.mkdtempSync(path.join(backupDir, ".backup-"));
+    // Choose the published name before returning, including a unique staging suffix.
+    const suffix = path.basename(stagingDir).slice(".backup-".length);
+    const backupFile = path.join(backupDir, `db_${timestamp}-${suffix}_${reason}.sqlite`);
+    const staged = path.join(stagingDir, "snapshot.sqlite");
 
-    // Use native SQLite backup API for consistency
+    // Synchronous callers cannot await; never expose the destination until complete.
     const db = getDbInstance();
-    db.backup(backupFile)
+    let operation: Promise<unknown>;
+    try { operation = db.backup(staged); }
+    catch (error) { fs.rmSync(stagingDir, { recursive: true, force: true }); throw error; }
+    operation
       .then(() => {
-        console.log(`[DB] Backup created: ${backupFile} (${stat.size} bytes)`);
+        fs.chmodSync(staged, 0o600);
+        const snapshot = tryOpenSync(staged, { readonly: true });
+        if (!snapshot) throw new Error("Cannot validate backup: no native SQLite driver");
+        try {
+          const rows = snapshot.pragma("integrity_check") as Array<Record<string, unknown>>;
+          if (!Array.isArray(rows) || rows.length !== 1 || Object.values(rows[0] ?? {})[0] !== "ok") {
+            throw new Error("Backup integrity check failed");
+          }
+        } finally { snapshot.close(); }
+        // Fail rather than publish under a different name than the one returned.
+        fs.linkSync(staged, backupFile);
+        console.log(`[DB] Backup created: ${backupFile}`);
         cleanupDbBackups();
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         console.error("[DB] Backup failed:", message);
-      });
+      })
+      .finally(() => { fs.rmSync(stagingDir, { recursive: true, force: true }); });
 
     return { filename: path.basename(backupFile), size: stat.size };
   } catch (err: unknown) {
@@ -362,126 +384,20 @@ export async function listDbBackups() {
 
 // ──────────────── Restore Backup ────────────────
 
-export async function restoreDbBackup(backupId: string) {
-  const backupDir = getBackupDir();
-
-  // Validate format: must be db_<timestamp>_<reason>.sqlite, no path separators
-  if (
-    !backupId.startsWith("db_") ||
-    !backupId.endsWith(".sqlite") ||
-    backupId.includes(path.sep) ||
-    backupId.includes("/")
-  ) {
-    throw new Error("Invalid backup ID");
-  }
-
-  const backupPath = path.resolve(backupDir, backupId);
-  // Prevent path traversal: resolved path must stay within backupDir
-  if (
-    !backupPath.startsWith(path.resolve(backupDir) + path.sep) &&
-    backupPath !== path.resolve(backupDir)
-  ) {
-    throw new Error("Invalid backup ID: path traversal detected");
-  }
-
-  if (!fs.existsSync(backupPath)) {
-    throw new Error(`Backup not found: ${backupId}`);
-  }
-
-  // Validate backup integrity
-  try {
-    const { tryOpenSync } = await import("@/lib/db/adapters/driverFactory");
-    const testDb = tryOpenSync(backupPath, { readonly: true });
-    if (!testDb) {
-      throw new Error("Backup file is corrupt: could not open");
-    }
-    let result: Array<{ integrity_check?: string }>;
-    try {
-      result = testDb.pragma("integrity_check") as Array<{ integrity_check?: string }>;
-    } finally {
-      testDb.close();
-    }
-    if (result[0]?.integrity_check !== "ok") {
-      throw new Error("Backup integrity check failed");
-    }
-  } catch (e: unknown) {
-    if (e instanceof Error && e.message === "Backup integrity check failed") throw e;
-    const message = e instanceof Error ? e.message : String(e);
-    throw new Error(`Backup file is corrupt: ${message}`);
-  }
-
-  // Force pre-restore backup (bypass throttle) and await so the DB is not closed while backup runs
-  if (!isSqliteAutoBackupDisabled()) {
-    _lastBackupAt = 0;
-    const backupDirForPre = getBackupDir();
-    if (SQLITE_FILE && fs.existsSync(SQLITE_FILE)) {
-      const stat = fs.statSync(SQLITE_FILE);
-      if (stat.size >= 4096) {
-        if (!fs.existsSync(backupDirForPre)) fs.mkdirSync(backupDirForPre, { recursive: true });
-        const preBackupPath = path.join(
-          backupDirForPre,
-          `db_${new Date().toISOString().replace(/[:.]/g, "-")}_pre-restore.sqlite`
-        );
-        const dbForBackup = getDbInstance();
-        await dbForBackup.backup(preBackupPath);
-        _lastBackupAt = Date.now();
-      }
-    }
-  }
-
-  // Close and reset current connection
-  resetDbInstance();
-
-  // Clear all cached prepared statements and other state bound to the old connection
-  resetAllDbModuleState();
-
-  const sqliteFile = SQLITE_FILE;
-  if (!sqliteFile) {
-    throw new Error("SQLITE_FILE is unavailable in local backup restore");
-  }
-
-  // On Windows, the file handle may be released asynchronously after close; give it a moment.
-  await sleep(500);
-
-  // Remove main file and WAL sidecars to avoid stale frame replay after restore.
-  // Retry unlink on EBUSY/EPERM (Windows may hold the handle briefly).
-  const sqliteFilesToReplace = [
-    sqliteFile,
-    `${sqliteFile}-wal`,
-    `${sqliteFile}-shm`,
-    `${sqliteFile}-journal`,
-  ];
-  for (const filePath of sqliteFilesToReplace) {
-    if (!filePath) continue;
-    await unlinkFileWithRetry(filePath);
-  }
-
-  // Copy backup over current DB
-  fs.copyFileSync(backupPath, sqliteFile);
-
-  // Reopen
-  const db = getDbInstance();
-  const connCount =
-    (db.prepare("SELECT COUNT(*) as cnt FROM provider_connections").get() as CountRow | undefined)
-      ?.cnt || 0;
-  const nodeCount =
-    (db.prepare("SELECT COUNT(*) as cnt FROM provider_nodes").get() as CountRow | undefined)?.cnt ||
-    0;
-  const comboCount =
-    (db.prepare("SELECT COUNT(*) as cnt FROM combos").get() as CountRow | undefined)?.cnt || 0;
-  const keyCount =
-    (db.prepare("SELECT COUNT(*) as cnt FROM api_keys").get() as CountRow | undefined)?.cnt || 0;
-
-  console.log(`[DB] Restored backup: ${backupId} (${connCount} connections)`);
-
-  return {
-    restored: true,
-    backupId,
-    connectionCount: connCount,
-    nodeCount,
-    comboCount,
-    apiKeyCount: keyCount,
-  };
+/**
+ * Online file replacement cannot exclude SQLite connections in other processes.
+ * A successful checkpoint does not hold a lock through close, unlink and rename.
+ * Keep this legacy export fail-closed until a cross-process restore protocol exists.
+ */
+export async function restoreDbBackup(_backupId: string): Promise<{
+  restored: boolean;
+  backupId: string;
+  connectionCount: number;
+  nodeCount: number;
+  comboCount: number;
+  apiKeyCount: number;
+}> {
+  throw new Error("Online restore is disabled: exclusive access to the SQLite database cannot be guaranteed across processes.");
 }
 
 // ──────────────── Export-All helpers (for /api/db-backups/exportAll) ────────────────

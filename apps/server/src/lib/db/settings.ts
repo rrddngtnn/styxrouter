@@ -134,7 +134,7 @@ function applySessionAffinityLegacyFallback(settings: Record<string, unknown>): 
     settings.sessionAffinityTtlMs =
       typeof settings.codexSessionAffinityTtlMs === "number"
         ? settings.codexSessionAffinityTtlMs
-        : 0;
+        : 1_800_000;
   }
 }
 

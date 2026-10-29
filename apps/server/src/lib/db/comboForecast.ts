@@ -54,11 +54,11 @@ export function getComboForecastUsageRows(opts: {
   comboName?: string;
 }): ComboForecastUsageRow[] {
   const db = getDbInstance();
-  const conditions = ["combo_name IS NOT NULL", "combo_name != ''", "timestamp >= @since"];
+  const conditions = ["combo_name IS NOT NULL", "combo_name != ''", "julianday(timestamp) >= julianday(@since)"];
   const params: Record<string, unknown> = { since: opts.since };
 
   if (opts.until) {
-    conditions.push("timestamp <= @until");
+    conditions.push("julianday(timestamp) <= julianday(@until)");
     params.until = opts.until;
   }
 

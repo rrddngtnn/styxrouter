@@ -76,7 +76,8 @@ export function getSessionAccountAffinity(
   if (!record) return null;
 
   if (Date.parse(record.expiresAt) <= now) {
-    deleteAffinityKey(key);
+    getDbInstance().prepare("DELETE FROM key_value WHERE namespace = ? AND key = ? AND value = ?")
+      .run(NAMESPACE, key, row?.value);
     return null;
   }
 
@@ -166,24 +167,21 @@ export function cleanupStaleSessionAccountAffinities(
   now: number = Date.now()
 ): number {
   const db = getDbInstance();
-  const rows = db
-    .prepare("SELECT key, value FROM key_value WHERE namespace = ?")
-    .all(NAMESPACE) as Array<{ key?: unknown; value?: unknown }>;
-  let deleted = 0;
-
-  const tx = db.transaction(() => {
+  return db.immediate(() => {
+    const rows = db
+      .prepare("SELECT key, value FROM key_value WHERE namespace = ?")
+      .all(NAMESPACE) as Array<{ key?: unknown; value?: unknown }>;
+    const remove = db.prepare("DELETE FROM key_value WHERE namespace = ? AND key = ?");
+    let deleted = 0;
     for (const row of rows) {
       if (typeof row.key !== "string") continue;
       const record = parseRecord(row.value);
       if (!record || Date.parse(record.expiresAt) <= now) {
-        db.prepare("DELETE FROM key_value WHERE namespace = ? AND key = ?").run(NAMESPACE, row.key);
-        deleted++;
+        deleted += remove.run(NAMESPACE, row.key).changes;
       }
     }
+    return deleted;
   });
-
-  tx();
-  return deleted;
 }
 
 export function startSessionAccountAffinityCleanup(): void {

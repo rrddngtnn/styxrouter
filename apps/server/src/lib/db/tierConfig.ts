@@ -63,8 +63,9 @@ export function loadTierConfigFromDb(): TierConfig | null {
     parsed = JSON.parse(raw);
   } catch (err) {
     log.warn(
-      { err: err instanceof Error ? err.message : String(err), value: previewCorruptedValue(raw) },
-      "tier_config JSON.parse failed; falling back to DEFAULT_TIER_CONFIG"
+      "TIER_CONFIG",
+      "tier_config JSON.parse failed; falling back to DEFAULT_TIER_CONFIG",
+      { err: err instanceof Error ? err.message : String(err), value: previewCorruptedValue(raw) }
     );
     return null;
   }
@@ -73,11 +74,12 @@ export function loadTierConfigFromDb(): TierConfig | null {
     return validateTierConfig(parsed);
   } catch (err) {
     log.warn(
+      "TIER_CONFIG",
+      "tier_config Zod validation failed; falling back to DEFAULT_TIER_CONFIG",
       {
         err: err instanceof Error ? err.message : String(err),
         value: previewCorruptedValue(raw),
-      },
-      "tier_config Zod validation failed; falling back to DEFAULT_TIER_CONFIG"
+      }
     );
     return null;
   }

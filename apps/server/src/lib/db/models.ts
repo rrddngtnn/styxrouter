@@ -27,7 +27,6 @@ import {
   compatByProtocolHasEntries,
   isCompatProtocolKey,
   sanitizeUpstreamHeadersMap,
-  removeModelCompatOverride,
   type CompatByProtocolMap,
   type ModelCompatProtocolKey,
   type ModelCompatOverride,
@@ -178,6 +177,43 @@ export function listCustomModelVisionOverrides(
   }
 }
 
+export class ProviderModelConflict extends Error {
+  constructor(public readonly status: 404 | 409, message: string) { super(message); }
+}
+
+type StrictManualOptions = { builtinIds: readonly string[]; createOnlyProtectedIds?: readonly string[] };
+
+/** Must run while holding the SQLite write lock. */
+function checkManualOrigin(db: SqliteAdapter, providerId: string, modelId: string, models: JsonRecord[], options: StrictManualOptions, action: "create" | "edit" | "delete") {
+  const prefix = `${providerId}:`;
+  const rows = db.prepare("SELECT key, value FROM key_value WHERE namespace = 'syncedAvailableModels' AND substr(key, 1, ?) = ?").all(prefix.length, prefix);
+  let synced = false;
+  for (const row of rows) {
+    const { value } = getKeyValue(row);
+    if (value === null) throw new Error("Invalid model inventory");
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) throw new Error("Invalid model inventory");
+    if (normalizeSyncedAvailableModels(parsed, providerId).some(m => m.id === modelId)) synced = true;
+  }
+  const matches = models.filter(m => m && m.id === modelId);
+  const protectedOrigin = options.builtinIds.includes(modelId) || synced || matches.some(m => m.source && m.source !== "manual");
+  if (action === "create") {
+    if (protectedOrigin || options.createOnlyProtectedIds?.includes(modelId) || matches.length) throw new ProviderModelConflict(409, "Model already exists");
+  } else {
+    if (protectedOrigin) throw new ProviderModelConflict(409, `Only manual models can be ${action === "edit" ? "edited" : "deleted"}`);
+    if (!matches.length) throw new ProviderModelConflict(404, "Model not found");
+  }
+}
+
+function removeCompatOverridesInTransaction(db: SqliteAdapter, providerId: string, modelIds: readonly string[]) {
+  const ids = new Set(modelIds);
+  const list = readCompatList(providerId);
+  const filtered = list.filter(item => !ids.has(item.id));
+  if (filtered.length === list.length) return;
+  if (filtered.length) db.prepare("UPDATE key_value SET value = ? WHERE namespace = 'modelCompatOverrides' AND key = ?").run(JSON.stringify(filtered), providerId);
+  else db.prepare("DELETE FROM key_value WHERE namespace = 'modelCompatOverrides' AND key = ?").run(providerId);
+}
+
 export async function addCustomModel(
   providerId: string,
   modelId: string,
@@ -206,17 +242,23 @@ export async function addCustomModel(
   // #9820: optional video-generation job preset (e.g. "agnes-video-job") for
   // custom OpenAI-compatible video models. Persisted on the model row; the
   // /v1/videos/generations handler reads it back to pick the job/poll path.
-  generationConfig?: { preset: string }
+  generationConfig?: { preset: string },
+  strictManual: false | StrictManualOptions = false
 ) {
   const db = getDbInstance();
+  let result: JsonRecord | null = null;
+  let changed = false;
+  db.immediate(() => {
   const row = db
     .prepare("SELECT value FROM key_value WHERE namespace = 'customModels' AND key = ?")
     .get(providerId);
   const value = getKeyValue(row).value;
   const models = value ? JSON.parse(value) : [];
+  if (!Array.isArray(models)) throw new Error("Invalid model inventory");
+  if (strictManual) checkManualOrigin(db, providerId, modelId, models, strictManual, "create");
 
   const exists = models.find((m: JsonRecord) => m.id === modelId);
-  if (exists) return exists;
+  if (exists) { result = strictManual ? null : exists; return; }
 
   const model = {
     id: modelId,
@@ -238,8 +280,12 @@ export async function addCustomModel(
   db.prepare(
     "INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('customModels', ?, ?)"
   ).run(providerId, JSON.stringify(models));
-  finishModelCatalogWriteWithBackup();
-  return model;
+  db.prepare("UPDATE db_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'catalog_context_revision'").run();
+  result = model;
+  changed = true;
+  });
+  if (changed) finishModelCatalogWriteWithBackup();
+  return result;
 }
 
 /**
@@ -272,7 +318,12 @@ export async function replaceCustomModels(
   }
 
   const db = getDbInstance();
-  const existing = await getCustomModels(providerId);
+  let merged: JsonRecord[] = [];
+  db.immediate(() => {
+  const row = db.prepare("SELECT value FROM key_value WHERE namespace = 'customModels' AND key = ?").get(providerId);
+  const value = getKeyValue(row).value;
+  const existing = value ? JSON.parse(value) : [];
+  if (!Array.isArray(existing)) throw new Error("Invalid model inventory");
   const existingMap = new Map<string, JsonRecord>();
   if (Array.isArray(existing)) {
     for (const m of existing) {
@@ -281,8 +332,10 @@ export async function replaceCustomModels(
   }
 
   // Merge: keep existing per-model compat flags if model still exists
-  const merged = models.map((m) => {
+  merged = models.map((m) => {
     const prev = existingMap.get(m.id);
+    // A user-owned row is an overlay, not discovery-owned inventory.
+    if (prev && (!prev.source || prev.source === "manual")) return { ...m, ...prev };
     // `customModels` is also the user-owned metadata overlay for a same-id
     // synced model. Preserve every defined field instead of maintaining a
     // lossy allowlist here (for example supportsVision and future capabilities).
@@ -346,16 +399,20 @@ export async function replaceCustomModels(
         : {}),
     };
   });
-
-  if (merged.length === 0) {
-    db.prepare("DELETE FROM key_value WHERE namespace = 'customModels' AND key = ?").run(
-      providerId
-    );
-  } else {
-    db.prepare(
-      "INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('customModels', ?, ?)"
-    ).run(providerId, JSON.stringify(merged));
+  const incomingIds = new Set(models.map((m) => m.id));
+  for (const prev of existingMap.values()) {
+    if ((!prev.source || prev.source === "manual") && typeof prev.id === "string" && !incomingIds.has(prev.id)) {
+      merged.push(prev as (typeof merged)[number]);
+    }
   }
+
+    if (merged.length === 0) {
+      db.prepare("DELETE FROM key_value WHERE namespace = 'customModels' AND key = ?").run(providerId);
+    } else {
+      db.prepare("INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('customModels', ?, ?)").run(providerId, JSON.stringify(merged));
+    }
+    db.prepare("UPDATE db_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'catalog_context_revision'").run();
+  });
 
   finishModelCatalogWriteWithBackup();
   return merged;
@@ -367,14 +424,17 @@ export async function replaceCustomModels(
  */
 export async function deleteImportedCustomModels(providerId: string): Promise<string[]> {
   const db = getDbInstance();
+  let removedIds: string[] = [];
+  let changed = false;
+  db.immediate(() => {
   const row = db
     .prepare("SELECT value FROM key_value WHERE namespace = 'customModels' AND key = ?")
     .get(providerId);
   const value = getKeyValue(row).value;
-  if (!value) return [];
+  if (!value) return;
 
   const parsed = JSON.parse(value);
-  if (!Array.isArray(parsed)) return [];
+  if (!Array.isArray(parsed)) return;
 
   const removed: JsonRecord[] = [];
   const retained = parsed.filter((model: JsonRecord) => {
@@ -383,7 +443,7 @@ export async function deleteImportedCustomModels(providerId: string): Promise<st
     if (imported) removed.push(model);
     return !imported;
   });
-  if (removed.length === 0) return [];
+  if (removed.length === 0) return;
 
   if (retained.length === 0) {
     db.prepare("DELETE FROM key_value WHERE namespace = 'customModels' AND key = ?").run(
@@ -396,43 +456,44 @@ export async function deleteImportedCustomModels(providerId: string): Promise<st
     );
   }
 
-  const removedIds = removed.flatMap((model) =>
+  removedIds = removed.flatMap((model) =>
     typeof model.id === "string" && model.id ? [model.id] : []
   );
-  for (const modelId of removedIds) removeModelCompatOverride(providerId, modelId);
-  finishModelCatalogWriteWithBackup();
+  removeCompatOverridesInTransaction(db, providerId, removedIds);
+  db.prepare("UPDATE db_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'catalog_context_revision'").run();
+  changed = true;
+  });
+  if (changed) finishModelCatalogWriteWithBackup();
   return removedIds;
 }
 
-export async function removeCustomModel(providerId: string, modelId: string) {
+export async function removeCustomModel(providerId: string, modelId: string, strictManual?: StrictManualOptions) {
   const db = getDbInstance();
-  const row = db
-    .prepare("SELECT value FROM key_value WHERE namespace = 'customModels' AND key = ?")
-    .get(providerId);
-  if (!row) return false;
-
-  const value = getKeyValue(row).value;
-  if (!value) return false;
-  const models = JSON.parse(value);
-  const before = models.length;
-  const filtered = models.filter((m: JsonRecord) => m.id !== modelId);
-
-  if (filtered.length === before) return false;
-
-  if (filtered.length === 0) {
-    db.prepare("DELETE FROM key_value WHERE namespace = 'customModels' AND key = ?").run(
-      providerId
-    );
-  } else {
-    db.prepare("UPDATE key_value SET value = ? WHERE namespace = 'customModels' AND key = ?").run(
-      JSON.stringify(filtered),
-      providerId
-    );
+  let removed = false;
+  db.immediate(() => {
+    const row = db.prepare("SELECT value FROM key_value WHERE namespace = 'customModels' AND key = ?").get(providerId);
+    const value = getKeyValue(row).value;
+    const models = value ? JSON.parse(value) : [];
+    if (!Array.isArray(models)) throw new Error("Invalid model inventory");
+    if (strictManual) checkManualOrigin(db, providerId, modelId, models, strictManual, "delete");
+    const filtered = models.filter((m: JsonRecord) => m.id !== modelId);
+    if (filtered.length === models.length) return;
+    if (filtered.length === 0) {
+      db.prepare("DELETE FROM key_value WHERE namespace = 'customModels' AND key = ?").run(providerId);
+    } else {
+      db.prepare("UPDATE key_value SET value = ? WHERE namespace = 'customModels' AND key = ?").run(JSON.stringify(filtered), providerId);
+    }
+    // Provider-model CRUD does not own separately configured compat metadata.
+    // Keep it for a later model with the same id (and avoid deleting overrides
+    // that were configured independently of this custom row).
+    if (!strictManual) removeCompatOverridesInTransaction(db, providerId, [modelId]);
+    db.prepare("UPDATE db_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'catalog_context_revision'").run();
+    removed = true;
+  });
+  if (removed) {
+    finishModelCatalogWriteWithBackup();
   }
-
-  removeModelCompatOverride(providerId, modelId);
-  finishModelCatalogWriteWithBackup();
-  return true;
+  return removed;
 }
 
 // ──────────────── Synced Available Models ────────────────
@@ -503,16 +564,19 @@ export async function getSyncedAvailableModelsByConnection(
   const prefix = `${providerId}:`;
   const rows = db
     .prepare(
-      "SELECT key, value FROM key_value WHERE namespace = 'syncedAvailableModels' AND key LIKE ?"
+      "SELECT key, value FROM key_value WHERE namespace = 'syncedAvailableModels' AND substr(key, 1, ?) = ?"
     )
-    .all(`${prefix}%`);
+    .all(prefix.length, prefix);
   const result: SyncedAvailableModelsByConnection = {};
   for (const row of rows) {
     const { key, value } = getKeyValue(row);
-    if (!key || value === null || !key.startsWith(prefix)) continue;
+    if (!key || !key.startsWith(prefix)) continue;
     try {
+      if (value === null) throw new Error("Invalid model inventory");
       const connectionId = key.slice(prefix.length);
-      result[connectionId] = normalizeSyncedAvailableModels(JSON.parse(value), providerId);
+      const parsed: unknown = JSON.parse(value);
+      if (!Array.isArray(parsed)) throw new Error("Invalid model inventory");
+      result[connectionId] = normalizeSyncedAvailableModels(parsed, providerId);
     } catch {
       Object.defineProperty(result, SYNCED_AVAILABLE_MODELS_MALFORMED, {
         value: true,
@@ -759,20 +823,21 @@ function applyTriStateBooleanOverride(
 export async function updateCustomModel(
   providerId: string,
   modelId: string,
-  updates: Record<string, unknown> = {}
+  updates: Record<string, unknown> = {},
+  strictManual?: StrictManualOptions
 ) {
   const db = getDbInstance();
+  let result: JsonRecord | null = null;
+  db.immediate(() => {
   const row = db
     .prepare("SELECT value FROM key_value WHERE namespace = 'customModels' AND key = ?")
     .get(providerId);
-  if (!row) return null;
-
   const value = getKeyValue(row).value;
-  if (!value) return null;
-
-  const models = JSON.parse(value);
+  const models = value ? JSON.parse(value) : [];
+  if (!Array.isArray(models)) throw new Error("Invalid model inventory");
+  if (strictManual) checkManualOrigin(db, providerId, modelId, models, strictManual, "edit");
   const index = models.findIndex((m: JsonRecord) => m.id === modelId);
-  if (index === -1) return null;
+  if (index === -1) return;
 
   const current = models[index];
   const currentCompat = (current as JsonRecord).compatByProtocol as CompatByProtocolMap | undefined;
@@ -809,6 +874,11 @@ export async function updateCustomModel(
   // #1904: manual vision-capability override — `null` clears back to the
   // id-based heuristic in getCustomVisionCapabilityFields().
   applyTriStateBooleanOverride(next, updates, "supportsVision");
+  for (const field of ["inputTokenLimit", "outputTokenLimit"]) {
+    if (!Object.prototype.hasOwnProperty.call(updates, field)) continue;
+    if (updates[field] === null) delete next[field];
+    else next[field] = updates[field];
+  }
   if (updates.compatByProtocol !== undefined) {
     if (mergedCompat && compatByProtocolHasEntries(mergedCompat)) {
       next.compatByProtocol = mergedCompat;
@@ -843,12 +913,14 @@ export async function updateCustomModel(
   models[index] = next;
 
   db.prepare("UPDATE key_value SET value = ? WHERE namespace = 'customModels' AND key = ?").run(
-    JSON.stringify(models),
-    providerId
+    JSON.stringify(models), providerId
   );
+  db.prepare("UPDATE db_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'catalog_context_revision'").run();
+  result = next;
+  });
 
-  finishModelCatalogWriteWithBackup();
-  return next;
+  if (result) finishModelCatalogWriteWithBackup();
+  return result;
 }
 
 /** Single custom model row from key_value customModels, or null */
