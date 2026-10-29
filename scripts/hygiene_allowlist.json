@@ -7,5 +7,7 @@
   {"pattern": "P-STRUCT-9ROUTER", "file": "CREDITS.md", "reason": "full credit record per spec.md R-H4"},
   {"pattern": "P-VOCAB-PRONOUNS", "file": "apps/server/open-sse/services/compression/rules/id/filler.json", "reason": "indonesian compression rules carry those words as regex sources, not operator vocab"},
   {"pattern": "P-VOCAB-PRONOUNS", "file": "apps/server/open-sse/services/compression/rules/id/ultra.json",  "reason": "indonesian compression rules carry those words as regex sources, not operator vocab"},
-  {"pattern": "P-VOCAB-SDD",      "file": ".gitignore", "reason": "the gate's own INTERNAL-DOC pattern lists SDD.md"}
+  {"pattern": "P-VOCAB-SDD",      "file": ".gitignore", "reason": "the gate's own INTERNAL-DOC pattern lists SDD.md"},
+  {"pattern": "P-INFRA-PLACEHOLDER-PORT", "file": "apps/server/tests/catalog-default-context-regression.test.ts", "lines": [68, 68], "reason": "fixture model context token limit, not a port"},
+  {"pattern": "P-INFRA-PLACEHOLDER-PORT", "file": "apps/server/tests/catalog-default-context-regression.test.ts", "lines": [80, 80], "reason": "assertion of fixture model context token limit, not a port"}
 ]

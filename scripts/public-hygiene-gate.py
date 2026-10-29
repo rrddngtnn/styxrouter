@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Public-hygiene gate. Pre-publish check against five surfaces.
+"""Public-hygiene gate. Pre-publish check of candidate files, history, and runtime.
 
 Usage:
     python3 scripts/public-hygiene-gate.py \
@@ -8,7 +8,12 @@ Usage:
         [--runtime-url URL --auth-token TOKEN]
 
 Writes evidence/<UTC>/public-hygiene-report.json (0600).
-Exits non-zero on any unallowlisted fatal hit.
+Exits non-zero on fatal hits, scan errors, or incomplete/skipped gates. Ignored
+untracked files are outside the candidate set; force-added files must be rerun.
+History is limited to HEAD-reachable commits (not other refs or reflogs), at most
+200,000 changes, 8 MiB per text blob and 512 MiB total; limits fail closed.
+Binary extensions and NUL-sniffed blobs are not content-scanned. Gate sources and
+fixtures are excluded. Historical content does not use current-file allowlists.
 
 The raw matched substring is NEVER written to the report or stdout -- a hit
 records only its pattern name, path, and line, with a redacted context marker.
@@ -33,7 +38,7 @@ ALLOWLIST_DEFAULT = SCRIPTS_DIR / "hygiene_allowlist.json"
 
 # Content check is skipped for these; the filename check still runs via Gate 3.
 _BINARY_EXT = {
-    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".bmp", ".svg",
+    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".bmp",
     ".woff", ".woff2", ".ttf", ".eot", ".otf", ".pdf", ".zip", ".gz",
     ".tgz", ".bz2", ".xz", ".7z", ".pyc", ".so", ".dylib", ".dll",
     ".bin", ".wasm", ".node", ".class", ".jar", ".mp3", ".mp4", ".mov",
@@ -60,7 +65,7 @@ class GateResult:
     hits: list[Hit] = field(default_factory=list)
 
     def finalize(self) -> "GateResult":
-        if self.status == "skipped":
+        if self.status in ("skipped", "fail"):
             return self
         self.status = "fail" if any(h.severity == "fatal" for h in self.hits) else "pass"
         return self
@@ -77,7 +82,7 @@ class Report:
         if any(g.status == "fail" for g in self.gates.values()):
             return "fail"
         if any(g.status == "skipped" for g in self.gates.values()):
-            return "pass_with_skipped"
+            return "incomplete"
         return "pass"
 
     def to_json(self) -> str:
@@ -212,6 +217,7 @@ def _is_allowlisted(allowlist, pattern, path, line, text) -> bool:
 
 def _scan_text(text, path, surface, compiled, allowlist) -> list[Hit]:
     hits: list[Hit] = []
+    safe_path = None
     for pdef, rx in compiled:
         if surface not in pdef.surfaces:
             continue
@@ -219,9 +225,11 @@ def _scan_text(text, path, surface, compiled, allowlist) -> list[Hit]:
             line = text.count("\n", 0, m.start()) + 1
             if _is_allowlisted(allowlist, pdef.name, path, line, text):
                 continue
+            if safe_path is None:
+                safe_path = _redact_path(path, compiled)
             hits.append(Hit(
                 surface=surface,
-                path=path,
+                path=safe_path,
                 pattern=pdef.name,
                 line=line,
                 redacted_context=f"[REDACTED-{pdef.name}]",
@@ -230,13 +238,16 @@ def _scan_text(text, path, surface, compiled, allowlist) -> list[Hit]:
     return hits
 
 
+def _redact_path(path, compiled):
+    for _, rx in compiled:
+        path = rx.sub("[REDACTED]", path)
+    return path
+
+
 def _read_text(fp: Path) -> str | None:
     if fp.suffix.lower() in _BINARY_EXT:
         return None
-    try:
-        raw = fp.read_bytes()
-    except OSError:
-        return None
+    raw = fp.read_bytes()
     if b"\x00" in raw[:1024]:  # binary sniff
         return None
     return raw.decode("utf-8", errors="replace")
@@ -283,16 +294,21 @@ def _drop_self_exempt(paths: list[str]) -> list[str]:
 
 
 def _list_files(repo_root: Path) -> list[str]:
-    """Repo-relative paths. Prefers `git ls-files`; falls back to a filesystem
-    walk when the root is not a git repo root or tracks nothing (fixtures)."""
+    """Tracked and non-ignored untracked candidate paths, without following symlinks."""
+    if not repo_root.is_dir():
+        raise ValueError("repo root is not a directory")
     is_root = _git_toplevel(repo_root) == repo_root.resolve()
     if is_root:
-        out = _git(repo_root, ["ls-files"])
-        if out:
-            return _drop_self_exempt([p for p in out.splitlines() if p])
+        out = _git(repo_root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])
+        if out is None:
+            raise RuntimeError("git ls-files failed")
+        return _drop_self_exempt(sorted(set(filter(None, out.split("\0")))))
     # fallback: walk the tree
     files = []
-    for dirpath, dirnames, filenames in os.walk(repo_root):
+    def walk_error(exc):
+        raise exc
+
+    for dirpath, dirnames, filenames in os.walk(repo_root, onerror=walk_error):
         dirnames[:] = [d for d in dirnames if d not in (".git", "node_modules")]
         for fn in filenames:
             rel = os.path.relpath(os.path.join(dirpath, fn), repo_root)
@@ -316,6 +332,25 @@ def gate_tracked_files(repo_root, compiled, allowlist) -> GateResult:
             continue
         result.scanned += 1
         result.hits.extend(_scan_text(text, rel, "tracked_file", compiled, allowlist))
+    if _git_toplevel(repo_root) == repo_root.resolve():
+        proc = subprocess.run(["git", "-C", str(repo_root), "ls-files", "--stage", "-z"],
+                              capture_output=True, check=True)
+        for record in filter(None, proc.stdout.split(b"\0")):
+            metadata, path_bytes = record.split(b"\t", 1)
+            mode, oid, stage = metadata.split()
+            if stage != b"0":
+                raise ValueError("unmerged index cannot be cleared")
+            rel = path_bytes.decode("utf-8", errors="surrogateescape")
+            if not _drop_self_exempt([rel]) or Path(rel).suffix.lower() in _BINARY_EXT:
+                continue
+            if mode == b"160000":
+                raise ValueError("submodule contents cannot be cleared")
+            raw = subprocess.run(["git", "-C", str(repo_root), "cat-file", "blob", oid.decode("ascii")],
+                                 capture_output=True, check=True).stdout
+            if b"\0" not in raw[:1024]:
+                result.scanned += 1
+                result.hits.extend(_scan_text(raw.decode("utf-8", errors="replace"), rel,
+                                              "tracked_file", compiled, allowlist))
     return result.finalize()
 
 
@@ -327,7 +362,7 @@ def gate_filenames(repo_root, compiled, internal_doc_paths, allowlist) -> GateRe
         for rx in doc_rx:
             if rx.search(rel):
                 result.hits.append(Hit(
-                    surface="filename", path=rel, pattern="P-INTERNAL-DOC",
+                    surface="filename", path=_redact_path(rel, compiled), pattern="P-INTERNAL-DOC",
                     line=0, redacted_context="[internal-doc tracked]",
                     severity="fatal",
                 ))
@@ -339,7 +374,7 @@ def gate_filenames(repo_root, compiled, internal_doc_paths, allowlist) -> GateRe
 def gate_commit_history(repo_root, compiled, allowlist) -> GateResult:
     if _git_toplevel(repo_root) != repo_root.resolve():
         return GateResult(status="skipped", reason="not a git repo root")
-    out = _git(repo_root, ["log", "--format=%H%n%B%n---COMMIT-END---"])
+    out = _git(repo_root, ["log", "--format=%H%n%an%n%ae%n%cn%n%ce%n%B%n---COMMIT-END---"])
     if out is None:
         return GateResult(status="skipped", reason="git log unavailable")
     result = GateResult()
@@ -353,11 +388,99 @@ def gate_commit_history(repo_root, compiled, allowlist) -> GateResult:
     return result.finalize()
 
 
-def gate_panel_bundle(dist_dir, compiled, allowlist) -> GateResult:
-    if dist_dir is None or not dist_dir.is_dir():
-        return GateResult(status="skipped", reason="no panel dist directory supplied")
+def gate_historical_files(repo_root, compiled, internal_doc_paths, allowlist) -> GateResult:
+    """Scan changed blobs and paths reachable from HEAD, with explicit resource ceilings."""
+    if _git_toplevel(repo_root) != repo_root.resolve():
+        return GateResult(status="skipped", reason="not a git repo root")
+    shallow = _git(repo_root, ["rev-parse", "--is-shallow-repository"])
+    if shallow is None or shallow.strip() != "false":
+        return GateResult(status="fail", reason="full git history unavailable")
+    # This streams raw NUL-delimited changes rather than materializing every historical tree.
     result = GateResult()
-    for dirpath, _, filenames in os.walk(dist_dir):
+    seen = set()
+    total_bytes = 0
+    max_records, max_blob, max_total = 200_000, 8 * 1024 * 1024, 512 * 1024 * 1024
+    doc_rx = [re.compile(r) for r in internal_doc_paths]
+    log = subprocess.Popen(["git", "-C", str(repo_root), "log", "--raw", "-z", "--no-abbrev",
+                            "--no-renames", "--root", "--diff-merges=first-parent", "--format=", "HEAD"],
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    cat = subprocess.Popen(["git", "-C", str(repo_root), "cat-file", "--batch"],
+                           stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    def tokens(stream):
+        buf = b""
+        while chunk := stream.read(65536):
+            buf += chunk
+            parts = buf.split(b"\0")
+            yield from parts[:-1]
+            buf = parts[-1]
+            if len(buf) > 1024 * 1024:
+                raise ValueError("git history record too large")
+        if buf:
+            raise ValueError("incomplete git history record")
+    try:
+        it = iter(tokens(log.stdout))
+        for count, header in enumerate(it, 1):
+            if count > max_records:
+                raise ValueError("history record limit exceeded")
+            fields = header.lstrip(b"\n").split()
+            if len(fields) != 5 or not fields[0].startswith(b":"):
+                raise ValueError("invalid git history record")
+            path = next(it).decode("utf-8", errors="surrogateescape")
+            if not _drop_self_exempt([path]):
+                continue
+            path_label = "history:path"
+            if any(rx.search(path) for rx in doc_rx):
+                result.hits.append(Hit(surface="filename", path=path_label, pattern="P-INTERNAL-DOC"))
+            result.hits.extend(_scan_text(path, path_label, "filename", compiled, []))
+            oid = fields[3].decode("ascii")
+            if set(oid) == {"0"} or oid in seen:
+                continue
+            if Path(path).suffix.lower() in _BINARY_EXT:
+                continue
+            seen.add(oid)
+            cat.stdin.write(oid.encode("ascii") + b"\n")
+            cat.stdin.flush()
+            meta = cat.stdout.readline().split()
+            if len(meta) != 3 or meta[1] != b"blob":
+                raise ValueError("historical object unavailable")
+            size = int(meta[2])
+            if size > max_blob or total_bytes + size > max_total:
+                raise ValueError("history byte limit exceeded")
+            raw = cat.stdout.read(size)
+            if len(raw) != size or cat.stdout.read(1) != b"\n":
+                raise ValueError("incomplete historical blob")
+            total_bytes += size
+            result.scanned += 1
+            if b"\0" not in raw[:1024]:
+                # Do not apply current-tree allowlists to old versions.
+                result.hits.extend(_scan_text(raw.decode("utf-8", errors="replace"),
+                                              f"history:blob:{oid[:12]}", "tracked_file", compiled, []))
+        if log.wait() != 0:
+            raise ValueError("git history unavailable")
+    except (OSError, ValueError, StopIteration):
+        result.status = "fail"
+        result.reason = "historical scan incomplete (git error or resource limit)"
+    finally:
+        log.kill() if log.poll() is None else None
+        cat.kill() if cat.poll() is None else None
+        log.wait()
+        cat.wait()
+        for stream in (log.stdout, cat.stdin, cat.stdout):
+            if stream:
+                stream.close()
+    return result.finalize()
+
+
+def gate_panel_bundle(dist_dir, compiled, allowlist) -> GateResult:
+    if dist_dir is None:
+        return GateResult(status="skipped", reason="no panel dist directory supplied")
+    if not dist_dir.is_dir():
+        return GateResult(status="fail", reason="panel dist directory unavailable")
+    result = GateResult()
+    def walk_error(exc):
+        raise exc
+
+    for dirpath, _, filenames in os.walk(dist_dir, onerror=walk_error):
         for fn in filenames:
             fp = Path(dirpath) / fn
             text = _read_text(fp)
@@ -372,6 +495,7 @@ def gate_panel_bundle(dist_dir, compiled, allowlist) -> GateResult:
 def gate_runtime(url, token, compiled, allowlist) -> GateResult:
     if not url:
         return GateResult(status="skipped", reason="--runtime-url not supplied")
+    import urllib.error
     import urllib.request
 
     endpoints = [
@@ -387,10 +511,20 @@ def gate_runtime(url, token, compiled, allowlist) -> GateResult:
             req = urllib.request.Request(base + ep, headers=headers)
             with urllib.request.urlopen(req, timeout=10) as resp:
                 body = resp.read().decode("utf-8", errors="replace")
-        except Exception as exc:  # noqa: BLE001 - network best effort
-            # 401/403 on an auth-gated route is safe; record nothing
-            body = getattr(getattr(exc, "fp", None), "read", lambda: b"")()
-            body = body.decode("utf-8", errors="replace") if isinstance(body, bytes) else ""
+        except urllib.error.HTTPError as exc:
+            try:
+                with exc:
+                    body = exc.read().decode("utf-8", errors="replace")
+            except OSError:
+                result.status = "fail"
+                result.reason = "one or more runtime responses could not be read"
+                continue
+            result.status = "fail"
+            result.reason = "one or more runtime requests returned an HTTP error; authenticated coverage incomplete"
+        except (OSError, ValueError):
+            result.status = "fail"
+            result.reason = "one or more runtime requests could not be read"
+            continue
         result.scanned += 1
         result.hits.extend(_scan_text(body, f"runtime:{ep}", "runtime", compiled, allowlist))
     return result.finalize()
@@ -416,9 +550,12 @@ def main(argv: list[str] | None = None) -> int:
     internal_doc_paths = getattr(mod, "INTERNAL_DOC_PATHS", [])
 
     report = Report(timestamp=utc_timestamp(), private_loaded=bool(getattr(mod, "PRIVATE_LOADED", False)))
+    report.gates["operator_patterns"] = (GateResult() if report.private_loaded else
+        GateResult(status="skipped", reason="operator-private patterns unavailable"))
     report.gates["tracked_files"] = gate_tracked_files(args.repo_root, compiled, allowlist)
     report.gates["filenames"] = gate_filenames(args.repo_root, compiled, internal_doc_paths, allowlist)
     report.gates["commit_history"] = gate_commit_history(args.repo_root, compiled, allowlist)
+    report.gates["historical_files"] = gate_historical_files(args.repo_root, compiled, internal_doc_paths, allowlist)
     report.gates["panel_bundle"] = gate_panel_bundle(args.panel_dist_dir, compiled, allowlist)
     report.gates["runtime"] = gate_runtime(args.runtime_url, args.auth_token, compiled, allowlist)
 
@@ -430,8 +567,13 @@ def main(argv: list[str] | None = None) -> int:
     os.chmod(out_path, 0o600)
 
     print(report.human_summary())
-    return 0 if report.overall != "fail" else 1
+    return 0 if report.overall == "pass" else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except Exception:
+        # Exceptions can contain credentials, URLs, file paths or input snippets.
+        print("public-hygiene-gate: scan error; clearance not granted", file=sys.stderr)
+        sys.exit(1)
