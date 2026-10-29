@@ -1,137 +1,35 @@
-.quota-provider-grid,
-.quota-account-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr));
-  gap: 12px;
-  margin: 16px 0;
-}
-.quota-provider {
-  display: grid;
-  gap: 4px;
-  text-align: left;
-  padding: 13px 15px;
-  border: 1px solid var(--border);
-  background: rgba(var(--surface-tint), 0.022);
-  color: var(--fg);
-  border-radius: 8px;
-  cursor: pointer;
-  font: inherit;
-  min-width: 0;
-  transition: background 0.14s ease, border-color 0.14s ease, box-shadow 0.18s ease;
-}
-.quota-provider:hover {
-  background: rgba(var(--surface-tint), 0.04);
-  border-color: rgba(var(--surface-tint), 0.14);
-  box-shadow: 0 0 0 1px var(--border-subtle);
-}
-.quota-provider:focus-visible {
-  outline: 2px solid var(--accent-bright);
-  outline-offset: 2px;
-}
+.quota-page { min-width: 0; }
+.quota-page .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.quota-page .toolbar input[type="search"] { min-width: 0; width: min(100%, 300px); min-height: 44px; padding: 0 11px; }
+.quota-page button, .quota-page summary { min-height: 44px; }
+.quota-page .pagination button, .quota-page .pagination select { min-width: 44px; min-height: 44px; }
+.quota-page :is(button, input, select, summary):focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
+.quota-selector { margin: 20px 0; min-width: 0; }
+.quota-provider-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 8px; margin: 12px 0; }
+.quota-provider { display: flex; align-items: center; gap: 10px; min-width: 0; text-align: left; padding: 10px 12px; border: 1px solid var(--border); background: var(--panel-2); color: var(--fg); border-radius: 8px; cursor: pointer; font: inherit; transition: border-color 180ms ease, background 180ms ease; }
+.quota-provider:hover { border-color: var(--accent); }
 .quota-account .btn-ghost:hover:not(:disabled) { border-color: var(--accent); }
-.quota-provider[aria-pressed="true"] {
-  border-color: var(--accent-bright);
-  background: rgba(94, 106, 210, 0.12);
-}
-.quota-provider small {
-  color: var(--muted);
-  font-size: 15px;
-}
-.quota-account {
-  min-width: 0;
-  padding: 15px 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: rgba(var(--surface-tint), 0.022);
-  display: flex;
-  flex-direction: column;
-}
-.quota-account h3 {
-  font-size: 15px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-  margin: 0;
-}
-.quota-account header,
-.quota-window-head,
-.quota-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.quota-account header {
-  margin-bottom: 8px;
-}
-.quota-window {
-  padding: 10px 0;
-  border-top: 1px solid var(--border-subtle);
-  font-size: 15px;
-}
-.quota-window .meter {
-  margin: 6px 0;
-  min-width: 0;
-}
-.quota-window details {
-  overflow-wrap: anywhere;
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 15px;
-}
-.quota-window summary {
-  cursor: pointer;
-}
-.quota-account footer {
-  margin-top: auto;
-  padding-top: 10px;
-  border-top: 1px solid var(--border-subtle);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.quota-pagination {
-  margin-top: 16px;
-}
-.quota-page .toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.quota-page .toolbar input[type="search"] {
-  min-width: 0;
-  width: min(100%, 300px);
-  height: 34px;
-  padding: 0 11px;
-}
-.quota-page .toolbar > .muted {
-  font-size: 15px;
-}
-.quota-page .toolbar > button:last-child {
-  margin-left: auto;
-}
-.quota-account .bad {
-  overflow-wrap: anywhere;
-  font-size: 15px;
-  margin: 6px 0 0;
-}
-.quota-page {
-  min-width: 0;
-}
-@media (max-width: 600px) {
-  .quota-provider-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .quota-provider {
-    padding: 11px 12px;
-    font-size: 15px;
-  }
-  .quota-account-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .quota-page .toolbar > button:last-child {
-    margin-left: 0;
-  }
-}
+.quota-provider[aria-pressed="true"] { border-color: var(--accent-bright); background: var(--panel); box-shadow: inset 0 0 0 1px var(--accent-bright); }
+.quota-provider-label { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.quota-provider-label small { color: var(--muted); }
+.quota-selected { color: var(--accent-bright); font-size: 14px; margin-left: auto; }
+.quota-account-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.quota-account { min-width: 0; padding: 15px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); display: flex; flex-direction: column; overflow-wrap: anywhere; }
+.quota-account h3 { font-size: 16px; font-weight: 600; margin: 0 0 4px; overflow-wrap: anywhere; }
+.quota-account header, .quota-window-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.quota-account header { margin-bottom: 8px; }
+.quota-account header > div { min-width: 0; }
+.quota-fetched { margin: 5px 0 10px; font-size: 14px; }
+.quota-window { padding: 10px 0; border-top: 1px solid var(--border-subtle); font-size: 14px; }
+.quota-window .meter { margin: 6px 0; min-width: 0; }
+.quota-window details { overflow-wrap: anywhere; color: var(--muted); }
+.quota-page summary { cursor: pointer; display: list-item; padding: 12px 0; }
+.quota-more { border-top: 1px solid var(--border-subtle); }
+.quota-account .bad { overflow-wrap: anywhere; margin: 6px 0; }
+/* Separate cooldown status, disclosure and expanded content. */
+.quota-account .quota-cooldowns { margin-top: 10px; }
+.quota-account .quota-cooldowns[open] > summary { margin-bottom: 8px; }
+@media (max-width: 760px) { .quota-account-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { .quota-provider-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .quota-provider { flex-wrap: wrap; padding: 10px; } .quota-selected { margin-left: 0; } }
+@media (max-width: 350px) { .quota-provider-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .quota-page :is(button, input, select, summary), .quota-page .toolbar input[type="search"] { transition: none; animation: none; } }

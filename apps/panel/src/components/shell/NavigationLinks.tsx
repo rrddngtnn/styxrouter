@@ -21,6 +21,8 @@ export function NavigationLinks({ onNavigate }: { onNavigate?: () => void }) {
                 end={to === "/"}
                 className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
                 onClick={onNavigate}
+                aria-label={t(label)}
+                title={t(label)}
               >
                 <Icon size={20} aria-hidden="true" />
                 <span>{t(label)}</span>

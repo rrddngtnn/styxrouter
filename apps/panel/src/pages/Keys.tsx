@@ -8,6 +8,7 @@ import { appendModelLine } from "../lib/model-selection.ts";
 import { api } from "../lib/api.ts";
 import { Modal, SecretBanner, useAction } from "../lib/actions.tsx";
 import { EmptyState, LoadingState } from "../components/PageStates.tsx";
+import { TableScroll } from "../components/TableScroll.tsx";
 import { ModelPicker } from "../components/ModelPicker.tsx";
 import { useFetch } from "../lib/useFetch.ts";
 
@@ -192,6 +193,7 @@ export function Keys() {
               </button>
             </div>
           </div>
+          <TableScroll label={t("API keys table")} stickySelection>
           <table className="table">
             <thead>
               <tr>
@@ -235,7 +237,7 @@ export function Keys() {
                         }}
                       />
                     </td>
-                    <td>{r.name ?? "—"}</td>
+                    <td><span className="table-identity">{r.name ?? "—"}</span></td>
                     <td>
                       <code>{r.prefix ?? "—"}</code>
                     </td>
@@ -297,6 +299,7 @@ export function Keys() {
               })}
             </tbody>
           </table>
+          </TableScroll>
         </div>
       )}
     </div>

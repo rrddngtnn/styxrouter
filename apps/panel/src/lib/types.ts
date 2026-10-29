@@ -29,6 +29,7 @@ export interface ModelRow {
 }
 export interface ProviderRow {
   provider: string;
+  providerId: string;
   requests: number;
   totalTokens: number;
   avgLatencyMs: number;
@@ -51,6 +52,7 @@ export interface KeyRow {
 }
 export interface Analytics {
   range: string;
+  provider?: string | null;
   summary: Summary;
   dailyTrend: Day[];
   byModel: ModelRow[];
@@ -85,6 +87,8 @@ export interface QuotaWindow {
   percentRemaining: number | null;
   resetAt: string | null;
   unlimited: boolean;
+  fetchedAt?: string | null;
+  stale?: boolean;
 }
 export interface QuotaRow {
   name: string;
@@ -99,9 +103,12 @@ export interface QuotaRow {
   windows?: QuotaWindow[];
   quotaUsed: number;
   quotaTotal: number | null;
-  percentRemaining: number;
+  percentRemaining: number | null;
   resetAt: string | null;
   tokenStatus: string;
+  creditStatus?: "unknown" | "stale" | "observed";
+  accountCooldownUntil?: string | null;
+  modelCooldowns?: Array<{ model: string; reason: string; until: string }>;
 }
 export interface BackupRow {
   filename: string;

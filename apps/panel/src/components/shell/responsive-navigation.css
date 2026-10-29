@@ -1,0 +1,29 @@
+/* One navigation tree: a desktop rail/sidebar or a mobile modal drawer. */
+@media (min-width: 861px) {
+  .shell.shell-responsive { display: flex; align-items: flex-start; }
+  .shell-responsive .shell-workspace { flex: 1; width: 0; }
+  .shell-responsive .shell-nav-scroller.is-desktop {
+    position: sticky; top: 0; z-index: 21; flex: 0 0 auto;
+    display: block; width: 236px; height: 100dvh;
+    visibility: visible; pointer-events: auto; background: none;
+    transition: width 180ms cubic-bezier(.2,.7,.2,1);
+  }
+  .shell-responsive .shell-nav-scroller.is-desktop.is-collapsed { width: 72px; }
+  .shell-responsive .shell-nav-scroller.is-desktop .shell-drawer {
+    width: 100%; height: 100dvh; transform: none; box-shadow: none;
+    padding: 18px 12px; overflow: hidden;
+  }
+  .shell-responsive .is-desktop .shell-dialog-head { min-height: 52px; }
+  .shell-responsive .is-desktop .shell-drawer-nav { width: 100%; overflow-x: hidden; }
+  .shell-responsive .is-desktop .nav-link { white-space: nowrap; }
+  .shell-responsive .is-desktop.is-collapsed .nav-link { justify-content: center; padding-inline: 0; }
+  .shell-responsive .is-desktop.is-collapsed .nav-link span,
+  .shell-responsive .is-desktop.is-collapsed .nav-section-label { display: none; }
+  .shell-rail-brand { width: 100%; display: flex; align-items: center; justify-content: center; }
+  .shell-rail-brand img { width: 36px; height: 36px; object-fit: contain; }
+  @media (prefers-reduced-motion: reduce) {
+    .shell-responsive .shell-nav-scroller.is-desktop { transition: none; }
+    .shell-responsive .shell-nav-scroller.is-desktop:not(.is-open),
+    .shell-responsive .shell-nav-scroller.is-desktop:not(.is-open) .shell-drawer { visibility: visible; }
+  }
+}

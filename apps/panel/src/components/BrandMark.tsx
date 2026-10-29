@@ -1,19 +1,9 @@
-/**
- * Icon + live wordmark text. The wordmark is real text (themeable, translatable,
- * crisp at any DPI), so it follows the active light/dark palette instead of the
- * dark SVG lockup that disappeared on dark surfaces.
- */
+/* The supplied lockup is decorative; the container supplies its accessible name. */
 export function BrandMark() {
   return (
-    <div className="brand">
-      <img
-        className="brand-icon"
-        src={`${import.meta.env.BASE_URL}brand/styx-icon.svg`}
-        alt=""
-        aria-hidden="true"
-      />
-      <span className="brand-wordmark">StyxRouter</span>
+    <div className="brand" role="img" aria-label="StyxRouter">
+      <img className="brand-lockup brand-lockup-light" src={`${import.meta.env.BASE_URL}brand/styx-lockup.svg`} alt="" />
+      <img className="brand-lockup brand-lockup-dark" src={`${import.meta.env.BASE_URL}brand/styx-lockup-dark.svg`} alt="" />
     </div>
   );
 }
-

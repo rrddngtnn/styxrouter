@@ -5,6 +5,7 @@ import { Modal } from '../../lib/actions.tsx';
 import { api } from '../../lib/api.ts';
 import { usePreferences } from '../../lib/preferences.tsx';
 import { LoadingState } from '../PageStates.tsx';
+import { TableScroll } from '../TableScroll.tsx';
 import { filterSettings, sanitizeSettings, isMigrationLoopback, parseMigrationResult, type MigrationResult } from './advanced-settings-helpers.ts';
 import './advanced-settings.css';
 
@@ -20,7 +21,7 @@ export function AdvancedSettings({settings,loading=false,error}: {settings:Recor
     <section className="settings-card">
       <div className="section-head"><div><h2>{t('Configuration inspector')}</h2><p className="muted">{t('Read-only configuration. Sensitive values are redacted before display and export.')}</p></div><div className="row-actions"><button className="btn-ghost" disabled={loading||Boolean(error)} onClick={copy}><Copy size={16}/>{t('Copy JSON')}</button><button className="btn-ghost" disabled={loading||Boolean(error)} onClick={download}><Download size={16}/>{t('Download JSON')}</button></div></div>
       <div className="toolbar"><label className="advanced-search"><Search size={16}/><input type="search" aria-label={t('Search setting keys')} placeholder={t('Search setting keys')} value={query} onChange={e=>setQuery(e.target.value)}/></label><button className="btn-ghost" aria-pressed={jsonView} onClick={()=>setJsonView(!jsonView)}>{t(jsonView?'Table view':'JSON view')}</button></div>
-      {loading ? <LoadingState label={t('Loading configuration')}/> : error ? <p role="alert" className="bad">{error}</p> : jsonView ? <pre className="json">{json}</pre> : <div className="advanced-table-wrap"><table className="table"><thead><tr><th>{t('Setting')}</th><th>{t('Value')}</th></tr></thead><tbody>{Object.entries(shown).map(([key,value])=><tr key={key}><td><code>{key}</code></td><td>{typeof value==='object'&&value!==null?<details><summary>{Array.isArray(value)?`${value.length} ${t('items')}`:t('Object')}</summary><pre className="json">{JSON.stringify(value,null,2)}</pre></details>:<code>{String(value)}</code>}</td></tr>)}</tbody></table>{Object.keys(shown).length===0&&<p className="muted">{t('No matching settings')}</p>}</div>}
+      {loading ? <LoadingState label={t('Loading configuration')}/> : error ? <p role="alert" className="bad">{error}</p> : jsonView ? <pre className="json">{json}</pre> : <div className="advanced-table-wrap"><TableScroll label={t('Configuration table')} stickyPrimary><table className="table"><thead><tr><th>{t('Setting')}</th><th>{t('Value')}</th></tr></thead><tbody>{Object.entries(shown).map(([key,value])=><tr key={key}><td><code>{key}</code></td><td>{typeof value==='object'&&value!==null?<details><summary>{Array.isArray(value)?`${value.length} ${t('items')}`:t('Object')}</summary><pre className="json">{JSON.stringify(value,null,2)}</pre></details>:<code>{String(value)}</code>}</td></tr>)}</tbody></table></TableScroll>{Object.keys(shown).length===0&&<p className="muted">{t('No matching settings')}</p>}</div>}
     </section>
     <LocalMigration />
   </div>;

@@ -8,7 +8,7 @@ import {
   type NavDisclosure,
 } from "./navMachine.ts";
 
-/** One transient drawer, no persistent sidebar or rail. */
+/** Desktop sidebar preference and transient mobile drawer share one disclosure. */
 const DESKTOP_MQ = "(min-width: 861px)";
 
 function isDesktop(): boolean {

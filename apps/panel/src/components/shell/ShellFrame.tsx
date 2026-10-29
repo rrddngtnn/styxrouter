@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { DropdownMenu } from "@radix-ui/themes";
-import { Menu, X, ChevronRight, UserRound, Sun, Moon, Monitor } from "lucide-react";
+import { X, PanelLeftClose, PanelLeftOpen, ChevronRight, UserRound, Sun, Moon, Monitor } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { BrandMark } from "../BrandMark.tsx";
 import { breadcrumbs } from "./breadcrumbs.ts";
@@ -8,6 +8,7 @@ import { NavigationLinks } from "./NavigationLinks.tsx";
 import { useNavDisclosure } from "./useNavDisclosure.ts";
 import { CommandPalette } from "./CommandPalette.tsx";
 import { usePreferences } from "../../lib/preferences.tsx";
+import "./responsive-navigation.css";
 import type { Language, ThemeMode } from "../../lib/preferences-core.ts";
 
 export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logout: () => void; children: ReactNode }) {
@@ -84,9 +85,9 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
     <a href="#main-content" className="shell-skip">{t("Skip to content")}</a>
 
     <div
-      className={`shell-nav-scroller${nav.open ? " is-open" : ""}`}
-      inert={!nav.open}
-      aria-hidden={!nav.open}
+      className={`shell-nav-scroller${nav.open ? " is-open" : ""}${nav.desktop ? " is-desktop" : ""}${nav.desktop && !nav.isExpanded ? " is-collapsed" : ""}`}
+      inert={!nav.desktop && !nav.open}
+      aria-hidden={!nav.desktop && !nav.open}
       onClick={(event) => {
         if ((event.target as HTMLElement).classList.contains("shell-nav-scroller")) nav.close();
       }}
@@ -100,12 +101,12 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
         ref={drawerRef}
       >
         <div className="shell-dialog-head">
-          <BrandMark />
-          <button type="button" className="shell-icon-button" aria-label={t("Close navigation")} onClick={nav.close}>
+          {nav.desktop && !nav.isExpanded ? <div className="shell-rail-brand" role="img" aria-label="StyxRouter"><img src={`${import.meta.env.BASE_URL}brand/styx-icon.svg`} alt="" /></div> : <BrandMark />}
+          {!nav.desktop && <button type="button" className="shell-icon-button" aria-label={t("Close navigation")} onClick={nav.close}>
             <X size={16} />
-          </button>
+          </button>}
         </div>
-        <nav id="styx-nav" className="sidebar shell-drawer-nav" aria-label="Main navigation">
+        <nav id="styx-nav" className="sidebar shell-drawer-nav" aria-label={t("Main navigation")}>
           {brand}
           <NavigationLinks onNavigate={nav.close} />
         </nav>
@@ -123,7 +124,7 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
           ref={triggerRef}
           onClick={nav.toggle}
         >
-          {nav.isExpanded ? <X size={20} /> : <Menu size={20} />}
+          {nav.isExpanded ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
         </button>
         {trail.length > 1 && <nav className="shell-breadcrumbs" aria-label="Breadcrumb">{trail.map((step,index) => <span key={index}>{index > 0 && <ChevronRight size={14} />}{step.to ? <Link to={step.to}>{t(step.label)}</Link> : <span aria-current="page">{t(step.label)}</span>}</span>)}</nav>}
         <CommandPalette />

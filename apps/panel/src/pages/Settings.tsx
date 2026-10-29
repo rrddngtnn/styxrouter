@@ -9,6 +9,7 @@ import { when } from "../lib/format.ts";
 import { useFetch } from "../lib/useFetch.ts";
 import { usePreferences } from "../lib/preferences.tsx";
 import { AdvancedSettings } from "../components/settings/AdvancedSettings.tsx";
+import { TableScroll } from "../components/TableScroll.tsx";
 
 type SettingsBag = Record<string, unknown>;
 type SettingsTab = "runtime" | "security" | "backups" | "advanced";
@@ -471,6 +472,7 @@ function DatabaseBackupsSection() {
       )}
       {state.status === "ok" && rows.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <TableScroll label={t("Database backups table")} stickyPrimary>
           <table className="table">
             <thead>
               <tr>
@@ -495,6 +497,7 @@ function DatabaseBackupsSection() {
               ))}
             </tbody>
           </table>
+          </TableScroll>
         </div>
       )}
     </section>

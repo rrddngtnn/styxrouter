@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState, LoadingState } from "../components/PageStates.tsx";
+import { TableScroll } from "../components/TableScroll.tsx";
 import { Pagination } from "../components/Pagination.tsx";
 import { Modal } from "../lib/actions.tsx";
 import { DASH, when } from "../lib/format.ts";
@@ -118,6 +119,7 @@ export function Audit() {
       {state.status === "ok" && shown.length > 0 && (
         <>
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <TableScroll label={tr("Audit log table")} stickyPrimary>
             <table className="table fixed">
               <colgroup>
                 <col style={{ width: "17%" }} />
@@ -143,7 +145,7 @@ export function Audit() {
                     onClick={() => setSelected(e)}
                     title={tr("Click to inspect full audit entry")}
                   >
-                    <td title={e.timestamp}>{when(e.timestamp)}</td>
+                    <td title={e.timestamp}><button type="button" className="table-detail-button" aria-label={tr("Inspect audit entry")} onClick={(event) => { event.stopPropagation(); setSelected(e); }}>{when(e.timestamp)}</button></td>
                     <td>
                       <code>{e.action}</code>
                     </td>
@@ -158,6 +160,7 @@ export function Audit() {
                 ))}
               </tbody>
             </table>
+            </TableScroll>
           </div>
           <Pagination
             total={shown.length}

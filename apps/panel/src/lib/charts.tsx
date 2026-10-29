@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { usePreferences } from "./preferences.tsx";
 
 export interface Bar {
@@ -8,11 +8,12 @@ export interface Bar {
 }
 
 /** Plain SVG bar chart: no dependency, scales to its container, labels thinned when there are many bars. */
-export function BarChart({ data, format = (n: number) => String(n), height = 140 }: { data: Bar[]; format?: (n: number) => string; height?: number }): ReactNode {
+export function BarChart({ data, format = (n: number) => String(n), height = 140, interactive = false }: { data: Bar[]; format?: (n: number) => string; height?: number; interactive?: boolean }): ReactNode {
+  const [active, setActive] = useState<number | null>(null);
   const { t } = usePreferences();
   if (data.length === 0) return <p className="muted">{t("No data in this range.")}</p>;
   const max = Math.max(...data.map((d) => d.value), 1);
-  if (data.every((d) => d.value === 0)) return <p className="muted">{t("Nothing to chart: every value in this range is 0.")}</p>;
+  if (!interactive && data.every((d) => d.value === 0)) return <p className="muted">{t("Nothing to chart: every value in this range is 0.")}</p>;
   const w = 600;
   const pad = 22;
   // A bar never gets wider than 48 units, so a range with two days of data does not draw two giant blocks.
@@ -20,7 +21,8 @@ export function BarChart({ data, format = (n: number) => String(n), height = 140
   const x0 = (w - bw * data.length) / 2;
   const every = Math.ceil(data.length / 8);
   return (
-    <svg className="chart" viewBox={`0 0 ${w} ${height + pad}`} role="img" aria-label="bar chart">
+    <>
+    <svg className="chart" viewBox={`0 0 ${w} ${height + pad}`} role={interactive ? "group" : "img"} aria-label="bar chart">
       {data.map((d, i) => {
         const h = Math.max(d.value > 0 ? 2 : 0, (d.value / max) * height);
         return (
@@ -28,6 +30,7 @@ export function BarChart({ data, format = (n: number) => String(n), height = 140
             <rect x={x0 + i * bw + bw * 0.12} y={height - h} width={bw * 0.76} height={h} rx={2} className="bar">
               <title>{d.title ?? `${d.label}: ${format(d.value)}`}</title>
             </rect>
+            {interactive && <rect x={x0 + i * bw} y={0} width={bw} height={height} fill="transparent" tabIndex={0} role="img" aria-label={d.title ?? `${d.label}: ${format(d.value)}`} onFocus={() => setActive(i)} onBlur={() => setActive(null)} onMouseEnter={() => setActive(i)} onMouseLeave={() => setActive(null)} />}
             {i % every === 0 && (
               <text x={x0 + i * bw + bw / 2} y={height + 15} textAnchor="middle" className="chart-label">
                 {d.label}
@@ -37,6 +40,8 @@ export function BarChart({ data, format = (n: number) => String(n), height = 140
         );
       })}
     </svg>
+    {interactive && <p aria-live="polite" style={{ minHeight: "1.5em", margin: 0 }}>{active !== null && data[active] ? (data[active].title ?? `${data[active].label}: ${format(data[active].value)}`) : ""}</p>}
+    </>
   );
 }
 

@@ -1,46 +1,29 @@
 import { expect, test, describe } from "bun:test";
-import {
-  initialNavState,
-  navIsExpanded,
-  navLabel,
-  navReducer,
-  navStateOf,
-} from "../src/components/shell/navMachine.ts";
+import { initialNavState, navIsExpanded, navLabel, navReducer } from "../src/components/shell/navMachine.ts";
 
-describe("navigation disclosure state machine", () => {
-  test("toggle opens/closes the same transient drawer at every viewport", () => {
-    for (const desktop of [true, false]) {
-      let s = initialNavState(desktop);
-      expect(Object.keys(s).sort()).toEqual(["desktop", "open"]);
-      expect(navStateOf(s)).toBe("closed");
-      expect(navIsExpanded(s)).toBe(false);
-      s = navReducer(s, { type: "toggle" });
-      expect(navStateOf(s)).toBe("open");
-      expect(navIsExpanded(s)).toBe(true);
-      s = navReducer(s, { type: "toggle" });
-      expect(navStateOf(s)).toBe("closed");
-    }
+describe("responsive navigation", () => {
+  test("desktop starts expanded, toggles to a rail, and route close leaves it unchanged", () => {
+    let state = initialNavState(true);
+    expect(navIsExpanded(state)).toBe(true);
+    expect(navLabel(state)).toBe("Collapse sidebar");
+    state = navReducer(state, { type: "toggle" });
+    expect(navIsExpanded(state)).toBe(false);
+    expect(navReducer(state, { type: "close" })).toEqual(state);
+    expect(navIsExpanded(navReducer(state, { type: "toggle" }))).toBe(true);
   });
 
-  test("breakpoint crossing normalises a stranded open drawer", () => {
-    let s = navReducer(initialNavState(false), { type: "toggle" });
-    expect(navStateOf(s)).toBe("open");
-    s = navReducer(s, { type: "breakpoint", desktop: true });
-    expect(s).toEqual({ desktop: true, open: false });
-    s = navReducer(s, { type: "breakpoint", desktop: false });
-    expect(s).toEqual({ desktop: false, open: false });
-  });
-
-  test("labels are the same disclosure wording at every viewport", () => {
-    let s = initialNavState(true);
-    expect(navLabel(s)).toBe("Open navigation");
-    s = navReducer(s, { type: "toggle" });
-    expect(navLabel(s)).toBe("Close navigation");
-  });
-
-  test("close is idempotent", () => {
-    const s = initialNavState(true);
-    expect(navReducer(s, { type: "close" })).toBe(s);
-    expect(navReducer(navReducer(s, { type: "toggle" }), { type: "close" }).open).toBe(false);
+  test("mobile drawer closes on navigation and breakpoint while retaining desktop preference", () => {
+    let state = navReducer(initialNavState(true), { type: "toggle" });
+    state = navReducer(state, { type: "breakpoint", desktop: false });
+    expect(navIsExpanded(state)).toBe(false);
+    state = navReducer(state, { type: "toggle" });
+    expect(navIsExpanded(state)).toBe(true);
+    state = navReducer(state, { type: "close" });
+    expect(navIsExpanded(state)).toBe(false);
+    state = navReducer(state, { type: "toggle" });
+    state = navReducer(state, { type: "breakpoint", desktop: true });
+    expect(navIsExpanded(state)).toBe(false);
+    expect(state.open).toBe(false);
+    expect(navIsExpanded(navReducer(state, { type: "toggle" }))).toBe(true);
   });
 });

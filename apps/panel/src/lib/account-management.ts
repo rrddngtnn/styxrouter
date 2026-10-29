@@ -3,6 +3,14 @@ export interface BulkResult { id: string; ok: boolean; message: string }
 export function selectedAccounts(accounts: { id: string }[], selected: Set<string>) {
   return accounts.filter(a => selected.has(a.id)).map(a => a.id);
 }
+export function updateVisibleAccountSelection(selected: Set<string>, visible: { id: string }[], checked: boolean): Set<string> {
+  const next = new Set(selected);
+  for (const account of visible) {
+    if (checked) next.add(account.id);
+    else next.delete(account.id);
+  }
+  return next;
+}
 export async function runBulk(ids: string[], action: BulkAction, request: (method: "PATCH" | "POST" | "DELETE", path: string, body?: { isActive: boolean }) => Promise<unknown>): Promise<BulkResult[]> {
   const results: BulkResult[] = [];
   for (const id of ids) {
@@ -90,6 +98,11 @@ export function accountsForProvider<T extends AccountIdentity>(accounts: T[], pr
   return accounts
     .filter((a) => a.provider === providerId)
     .sort((a, b) => String(a.name ?? a.id).localeCompare(String(b.name ?? b.id)));
+}
+
+export function filterProviderAccounts<T extends Pick<AccountIdentity, "id" | "name">>(accounts: T[], search: string): T[] {
+  const query = search.trim().toLocaleLowerCase();
+  return query ? accounts.filter((account) => (account.name ?? account.id.slice(0, 8)).toLocaleLowerCase().includes(query)) : accounts;
 }
 
 export function groupAccounts<T extends AccountIdentity>(accounts: T[], providers: ProviderIdentity[], nodes: NodeIdentity[], tab: AccountTab) {

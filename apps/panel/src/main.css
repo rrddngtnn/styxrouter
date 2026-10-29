@@ -25,10 +25,7 @@
   --default-font-family: var(--font-sans);
   --code-font-family: var(--font-mono);
   --surface-tint: 255, 255, 255;
-  /* Brand mark: the source SVG's dark-red (#d22d2d → #0f100d) sinks into a
-     near-black sidebar. A tight rim (crisp) plus a wide faint haze (air) keeps
-     the silhouette above 3:1 without turning into a smudge. */
-  --brand-icon-filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.7)) drop-shadow(0 0 2px rgba(226, 60, 60, 0.85)) drop-shadow(0 0 10px rgba(210, 45, 45, 0.28)) saturate(1.2) brightness(1.26);
+
   color-scheme: dark;
 }
 :root[data-theme="light"] {
@@ -38,7 +35,7 @@
   --fg: #17202e; --fg-secondary: #344054; --muted: #596579; --subtle: #68768b;
   --accent: #4658b7; --accent-bright: #3f51b5; --accent-hover: #283e93;
   --ok: #06734e; --warn: #9a5800; --bad: #b42332;
-  --brand-icon-filter: saturate(1.06);
+
   color-scheme: light;
 }
 
@@ -133,7 +130,7 @@ a:hover {
   overflow-y: auto;
 }
 
-/* Operator-supplied icon-only brand. */
+/* Operator-supplied brand. */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -150,30 +147,22 @@ a:hover {
   padding: 4px 10px 8px;
   display: inline-flex;
   align-items: center;
-  gap: 12px;
   justify-content: flex-start;
   user-select: none;
 }
-.brand-icon {
+.brand-lockup {
   display: block;
-  width: auto;
-  height: 34px;
-  flex-shrink: 0;
-  filter: var(--brand-icon-filter);
+  width: 174px;
+  max-width: 100%;
+  height: auto;
 }
-.brand-wordmark {
-  font-size: 21px;
-  font-weight: 600;
-  letter-spacing: -0.028em;
-  color: var(--fg);
-  white-space: nowrap;
-}
-.login-head .brand-icon { height: 44px; }
-.login-head .brand-wordmark { font-size: 27px; }
+.brand-lockup-light { display: none; }
+:root[data-theme="light"] .brand-lockup-light { display: block; }
+:root[data-theme="light"] .brand-lockup-dark { display: none; }
+.login-head .brand-lockup { width: 225px; }
 .shell-drawer .shell-dialog-head { padding: 4px 0 10px; }
-.shell-drawer .shell-dialog-head .brand { padding: 0; min-height: 0; gap: 10px; }
-.shell-drawer .shell-dialog-head .brand-icon { height: 30px; }
-.shell-drawer .shell-dialog-head .brand-wordmark { font-size: 19px; }
+.shell-drawer .shell-dialog-head .brand { padding: 0; min-height: 0; }
+.shell-drawer .shell-dialog-head .brand-lockup { width: 165px; }
 
 .nav-section {
   display: flex;
@@ -1274,7 +1263,7 @@ td.grow {
 .shell-palette-results { position: relative; height: min(44dvh, 340px); scroll-behavior: auto; overscroll-behavior: contain; }
 @keyframes palette-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 @media(prefers-reduced-motion:reduce) { .shell-palette.rt-DialogContent { animation:none !important; } }
-@media(max-width:600px) { .shell-language { max-width: 100px; font-size: 13px; } .shell-responsive .shell-topbar { gap: 6px; padding-inline: 12px; } .shell-uptime { display: none; } }
+@media(max-width:600px) { .shell-language { width: 104px; max-width: none; height: 44px; flex-shrink: 0; font-size: 13px; } .shell-responsive .shell-topbar { gap: 6px; padding-inline: 12px; } .shell-topbar .shell-icon-button, .shell-topbar .shell-search-trigger { min-width: 44px; min-height: 44px; } .shell-uptime { display: none; } }
 
 .shell-responsive .content { min-width: 0; max-width: 1480px; margin-inline: auto; padding: 20px clamp(16px, 2.5vw, 40px) 40px; }
 .shell-responsive .page { width: 100%; min-width: 0; }
@@ -1340,8 +1329,7 @@ td.grow {
 .shell-drawer:focus { outline: none; }
 .shell-drawer .shell-dialog-head { padding: 4px 0 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .shell-drawer .shell-dialog-head .brand { padding: 0; min-height: 0; gap: 10px; }
-.shell-drawer .shell-dialog-head .brand-icon { height: 30px; }
-.shell-drawer .shell-dialog-head .brand-wordmark { font-size: 19px; }
+
 .shell-drawer .shell-drawer-nav { position: static; height: auto; min-height: 0; flex: 1; border: 0; padding: 14px 0 0; overflow-y: auto; gap: 16px; }
 .shell-drawer .shell-drawer-nav .brand { display: none; }
 .shell-drawer .nav-link { min-height: 40px; }
@@ -1372,6 +1360,5 @@ td.grow {
 @media (max-width: 380px) {
   .shell-search-trigger span { display: none; }
   .shell-search-trigger { width: 40px; padding-inline: 0; justify-content: center; flex-shrink: 0; }
-  .shell-language { max-width: 86px; }
   .shell-breadcrumbs { display: none; }
 }

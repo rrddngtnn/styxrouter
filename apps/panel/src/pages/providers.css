@@ -1,0 +1,42 @@
+/* The link is the card body; the footer action is an independent link. */
+.provider-accounts-table { overflow-x: auto; max-width: 100%; }
+.provider-account-search label { min-width: 0; }
+.provider-account-search input { min-width: 0; max-width: 100%; }
+.accounts.card .provider-account-search-hint, .accounts.card .provider-accounts-scroll-hint { font-size: 14px; line-height: 1.5; font-weight: 400; letter-spacing: normal; color: var(--muted); margin: 0 0 12px; }
+.provider-accounts-scroll-hint { display: none; }
+@media (max-width: 720px) {
+  .panel-provider-search label { flex-basis: 100%; }
+  .provider-account-search input, .provider-account-search button { min-height: 44px; }
+  .provider-accounts-scroll-hint { display: block; }
+}
+.provider-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
+.identity-card { padding: 0; gap: 0; cursor: default; overflow: visible; transform: none; }
+.identity-card:hover { transform: none; }
+.identity-card::before { display: none; }
+.identity-card .provider-card-main {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+  border-radius: 9px;
+}
+.identity-card .provider-card-info { min-width: 0; flex: 1; }
+.identity-card .provider-name { overflow-wrap: anywhere; white-space: normal; max-width: none; }
+.identity-card .provider-meta { margin-top: 6px; flex-wrap: wrap; }
+.identity-card .provider-id, .identity-card .vendor-badge { overflow-wrap: anywhere; }
+.identity-card footer { display: flex; padding: 0 16px 14px; margin: 0; }
+.identity-card .provider-card-action { min-height: 44px; text-decoration: none; }
+.identity-card a:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: -2px; }
+.identity-card .provider-endpoint { font-size: 14px; overflow-wrap: anywhere; margin-top: 6px; }
+.identity-card.provider-card-row { flex-direction: row; align-items: center; padding: 0; gap: 0; }
+.identity-card.provider-card-row footer { flex: 0 0 auto; padding: 10px 16px; }
+@media (max-width: 720px) {
+  .identity-card.provider-card-row { flex-wrap: wrap; }
+  .identity-card.provider-card-row .provider-card-main { flex-basis: 100%; }
+  .identity-card.provider-card-row footer { width: 100%; justify-content: flex-start; padding: 0 16px 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .identity-card { transition: none; } }

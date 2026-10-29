@@ -1,5 +1,5 @@
 import { useTranslator } from "./useTranslator.ts";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Dialog } from "@radix-ui/themes";
 import { toast } from "sonner";
 import { Copy, Check, KeyRound, X } from "lucide-react";
@@ -39,6 +39,7 @@ export function Modal({
   description,
   children,
   maxWidth = "520px",
+  returnFocusFallback,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -46,11 +47,20 @@ export function Modal({
   description?: ReactNode;
   children: ReactNode;
   maxWidth?: string;
+  returnFocusFallback?: () => HTMLElement | null;
 }): ReactNode {
   const tr = useTranslator();
+  const opener = useRef<HTMLElement | null>(null);
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content className="styx-modal" style={{ maxWidth }}>
+      <Dialog.Content className="styx-modal" style={{ maxWidth }}
+        onOpenAutoFocus={() => { opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const target = opener.current;
+          if (target?.isConnected && !target.matches(":disabled")) target.focus();
+          if (document.activeElement !== target) returnFocusFallback?.()?.focus();
+        }}>
         <div className="styx-modal-head">
           <div>
             <Dialog.Title className="styx-modal-title">{title}</Dialog.Title>

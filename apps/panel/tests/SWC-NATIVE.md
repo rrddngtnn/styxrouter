@@ -1,0 +1,5 @@
+# Panel SWC native binding
+
+The workspace overrides `@swc/core` to 1.15.33 because the 1.16.20 native carrier fails to initialize under Bun 1.4.3 in the observed Linux x64 environment even though the platform package is installed. The panel regression test resolves SWC through the Vite plugin and executes a native transform. Re-evaluate the override when upgrading Bun or SWC; verify a clean frozen-lockfile install and this test on each supported platform.
+
+Run build and tests in a disposable checkout with private HOME, TMPDIR, XDG and data directories. The production-build hygiene test writes `dist`, so do not run it in a live checkout. Do not disable SWC's cache security checks, relax directory permissions, or switch the build to Node to mask native loader failures. On Linux, `/tmp` can be mounted `noexec`, which prevents SWC 1.16's carrier from materializing its native image there; a private temporary directory on an executable filesystem avoids that particular issue. An executable cache alone was not sufficient for the observed carrier failure.

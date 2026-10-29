@@ -15,7 +15,7 @@ test("model additions retain manual IDs, preserve fallback order and optionally 
 
 test("owned pages wire catalog pickers, search and reusable states", () => {
   const page = (name: string) => readFileSync(new URL(`../src/pages/${name}.tsx`, import.meta.url), "utf8");
-  expect(page("Providers")).toContain('aria-label="Search providers"');
+  expect(page("Providers")).toContain('aria-label={tr("Search providers")}');
   expect(page("Providers")).toContain("filterProviders(nodes, search)");
   for (const name of ["Providers", "Keys", "Routing"]) {
     expect(page(name)).toContain("<LoadingState");

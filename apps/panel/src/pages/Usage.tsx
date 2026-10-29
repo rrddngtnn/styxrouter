@@ -1,7 +1,10 @@
 import { useTranslator } from "../lib/useTranslator.ts";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { ProviderIcon } from "../components/ProviderIcon.tsx";
 import { Download } from "lucide-react";
 import { LoadingState } from "../components/PageStates.tsx";
+import { TableScroll } from "../components/TableScroll.tsx";
 import { BarChart, Stat } from "../lib/charts.tsx";
 import { DASH, downloadCsv, int, ms, num, pctText, providerLabel, usd, when } from "../lib/format.ts";
 import type { Analytics, Day } from "../lib/types.ts";
@@ -16,8 +19,11 @@ export function Usage() {
   const tr = useTranslator();
   const [range, setRange] = useState<Range>("30d");
   const [metric, setMetric] = useState<Metric>("requests");
-  const state = useFetch<Analytics>(`/api/usage/analytics?range=${range}`);
-  const a = state.status === "ok" ? state.data : null;
+  const [provider, setProvider] = useState("");
+  const allProviders = useFetch<Analytics>(`/api/usage/analytics?range=${range}`);
+  const state = useFetch<Analytics>(provider ? `/api/usage/analytics?range=${range}&provider=${encodeURIComponent(provider)}` : null);
+  const activeState = provider ? state : allProviders;
+  const a = activeState.status === "ok" && activeState.data.range === range && (activeState.data.provider ?? "") === provider ? activeState.data : null;
   const provs = useFetch<{ providers?: { id: string; name?: string }[] }>("/api/providers");
   const nodes = useFetch<{ nodes?: { id: string; name: string; prefix: string | null }[] }>("/api/provider-nodes");
   const names = useMemo(() => {
@@ -28,6 +34,7 @@ export function Usage() {
     return map;
   }, [provs.status, provs.data, nodes.data]);
   const label = (id: string) => providerLabel(id, names);
+  const csvScope = provider ? `provider-${encodeURIComponent(provider)}` : "all-providers";
 
   const months = useMemo(() => {
     const by = new Map<string, { requests: number; tokens: number; cost: number }>();
@@ -52,6 +59,10 @@ export function Usage() {
           <p className="muted" style={{ margin: 0 }}>{tr("Request volume, token consumption, latency, and estimated cost across providers, models, and client keys.")}</p>
         </div>
         <div className="toolbar" style={{ marginBottom: 0 }}>
+          <label>{tr("Provider")}{" "}<select aria-label={tr("Provider")} value={provider} onChange={(event) => setProvider(event.target.value)}>
+            <option value="">{tr("All providers")}</option>
+            {(allProviders.data?.byProvider ?? []).map((p) => <option key={p.providerId} value={p.providerId}>{label(p.providerId)}</option>)}
+          </select></label>
           <div className="seg" role="group" aria-label={tr("Range")}>
             {RANGES.map((r) => (
               <button key={r} type="button" className={r === range ? "seg-on" : ""} onClick={() => setRange(r)}>
@@ -69,8 +80,8 @@ export function Usage() {
         </div>
       </div>
 
-      {state.status === "loading" && <LoadingState label={tr("Loading usage analytics")} />}
-      {state.status === "error" && <p className="bad">{state.error.message}</p>}
+      {(activeState.status === "loading" || (activeState.status === "ok" && !a)) && <LoadingState label={tr("Loading usage analytics")} />}
+      {activeState.status === "error" && <p className="bad">{activeState.error.message}</p>}
       {a && (
         <>
           <div className="cards">
@@ -83,18 +94,18 @@ export function Usage() {
 
           <section className="card" style={{ marginBottom: 20 }}>
             <h2 style={{ marginTop: 0 }}>{tr("Daily trend (")}{tr(metric === "totalTokens" ? "tokens" : metric)})</h2>
-            <BarChart data={a.dailyTrend.map((d) => ({ label: d.date.slice(5), value: series(d) }))} format={fmt} />
+            <BarChart data={a.dailyTrend.map((d) => ({ label: d.date.slice(5), title: `${d.date}: ${fmt(series(d))}`, value: series(d) }))} format={fmt} interactive />
           </section>
 
           <section className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
             <div className="section-head" style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
-              <h2 style={{ margin: 0 }}>{tr("By provider")}</h2>
+              <div><h2 style={{ margin: 0 }}>{tr("By provider")}</h2><small className="muted">{tr("Provider")}: {provider ? label(provider) : tr("All providers")}</small></div>
               <button
                 type="button"
                 className="btn-ghost"
                 onClick={() =>
                   downloadCsv(
-                    `usage-by-provider-${range}.csv`,
+                    `usage-by-provider-${range}-${csvScope}.csv`,
                     ["provider", "requests", "tokens", "avg_latency_ms", "success_pct", "est_cost_usd"],
                     a.byProvider.map((p) => [label(p.provider), p.requests, p.totalTokens, p.avgLatencyMs, p.successRatePct, p.cost]),
                   )
@@ -104,10 +115,14 @@ export function Usage() {
                 <span>CSV</span>
               </button>
             </div>
-            <Table
-              head={[tr("Provider"), tr("Requests"), tr("Tokens"), tr("Latency"), tr("Success"), tr("Cost")]}
-              rows={a.byProvider.map((p) => [label(p.provider), int(p.requests), num(p.totalTokens), ms(p.avgLatencyMs), pctText(p.successRatePct), usd(p.cost)])}
-            />
+            <TableScroll label={tr("Usage by provider table")} stickyPrimary><table className="table">
+              <thead><tr>{[tr("Provider"), tr("Requests"), tr("Tokens"), tr("Latency"), tr("Success"), tr("Cost"), tr("Accounts")].map(h => <th key={h}>{h}</th>)}</tr></thead>
+              <tbody>{a.byProvider.map(p => <tr key={p.providerId} onClick={(event) => { if (!(event.target as HTMLElement).closest('a,button')) setProvider(p.providerId); }} style={{ cursor: "pointer" }}>
+                <td><button type="button" className="btn-ghost" aria-label={`${tr("Focus")} ${p.provider}`} aria-pressed={provider === p.providerId} onClick={() => setProvider(p.providerId)}><ProviderIcon providerId={p.providerId} label={p.provider} size={24} /> {p.provider}</button></td>
+                <td>{int(p.requests)}</td><td>{num(p.totalTokens)}</td><td>{ms(p.avgLatencyMs)}</td><td>{pctText(p.successRatePct)}</td><td>{usd(p.cost)}</td>
+                <td><Link to={`/providers/${encodeURIComponent(p.providerId)}?tab=accounts`} aria-label={`${tr("Accounts")} ${p.provider}`}>{tr("Accounts")}</Link></td>
+              </tr>)}</tbody>
+            </table></TableScroll>
           </section>
 
           <section className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
@@ -118,7 +133,7 @@ export function Usage() {
                 className="btn-ghost"
                 onClick={() =>
                   downloadCsv(
-                    `usage-by-model-${range}.csv`,
+                    `usage-by-model-${range}-${csvScope}.csv`,
                     ["model", "provider", "requests", "tokens", "avg_latency_ms", "success_pct", "est_cost_usd"],
                     a.byModel.map((m) => [m.model, label(m.provider), m.requests, m.totalTokens, m.avgLatencyMs, m.successRatePct, m.cost]),
                   )
@@ -129,6 +144,7 @@ export function Usage() {
               </button>
             </div>
             <Table
+              label={tr("Usage by model table")}
               head={[tr("Model"), tr("Provider"), tr("Requests"), tr("Tokens"), tr("Latency"), tr("Success"), tr("Cost")]}
               rows={a.byModel.map((m) => [m.model, label(m.provider), int(m.requests), num(m.totalTokens), ms(m.avgLatencyMs), pctText(m.successRatePct), usd(m.cost)])}
             />
@@ -140,7 +156,9 @@ export function Usage() {
                 <h2 style={{ margin: 0 }}>{tr("By account")}</h2>
                 {a.byAccount.length > 15 && <span className="muted" style={{ fontSize: 14 }}>{tr("Top 15 of")}{a.byAccount.length}</span>}
               </div>
+              <p className="muted" style={{ padding: "10px 16px", margin: 0 }}>{tr("Retained raw records only; older daily summaries cannot be attributed to accounts, so these totals may be incomplete.")}</p>
               <Table
+                label={tr("Usage by account table")}
                 head={[tr("Account"), tr("Requests"), tr("Tokens"), tr("Last used")]}
                 rows={a.byAccount.slice(0, 15).map((x) => [x.account, int(x.requests), num(x.totalTokens), when(x.lastUsed)])}
               />
@@ -150,7 +168,9 @@ export function Usage() {
                 <div className="section-head" style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
                   <h2 style={{ margin: 0 }}>{tr("By API key")}</h2>
                 </div>
+                <p className="muted" style={{ padding: "10px 16px", margin: 0 }}>{tr("Retained raw records only; older daily summaries cannot be attributed to API keys, so these totals may be incomplete.")}</p>
                 <Table
+                  label={tr("Usage by API key table")}
                   head={[tr("Key"), tr("Requests"), tr("Tokens"), tr("Cost")]}
                   rows={a.byApiKey.map((k) => [k.apiKeyName, int(k.requests), num(k.totalTokens), usd(k.cost)])}
                 />
@@ -159,7 +179,7 @@ export function Usage() {
                 <div className="section-head" style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
                   <h2 style={{ margin: 0 }}>{tr("Errors by status")}</h2>
                 </div>
-                <Table head={[tr("Type"), tr("Count")]} rows={a.errorBreakdown.map((e) => [e.errorType, int(e.count)])} />
+                <Table label={tr("Errors by status table")} head={[tr("Type"), tr("Count")]} rows={a.errorBreakdown.map((e) => [e.errorType, int(e.count)])} />
               </section>
             </div>
           </div>
@@ -175,7 +195,7 @@ export function Usage() {
                 className="btn-ghost"
                 onClick={() =>
                   downloadCsv(
-                    "usage-monthly.csv",
+                    `usage-monthly-${range}-${csvScope}.csv`,
                     ["month", "requests", "tokens", "est_cost_usd"],
                     months.map(([m, v]) => [m, v.requests, v.tokens, v.cost]),
                   )
@@ -185,7 +205,7 @@ export function Usage() {
                 <span>CSV</span>
               </button>
             </div>
-            <Table head={[tr("Month"), tr("Requests"), tr("Tokens"), tr("Est. cost")]} rows={months.map(([m, v]) => [m, int(v.requests), num(v.tokens), usd(v.cost)])} />
+            <Table label={tr("Monthly report table")} head={[tr("Month"), tr("Requests"), tr("Tokens"), tr("Est. cost")]} rows={months.map(([m, v]) => [m, int(v.requests), num(v.tokens), usd(v.cost)])} />
           </section>
         </>
       )}
@@ -195,10 +215,10 @@ export function Usage() {
 
 const DATE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
-function Table({ head, rows }: { head: string[]; rows: string[][] }) {
+function Table({ label, head, rows }: { label: string; head: string[]; rows: string[][] }) {
   if (rows.length === 0) return <p className="muted" style={{ padding: "14px 16px", margin: 0 }}>{DASH}</p>;
   return (
-    <table className="table">
+    <TableScroll label={label} stickyPrimary compact={head.length <= 2}><table className="table">
       <thead>
         <tr>{head.map((h) => <th key={h}>{h}</th>)}</tr>
       </thead>
@@ -207,6 +227,6 @@ function Table({ head, rows }: { head: string[]; rows: string[][] }) {
           <tr key={i}>{r.map((c, j) => <td key={j} className={DATE.test(c) ? "nowrap" : undefined}>{c}</td>)}</tr>
         ))}
       </tbody>
-    </table>
+    </table></TableScroll>
   );
 }

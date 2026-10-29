@@ -1,0 +1,16 @@
+.model-inspector-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 16px; align-items: start; }
+.model-category-wrap { min-width: 0; }
+.model-category-rail { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.model-category-rail button { justify-content: flex-start; text-align: left; overflow-wrap: anywhere; }
+.model-category-rail button[aria-pressed="true"] { color: var(--fg); background: var(--surface-hover); border-color: var(--accent); }
+.model-rail-hint { color: var(--fg-secondary); font-size: 14px; margin: 0 0 4px; }
+/* Scoped to the global inspector so badges remain readable even outside the shell. */
+.model-inspector-layout .vendor-badge, .shell-responsive .model-inspector-layout .vendor-badge { color: var(--fg); background: var(--panel-2); border-color: var(--border); }
+@media (max-width: 700px) {
+  .model-inventory-toggle { display: flex; align-items: baseline; }
+  .model-inventory-toggle input { flex: none; }
+  .model-inspector-layout { display: block; }
+  .model-category-wrap { margin-bottom: 12px; }
+  .model-category-rail { flex-direction: row; overflow-x: auto; overscroll-behavior-x: contain; padding: 2px 2px 6px; }
+  .model-category-rail button { flex: 0 0 auto; max-width: 70%; white-space: normal; }
+}

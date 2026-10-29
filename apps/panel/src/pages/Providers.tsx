@@ -1,14 +1,16 @@
 import { useTranslator } from "../lib/useTranslator.ts";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, KeyRound, Layers, LayoutGrid, Link2, List, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { usePreferences } from "../lib/preferences.tsx";
 import {
   accountsForProvider,
+  filterProviderAccounts,
   resolveProviderTarget,
   runBulk,
   selectedAccounts,
+  updateVisibleAccountSelection,
   type BulkAction,
   type BulkResult,
 } from "../lib/account-management.ts";
@@ -17,8 +19,14 @@ import { Modal, useAction } from "../lib/actions.tsx";
 import { DASH } from "../lib/format.ts";
 import { useFetch } from "../lib/useFetch.ts";
 import { EmptyState, LoadingState } from "../components/PageStates.tsx";
+import { ProviderIcon } from "../components/ProviderIcon.tsx";
+import { TableScroll } from "../components/TableScroll.tsx";
+import "./providers.css";
 import { filterProviders } from "../lib/provider-search.ts";
 import { OAuthConnect, type FlowType } from "./OAuthConnect.tsx";
+import { ProviderModels } from "./ProviderModels.tsx";
+import { ProviderImport } from "./ProviderImport.tsx";
+import "./provider-workspace.css";
 
 interface Provider {
   id: string;
@@ -153,7 +161,7 @@ export function Providers() {
           </div>
 
           <div className="panel-provider-search">
-            <label>{tr("Search providers")}<input type="search" aria-label="Search providers" placeholder={tr("ID, name, vendor or custom prefix")}
+            <label>{tr("Search providers")}<input type="search" aria-label={tr("Search providers")} placeholder={tr("Search providers")}
                 value={search} onChange={(event) => setSearch(event.target.value)} />
             </label>
             {search && <button type="button" className="btn-ghost" onClick={() => setSearch("")}>{tr("Clear search")}</button>}
@@ -189,7 +197,7 @@ export function Providers() {
                   provider={p}
                   tab={tab}
                   view={providerView}
-                  accounts={counts[p.id]?.total ?? 0}
+                  accounts={accountsState.status === "ok" ? counts[p.id]?.total ?? 0 : null}
                   activeAccounts={counts[p.id]?.active ?? 0}
                 />
               ))}
@@ -215,6 +223,7 @@ export function Providers() {
                 description={tr("Register an OpenAI- or Anthropic-compatible upstream endpoint under its own routing prefix.")}
               >
                 <NodeForm
+                  onCancel={() => setEditingNode(null)}
                   onDone={() => {
                     setEditingNode(null);
                     toast.success("Custom provider created");
@@ -222,12 +231,13 @@ export function Providers() {
                   }}
                 />
               </Modal>
-              <div className="provider-grid">
+              <div className={providerView === "rows" ? "provider-grid provider-grid-rows" : "provider-grid"}>
                 {filteredNodes.map((n) => (
                   <CustomNodeCard
                     key={n.id}
                     node={n}
-                    accounts={counts[n.id]?.total ?? 0}
+                    view={providerView}
+                    accounts={accountsState.status === "ok" ? counts[n.id]?.total ?? 0 : null}
                     activeAccounts={counts[n.id]?.active ?? 0}
                   />
                 ))}
@@ -267,112 +277,68 @@ interface CardProps {
   provider: Provider;
   tab: Tab;
   view?: "cards" | "rows";
-  accounts: number;
+  accounts: number | null;
   activeAccounts: number;
 }
 
-function ProviderCard({ provider, tab, view = "cards", accounts, activeAccounts }: CardProps) {
+function AccountSummary({ accounts, activeAccounts }: { accounts: number | null; activeAccounts: number }) {
   const tr = useTranslator();
-  const navigate = useNavigate();
-  const name = provider.name ?? provider.id;
-  const vendor = provider.vendor ?? "—";
-  const status = activeAccounts > 0 ? "ok" : accounts === 0 ? "disabled" : "down";
-  const href = `/providers/${encodeURIComponent(provider.id)}?tab=${tab}`;
+  if (accounts === null) return <span className="muted">{tr("Data unavailable")}</span>;
+  if (accounts === 0) return <span className="muted">{tr("0 accounts")}</span>;
+  return <span className="muted" title={tr("Accounts whose last check passed, out of all accounts for this provider")}>
+    {tr("{0}/{1} accounts passed last check", {0: String(activeAccounts), 1: String(accounts)})}
+  </span>;
+}
 
-  return (
-    <article
-      className={`provider-card status-${status}${view === "rows" ? " provider-card-row" : ""}`}
-      tabIndex={0}
-      role="link"
-      aria-label={`${name} — ${status === "disabled" ? tr("no accounts") : status}, ${accounts} ${tr("accounts")}`}
-      onClick={() => navigate(href)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          navigate(href);
-        }
-      }}
-    >
-      <header>
-        <code className="provider-id">{provider.id}</code>
-        <span className="vendor-badge">{vendor}</span>
-      </header>
-      <div className="provider-body">
+export function ProviderCard({ provider, tab, view = "cards", accounts, activeAccounts }: CardProps) {
+  const tr = useTranslator();
+  const name = provider.name ?? provider.id;
+  const href = `/providers/${encodeURIComponent(provider.id)}?tab=${tab}`;
+  return <article className={`provider-card identity-card${view === "rows" ? " provider-card-row" : ""}`}>
+    <Link to={href} className="provider-card-main">
+      <ProviderIcon providerId={provider.id} label={name} />
+      <div className="provider-card-info">
         <div className="provider-name">{name}</div>
         <div className="provider-meta">
-          <span className={`health ${status}`}>{status === "disabled" ? tr("no accounts") : status}</span>
-          <span className="auth-type">{tab === "oauth" ? "oauth" : tab === "apikey" ? "apikey" : provider.authType ?? "—"}</span>
-          {accounts > 0 && (
-            <span className="muted" title={tr("Accounts whose last check passed, out of all accounts for this provider")}>
-              {tr("{0}/{1} active", {0: String(activeAccounts),1: String(accounts)})}
-            </span>
-          )}
+          <AccountSummary accounts={accounts} activeAccounts={activeAccounts} />
+          <span className="auth-type">{tab === "oauth" ? "oauth" : "apikey"}</span>
+          <code className="provider-id">{provider.id}</code>
+          {provider.vendor && <span className="vendor-badge">{provider.vendor}</span>}
         </div>
       </div>
-      <footer>
-        <Link
-          to={href}
-          className="btn-add"
-          style={{ textDecoration: "none" }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {accounts > 0 ? tr("Manage ({0})", {0: String(accounts)}) : tr("Connect")}
-        </Link>
-      </footer>
-    </article>
-  );
+    </Link>
+    <footer><Link to={href} className="btn-add provider-card-action" aria-label={`${accounts !== null && accounts > 0 ? tr("Manage") : accounts === 0 ? tr("Connect") : tr("Manage")} ${name}`}>
+      {accounts !== null && accounts > 0 ? tr("Manage ({0})", {0: String(accounts)}) : accounts === 0 ? tr("Connect") : tr("Manage")}
+    </Link></footer>
+  </article>;
 }
 
-function CustomNodeCard({
-  node,
-  accounts,
-  activeAccounts,
-}: {
-  node: Node;
-  accounts: number;
-  activeAccounts: number;
+function CustomNodeCard({ node, view, accounts, activeAccounts }: {
+  node: Node; view: "cards" | "rows"; accounts: number | null; activeAccounts: number;
 }) {
   const tr = useTranslator();
-  const navigate = useNavigate();
-  const status = activeAccounts > 0 ? "ok" : accounts === 0 ? "disabled" : "down";
   const href = `/providers/${encodeURIComponent(node.id)}?tab=custom`;
-
-  return (
-    <article
-      className={`provider-card status-${status}`}
-      style={{ cursor: "pointer" }}
-      onClick={() => navigate(href)}
-    >
-      <header>
-        <code className="provider-id">{node.prefix ? `${node.prefix}/*` : node.id.slice(0, 18)}</code>
-        <span className="vendor-badge">{node.type.replace("-compatible", "")}</span>
-      </header>
-      <div className="provider-body">
+  return <article className={`provider-card identity-card${view === "rows" ? " provider-card-row" : ""}`}>
+    <Link to={href} className="provider-card-main">
+      <ProviderIcon providerId={`custom:${node.id}`} label={node.name} />
+      <div className="provider-card-info">
         <div className="provider-name">{node.name}</div>
         <div className="provider-meta">
-          <span className={`health ${status}`}>{status === "disabled" ? tr("no accounts") : status}</span>
+          <AccountSummary accounts={accounts} activeAccounts={activeAccounts} />
           <span className="auth-type">{node.apiType ?? "chat"}</span>
-          <span className="muted">{accounts > 0 ? tr("{0}/{1} active", {0: String(activeAccounts),1: String(accounts)}) : tr("0 accounts")}</span>
+          <code className="provider-id">{node.prefix ? `${node.prefix}/*` : node.id.slice(0, 18)}</code>
+          <span className="vendor-badge">{node.type.replace("-compatible", "")}</span>
         </div>
-        <div className="muted" style={{ fontSize: 14, wordBreak: "break-all" }}>
-          {node.baseUrl ?? DASH}
-        </div>
+        <div className="muted provider-endpoint">{node.baseUrl ?? DASH}</div>
       </div>
-      <footer className="row-actions">
-        <Link
-          to={href}
-          className="btn-add"
-          style={{ textDecoration: "none" }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {accounts > 0 ? tr("Manage ({0})", {0: String(accounts)}) : tr("Manage")}
-        </Link>
-      </footer>
-    </article>
-  );
+    </Link>
+    <footer><Link to={href} className="btn-add provider-card-action" aria-label={`${tr("Manage")} ${node.name}`}>
+      {accounts !== null && accounts > 0 ? tr("Manage ({0})", {0: String(accounts)}) : tr("Manage")}
+    </Link></footer>
+  </article>;
 }
 
-function NodeForm({ node, onDone }: { node?: Node; onDone: () => void }) {
+function NodeForm({ node, onDone, onCancel }: { node?: Node; onDone: () => void; onCancel: () => void }) {
   const tr = useTranslator();
   const editing = Boolean(node);
   const [form, setForm] = useState(
@@ -441,7 +407,7 @@ function NodeForm({ node, onDone }: { node?: Node; onDone: () => void }) {
         <button type="submit" className="btn-add" disabled={busy !== null || !form.name.trim() || !form.baseUrl.trim()}>
           {busy === "save" ? "…" : editing ? tr("Save") : tr("Create")}
         </button>
-        <button type="button" className="btn-ghost" onClick={onDone}>{tr("Cancel")}</button>
+        <button type="button" className="btn-ghost" onClick={onCancel}>{tr("Cancel")}</button>
       </div>
     </form>
   );
@@ -471,6 +437,7 @@ export function ProviderDetail() {
     state.reload();
     accountsState.reload();
     nodesState.reload();
+    setTagRevision(r => r + 1);
   };
 
   const target = useMemo(() => resolveProviderTarget(providerId, providers, nodes), [providerId, providers, nodes]);
@@ -481,7 +448,8 @@ export function ProviderDetail() {
   );
   const flow = flows.get(providerId);
 
-  const backTab = searchParams.get("tab") ?? target?.defaultTab ?? "oauth";
+  const backTab = ["oauth", "apikey", "custom"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : target?.defaultTab ?? "oauth";
+  const detailTab = searchParams.get("tab") === "models" ? "models" : searchParams.get("tab") === "import" ? "import" : "accounts";
   const backHref = `/providers?tab=${encodeURIComponent(backTab)}`;
 
   const [connecting, setConnecting] = useState(false);
@@ -492,8 +460,26 @@ export function ProviderDetail() {
   const [apiKey, setApiKey] = useState("");
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [accountSearch, setAccountSearch] = useState("");
+  const [tagInput, setTagInput] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [tagRevision, setTagRevision] = useState(0);
+  const [tagResult, setTagResult] = useState<{ tag: string; revision: number; ids: Set<string> | null; error: boolean } | null>(null);
+  useEffect(() => {
+    if (!tagFilter) return;
+    const controller = new AbortController();
+    api.get<{ connections?: Account[] }>(`/api/connections?tag=${encodeURIComponent(tagFilter)}`, controller.signal)
+      .then(data => { if (!controller.signal.aborted) setTagResult({ tag: tagFilter, revision: tagRevision, ids: new Set((data.connections ?? []).map(a => a.id)), error: false }); })
+      .catch(() => { if (!controller.signal.aborted) setTagResult({ tag: tagFilter, revision: tagRevision, ids: null, error: true }); });
+    return () => controller.abort();
+  }, [tagFilter, tagRevision]);
+  const tagReady = !tagFilter || (tagResult?.tag === tagFilter && tagResult.revision === tagRevision);
+  const visibleAccounts = useMemo(() => filterProviderAccounts(providerAccounts, accountSearch).filter(a => !tagFilter || (tagReady && tagResult?.ids?.has(a.id))), [providerAccounts, accountSearch, tagFilter, tagReady, tagResult]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkResults, setBulkResults] = useState<BulkResult[]>([]);
+  const [batchDialog, setBatchDialog] = useState<"rename" | "add" | "remove" | "cooldown" | "delete" | "disable" | null>(null);
+  const [batchValue, setBatchValue] = useState("");
+  const [batchError, setBatchError] = useState("");
   const [results, setResults] = useState<Record<string, string>>({});
   const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [newKey, setNewKey] = useState("");
@@ -536,14 +522,8 @@ export function ProviderDetail() {
   }
 
   async function bulk(action: BulkAction) {
-    const ids = selectedAccounts(providerAccounts, selected);
+    const ids = selectedAccounts(visibleAccounts, selected);
     if (locked || ids.length === 0) return;
-    if (
-      action === "delete" &&
-      !window.confirm(`Delete ${ids.length} selected account${ids.length === 1 ? "" : "s"} from ${target?.label ?? providerId}? Their stored credentials will be removed.`)
-    ) {
-      return;
-    }
     setBulkBusy(true);
     setBulkResults([]);
     try {
@@ -563,6 +543,26 @@ export function ProviderDetail() {
       setBulkBusy(false);
       refresh();
     }
+  }
+
+  async function submitBatch() {
+    const ids = selectedAccounts(visibleAccounts, selected);
+    if (!batchDialog || locked || !ids.length) return;
+    if ((batchDialog === "rename" || batchDialog === "add" || batchDialog === "remove") && !batchValue.trim()) { setBatchError("Enter a value."); return; }
+    if (batchDialog === "delete" || batchDialog === "disable") { const action = batchDialog; setBatchDialog(null); await bulk(action); return; }
+    if (ids.length > 100) { setBatchError("Select at most 100 accounts."); return; }
+    const action = batchDialog;
+    const value = batchValue.trim();
+    setBulkBusy(true); setBulkResults([]); setBatchError("");
+    try {
+      const path = action === "rename" ? "bulk-rename" : action === "cooldown" ? "bulk-release-cooldown" : "bulk-tags";
+      const body: JsonValue = action === "rename" ? { ids, pattern: value } : action === "cooldown" ? { ids } : { ids, operation: action, tags: [value] };
+      const out = await api.post<{ results: { id: string; success: boolean; error?: string }[] }>(`/api/connections/${path}`, body);
+      const byId = new Map(out.results.map(r => [r.id, r]));
+      const results = ids.map(id => { const r = byId.get(id); return { id, ok: r?.success === true, message: r?.success ? "Success" : r?.error ?? "No result returned" }; });
+      setBulkResults(results); setResults(Object.fromEntries(results.map(r => [r.id, r.message]))); setBatchDialog(null);
+    } catch (e) { setBatchError(e instanceof Error ? e.message : "Request failed"); }
+    finally { setBulkBusy(false); refresh(); }
   }
 
   async function test(id: string) {
@@ -604,7 +604,7 @@ export function ProviderDetail() {
     );
   }
 
-  const ids = selectedAccounts(providerAccounts, selected);
+  const ids = selectedAccounts(visibleAccounts, selected);
   const status = activeCount > 0 ? "ok" : providerAccounts.length === 0 ? "disabled" : "down";
 
   return (
@@ -766,6 +766,7 @@ export function ProviderDetail() {
         >
           <NodeForm
             node={target.node}
+            onCancel={() => setEditingNode(false)}
             onDone={() => {
               setEditingNode(false);
               toast.success(`Updated ${target.label}`);
@@ -817,25 +818,34 @@ export function ProviderDetail() {
         )}
       </Modal>
 
-      <section className="accounts card" style={{ marginTop: 16 }}>
+      <nav className="provider-workspace-tabs" aria-label={tr("Provider workspace")}>
+        {([ ["accounts", "Accounts"], ["models", "Models"], ["import", "Import"] ] as const).map(([id, title]) => (
+          <Link key={id} aria-current={detailTab === id ? "page" : undefined} className={detailTab === id ? "active" : ""} to={`?tab=${id}`}>
+            {tr(title)}
+          </Link>
+        ))}
+      </nav>
+      {detailTab === "models" && <ProviderModels key={providerId} providerId={providerId} />}
+      {detailTab === "import" && <ProviderImport key={providerId} providerId={providerId} onSaved={refresh} />}
+      {detailTab === "accounts" && <section className="accounts card" style={{ marginTop: 16 }}>
         <div className="section-head" style={{ marginBottom: 12 }}>
-          <h2 style={{ margin: 0 }}>{tr("Connected accounts")}<span className="tab-count">{providerAccounts.length}</span>
+          <h2 id="provider-connected-accounts-heading" tabIndex={-1} style={{ margin: 0 }}>{tr("Connected accounts")}<span className="tab-count">{providerAccounts.length}</span>
           </h2>
-          {providerAccounts.length > 0 && (
+          {visibleAccounts.length > 0 && (
             <div className="toolbar" style={{ margin: 0 }}>
               <label className="check">
                 <input
                   type="checkbox"
                   disabled={locked}
-                  checked={ids.length === providerAccounts.length && providerAccounts.length > 0}
+                  checked={ids.length === visibleAccounts.length && visibleAccounts.length > 0}
                   ref={(el) => {
-                    if (el) el.indeterminate = ids.length > 0 && ids.length < providerAccounts.length;
+                    if (el) el.indeterminate = ids.length > 0 && ids.length < visibleAccounts.length;
                   }}
                   onChange={(e) => {
                     const checked = e.target.checked;
-                    setSelected(checked ? new Set(providerAccounts.map((a) => a.id)) : new Set());
+                    setSelected(previous => updateVisibleAccountSelection(previous, visibleAccounts, checked));
                   }}
-                />{tr("Select all (")}{ids.length}/{providerAccounts.length})
+                />{tr("Select all visible (")}{ids.length}/{visibleAccounts.length})
               </label>
               {(
                 [
@@ -851,14 +861,40 @@ export function ProviderDetail() {
                   type="button"
                   className={action === "delete" ? "btn-danger" : "btn-ghost"}
                   disabled={locked || ids.length === 0}
-                  onClick={() => bulk(action)}
+                  onClick={() => { if (action === "disable" || action === "delete" || action === "cooldown") { setBatchValue(""); setBatchError(""); setBatchDialog(action); } else void bulk(action); }}
                 >
-                  {text}
+                  {tr(text)}
                 </button>
+              ))}
+              {([ ["rename", "Rename selected"], ["add", "Add tag"], ["remove", "Remove tag"] ] as const).map(([action, text]) => (
+                <button key={action} type="button" className="btn-ghost" disabled={locked || ids.length === 0} onClick={() => { setBatchValue(""); setBatchError(""); setBatchDialog(action); }}>{tr(text)}</button>
               ))}
             </div>
           )}
         </div>
+
+        <Modal returnFocusFallback={() => document.getElementById("provider-connected-accounts-heading")} open={batchDialog !== null} onOpenChange={(open) => { if (!open && !bulkBusy) setBatchDialog(null); }} title={tr(batchDialog === "rename" ? "Rename selected" : batchDialog === "add" ? "Add tag" : batchDialog === "remove" ? "Remove tag" : batchDialog === "delete" ? "Delete selected" : batchDialog === "disable" ? "Disable selected" : "Clear cooldown")} description={tr(ids.length === 1 ? "{0} selected account from {1}." : "{0} selected accounts from {1}.", {0: ids.length, 1: String(target.label)}) + (batchDialog === "delete" ? ` ${tr("Stored credentials will be removed.")}` : "")}>
+          {(batchDialog === "rename" || batchDialog === "add" || batchDialog === "remove") && <label>{tr(batchDialog === "rename" ? "Rename pattern" : "Tag")}<input value={batchValue} maxLength={batchDialog === "rename" ? 200 : 64} onChange={e => setBatchValue(e.target.value)} /></label>}
+          {batchDialog === "rename" && <p className="muted">{tr("Use {name} and {index} in the pattern.")}</p>}
+          {batchError && <p role="alert" className="bad">{tr(batchError)}</p>}
+          <div className="row-actions"><button type="button" className="btn-ghost" disabled={bulkBusy} onClick={() => setBatchDialog(null)}>{tr("Cancel")}</button><button type="button" className={batchDialog === "delete" ? "btn-danger" : "btn-add"} disabled={bulkBusy} onClick={() => void submitBatch()}>{tr("Confirm")}</button></div>
+        </Modal>
+
+        <div className="panel-provider-search provider-account-search">
+          <label>{tr("Search accounts")}<input type="search" aria-label={tr("Search accounts")} placeholder={tr("Account name")}
+            value={accountSearch} disabled={locked} onChange={(event) => { setAccountSearch(event.target.value); setSelected(new Set()); }} />
+          </label>
+          {accountSearch && <button type="button" className="btn-ghost" disabled={locked} onClick={() => { setAccountSearch(""); setSelected(new Set()); }}>{tr("Clear search")}</button>}
+          <form onSubmit={event => { event.preventDefault(); const value = tagInput.trim(); if (value) setTagFilter(value); }} className="panel-provider-search">
+            <label>{tr("Filter by tag")}<input type="search" aria-label={tr("Filter by tag")} maxLength={64} value={tagInput} disabled={locked} onChange={event => setTagInput(event.target.value)} /></label>
+            <button type="submit" className="btn-ghost" disabled={locked || !tagInput.trim()}>{tr("Apply tag filter")}</button>
+            {tagFilter && <button type="button" className="btn-ghost" disabled={locked} onClick={() => { setTagFilter(""); setTagInput(""); }}>{tr("Clear tag filter")}</button>}
+          </form>
+          <small className="muted provider-result-count" role="status">{visibleAccounts.length} / {providerAccounts.length} {tr("accounts")}</small>
+        </div>
+        {tagFilter && !tagReady && <p role="status">{tr("Loading tag filter…")}</p>}
+        {tagFilter && tagReady && tagResult?.error && <p role="alert">{tr("Could not load tag filter.")} <button type="button" className="btn-ghost" onClick={() => setTagRevision(r => r + 1)}>{tr("Retry")}</button></p>}
+        {providerAccounts.length > 0 && <p className="muted provider-account-search-hint">{tr("Changing the search clears the selection. Bulk actions apply only to selected visible accounts.")}</p>}
 
         {bulkBusy && <p role="status">Processing {ids.length} selected account(s) sequentially…</p>}
         {bulkResults.length > 0 && (
@@ -876,7 +912,11 @@ export function ProviderDetail() {
 
         {providerAccounts.length === 0 ? (
           <EmptyState title={tr("No connected accounts")} description={tr("Connect an OAuth login or add an API key to {0} using the actions above.", {0: String(target.label)})} />
+        ) : tagFilter && (!tagReady || tagResult?.error) ? null : visibleAccounts.length === 0 ? (
+          <EmptyState title={tr("No matching accounts")} description={tr("Try another account name or tag.")} />
         ) : (
+          <>
+          <TableScroll label="Connected accounts" stickySelection>
           <table className="table">
             <thead>
               <tr>
@@ -889,7 +929,7 @@ export function ProviderDetail() {
               </tr>
             </thead>
             <tbody>
-              {providerAccounts.map((a) => {
+              {visibleAccounts.map((a) => {
                 const failing = a.testStatus !== null && a.testStatus !== "active";
                 const isApiKey = a.authType === "apikey" || a.authType === "api_key";
                 const labelText = a.name ?? a.id.slice(0, 8);
@@ -913,7 +953,7 @@ export function ProviderDetail() {
                       />
                     </td>
                     <td>
-                      <div>{labelText}</div>
+                      <div className="table-identity">{labelText}</div>
                     </td>
                     <td>
                       <span className="auth-type">{isApiKey ? "apikey" : a.authType ?? "oauth"}</span>
@@ -972,8 +1012,10 @@ export function ProviderDetail() {
               })}
             </tbody>
           </table>
+          </TableScroll>
+          </>
         )}
-      </section>
+      </section>}
     </div>
   );
 }

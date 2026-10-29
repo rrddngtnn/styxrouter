@@ -8,6 +8,7 @@ import { appendModelLine } from "../lib/model-selection.ts";
 import { api } from "../lib/api.ts";
 import { Modal, useAction } from "../lib/actions.tsx";
 import { EmptyState, LoadingState } from "../components/PageStates.tsx";
+import { TableScroll } from "../components/TableScroll.tsx";
 import { ModelPicker } from "../components/ModelPicker.tsx";
 import { useFetch } from "../lib/useFetch.ts";
 
@@ -238,6 +239,7 @@ export function Routing() {
               </button>
             </div>
           </div>
+          <TableScroll label={t("Routing combos table")} stickySelection>
           <table className="table">
             <thead>
               <tr>
@@ -270,7 +272,7 @@ export function Routing() {
                     />
                   </td>
                   <td>
-                    <code>{r.name ?? "—"}</code>
+                    <code className="table-identity">{r.name ?? "—"}</code>
                   </td>
                   <td className="muted">{r.strategy ?? "priority"}</td>
                   <td>
@@ -321,6 +323,7 @@ export function Routing() {
               );})}
             </tbody>
           </table>
+          </TableScroll>
         </div>
       )}
     </div>

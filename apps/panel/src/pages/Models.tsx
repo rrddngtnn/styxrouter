@@ -1,8 +1,11 @@
 import { useTranslator } from "../lib/useTranslator.ts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { usePreferences } from "../lib/preferences.tsx";
+import "./models.css";
 import { SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState, LoadingState } from "../components/PageStates.tsx";
+import { TableScroll } from "../components/TableScroll.tsx";
 import { Pagination } from "../components/Pagination.tsx";
 import { api } from "../lib/api.ts";
 import { Modal } from "../lib/actions.tsx";
@@ -21,8 +24,13 @@ interface ModelMetadata {
 export interface CatalogModel {
   id: string;
   owned_by: string;
+  providerId?: string;
+  nodeId?: string | null;
+  localId?: string;
   name?: string;
   type?: string;
+  root?: string | null;
+  parent?: string | null;
   context_length?: number | null;
   thinking?: boolean;
   supportsThinking?: boolean;
@@ -61,6 +69,55 @@ export function extractCatalogCapabilities(row: CatalogModel): string[] {
     tags.push("Tools");
   }
   return tags;
+}
+
+export function catalogProviderIdentity(row: CatalogModel, knownProviders: ReadonlySet<string>): string {
+  if (row.providerId) return row.providerId;
+  const id = row.id.startsWith("no-think/") ? row.id.slice("no-think/".length) : row.id;
+  const slash = id.indexOf("/");
+  const prefix = slash < 0 ? "" : id.slice(0, slash);
+  return knownProviders.has(prefix) ? prefix : row.owned_by;
+}
+
+export function groupCatalogModels(catalog: CatalogModel[], filtered: CatalogModel[], identity: (row: CatalogModel) => string = (row) => row.owned_by) {
+  const ids = new Set(catalog.map((row) => `${identity(row)}\0${row.id}`));
+  const localIds = new Map<string, string | null>();
+  for (const row of catalog) {
+    if (row.localId === undefined) continue;
+    const key = `${identity(row)}\0${row.localId}`;
+    const existing = localIds.get(key);
+    localIds.set(key, existing === undefined || existing === row.id ? row.id : null);
+  }
+  const resolve = (row: CatalogModel, ref?: string | null) => {
+    if (!ref) return undefined;
+    const provider = identity(row);
+    if (ids.has(`${provider}\0${ref}`)) return ref;
+    const local = localIds.get(`${provider}\0${ref}`);
+    if (local) return local;
+    const qualified = `${provider}/${ref}`;
+    return ids.has(`${provider}\0${qualified}`) ? qualified : undefined;
+  };
+  const map = new Map<string, { key: string; name: string; rows: CatalogModel[] }>();
+  for (const row of filtered) {
+    const parent = resolve(row, row.parent);
+    const root = resolve(row, row.root);
+    const family = (root !== row.id && root) || (parent !== row.id && parent) || row.id;
+    const key = `${identity(row)}\0${family}`;
+    const group = map.get(key) ?? { key, name: family, rows: [] };
+    group.rows.push(row);
+    map.set(key, group);
+  }
+  return [...map.values()];
+}
+
+export function catalogMetadataIdentity(row: CatalogModel) {
+  return { provider: row.nodeId || row.providerId || row.owned_by, modelId: row.localId ?? row.id };
+}
+
+function modelIdForCatalogRow(row: CatalogModel, provider: string) {
+  const prefix = `${provider}/`;
+  if (row.id.startsWith(`no-think/${prefix}`)) return `no-think/${row.id.slice(`no-think/${prefix}`.length)}`;
+  return row.id.startsWith(prefix) ? row.id.slice(prefix.length) : row.id;
 }
 
 export function ModelEditor({
@@ -133,7 +190,7 @@ export function ModelEditor({
         <button type="button" className="btn-ghost" onClick={() => setContext("256000")}>{tr("GPT 256K")}</button>
         <button type="button" className="btn-ghost" onClick={() => setContext("")}>{tr("Automatic context")}</button>
       </div>
-      <p className="muted" style={{ margin: "2px 0 6px" }}>{tr("Effective context:")}{model.contextWindow.toLocaleString()}{tr("tokens. Blank clears the manual override. Unknown contexts default to 1M; use GPT 256K for GPT models.")}</p>
+      <p className="muted" style={{ margin: "2px 0 6px" }}>{tr("Effective context:")}{model.contextWindow.toLocaleString()}{tr("tokens. Blank clears the manual override. Unknown contexts default to 1M for all models and providers.")}</p>
       {capabilities.map(([key, label]) => (
         <label key={key}>
           {label}
@@ -167,10 +224,19 @@ export function ModelEditor({
 
 export function Models() {
   const tr = useTranslator();
+  const { language } = usePreferences();
+  const railRef = useRef<HTMLElement>(null);
+  const [railOverflow, setRailOverflow] = useState(false);
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
+  const [inventoryMode, setInventoryMode] = useState(false);
   const [filter, setFilter] = useState("");
   const [providerFilter, setProviderFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [capabilityFilter, setCapabilityFilter] = useState("all");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [providerNames, setProviderNames] = useState<Record<string, string>>({});
+  const [nodeIds, setNodeIds] = useState<Record<string, string> | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [customOpen, setCustomOpen] = useState(false);
@@ -183,14 +249,31 @@ export function Models() {
   function loadCatalog() {
     setCatalogLoading(true);
     api
-      .get<{ data: CatalogModel[] }>("/v1/models?configuredOnly=true&prefix=canonical")
+      .get<{ data: CatalogModel[] }>(inventoryMode ? "/api/admin/provider-catalog" : "/v1/models?configuredOnly=true&prefix=canonical")
       .then((result) => setCatalog(result.data.filter((row) => row.owned_by !== "combo")))
       .catch((err) => setError(String(err)))
       .finally(() => setCatalogLoading(false));
   }
 
+  useEffect(() => { loadCatalog(); }, [inventoryMode]);
+
   useEffect(() => {
-    loadCatalog();
+    Promise.all([
+      api.get<{ providers?: { id: string; name?: string }[] }>("/api/providers"),
+      api.get<{ nodes?: { id: string; name: string; prefix: string | null }[] }>("/api/provider-nodes"),
+    ]).then(([providers, nodes]) => {
+      const names: Record<string, string> = {};
+      const ids: Record<string, string> = {};
+      for (const p of providers.providers ?? []) names[p.id] = p.name || p.id;
+      for (const n of nodes.nodes ?? []) {
+        const key = n.prefix || n.id;
+        names[key] = n.prefix ? `${n.name} (${n.prefix})` : n.name;
+        names[n.id] = names[key];
+        ids[key] = n.id;
+      }
+      setProviderNames(names);
+      setNodeIds(ids);
+    }).catch((err) => setError(`Provider identity lookup failed: ${String(err)}`));
   }, []);
 
   async function openModel(prov: string, id: string) {
@@ -213,22 +296,39 @@ export function Models() {
     }
   }
 
+  const knownProviders = useMemo(() => new Set(Object.keys(providerNames)), [providerNames]);
+  const identity = (row: CatalogModel) => catalogProviderIdentity(row, knownProviders);
   const providers = useMemo(
-    () => [...new Set(catalog.map((r) => r.owned_by).filter(Boolean))].sort(),
-    [catalog],
+    () => [...new Set(catalog.map((r) => catalogProviderIdentity(r, knownProviders)).filter(Boolean))].sort(),
+    [catalog, knownProviders],
   );
 
-  const filtered = useMemo(() => {
+  const rowType = (row: CatalogModel) => row.type || (inventoryMode ? "unknown" : "chat");
+  const matching = useMemo(() => {
     const q = filter.trim().toLowerCase();
     return catalog.filter((r) => {
-      if (providerFilter !== "all" && r.owned_by !== providerFilter) return false;
-      if (!q) return true;
-      return `${r.id} ${r.owned_by} ${r.name ?? ""} ${r.type ?? ""}`.toLowerCase().includes(q);
+      if (typeFilter !== "all" && rowType(r) !== typeFilter) return false;
+      if (capabilityFilter !== "all" && !extractCatalogCapabilities(r).includes(capabilityFilter)) return false;
+      const providerId = catalogProviderIdentity(r, knownProviders);
+      return !q || `${r.id} ${r.owned_by} ${providerId} ${providerNames[providerId] ?? ""} ${r.name ?? ""} ${r.type ?? ""}`.toLowerCase().includes(q);
     });
-  }, [catalog, filter, providerFilter]);
+  }, [catalog, filter, typeFilter, capabilityFilter, providerNames, knownProviders, inventoryMode]);
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const check = () => setRailOverflow(rail.scrollWidth > rail.clientWidth + 1);
+    const observer = new ResizeObserver(check);
+    observer.observe(rail);
+    for (const child of rail.children) observer.observe(child);
+    check();
+    return () => observer.disconnect();
+  }, [providers, providerNames, matching, language]);
 
-  const pg = paginationState(filtered.length, pageSize, page);
-  const pageRows = filtered.slice(Math.max(0, pg.start - 1), pg.end);
+  const filtered = matching.filter((r) => providerFilter === "all" || identity(r) === providerFilter);
+  const types = [...new Set(catalog.map(rowType))].sort();
+  const groups = useMemo(() => groupCatalogModels(catalog, filtered, identity), [catalog, filtered, knownProviders]);
+  const pg = paginationState(groups.length, pageSize, page);
+  const pageGroups = groups.slice(Math.max(0, pg.start - 1), pg.end);
 
   return (
     <section className="page">
@@ -243,16 +343,29 @@ export function Models() {
         </button>
       </div>
 
+      <label className="model-inventory-toggle"><input type="checkbox" checked={inventoryMode} onChange={(e) => { setInventoryMode(e.target.checked); setProviderFilter("all"); setPage(1); }} /> {tr("Show provider inventory (partial; not the served catalog)")}</label>
+      {inventoryMode && <p className="muted">{tr("Registry, stored sync and custom models, unambiguous alias targets, and selected generated effort variants. This partial inventory may include inactive or unavailable models and omits other catalog sources.")}</p>}
+      <div className="model-inspector-layout">
+      <div className="model-category-wrap">
+      {railOverflow && <p className="model-rail-hint">{language === "id" ? "Geser penyedia ke samping ↔" : "Scroll providers horizontally ↔"}</p>}
+      <nav ref={railRef} className="model-category-rail" aria-label={tr("Model providers")}>
+        {["all", ...providers].map((p) => <button key={p} type="button" className="btn-ghost" aria-pressed={providerFilter === p} onClick={() => { setProviderFilter(p); setPage(1); }}>
+          {p === "all" ? tr("All") : providerNames[p] || p} ({p === "all" ? matching.length : matching.filter((r) => identity(r) === p).length})
+        </button>)}
+      </nav>
+      </div>
+      <div style={{ minWidth: 0 }}>
       <div className="toolbar">
         <input
           type="search"
-          placeholder={tr("Search models (e.g. argon, codex, glm, flash)…")}
+          aria-label={tr("Search models")}
+          placeholder={tr("Search models")}
           value={filter}
           onChange={(e) => {
             setFilter(e.target.value);
             setPage(1);
           }}
-          style={{ minWidth: 340 }}
+          style={{ minWidth: 0, width: "min(340px, 100%)" }}
         />
         <select
           aria-label={tr("Filter by provider")}
@@ -262,12 +375,18 @@ export function Models() {
             setPage(1);
           }}
         >
-          <option value="all">{tr("All providers (")}{catalog.length})</option>
+          <option value="all">{tr("All providers (")}{matching.length})</option>
           {providers.map((p) => (
             <option key={p} value={p}>
-              {p}
+              {providerNames[p] || p} ({matching.filter((r) => identity(r) === p).length})
             </option>
           ))}
+        </select>
+        <select aria-label={tr("Filter by type")} value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}>
+          <option value="all">{tr("All types")}</option>{types.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select aria-label={tr("Filter by capability")} value={capabilityFilter} onChange={(e) => { setCapabilityFilter(e.target.value); setPage(1); }}>
+          <option value="all">{tr("All capabilities")}</option>{capabilities.map(([, label]) => <option key={label} value={label}>{tr(label)}</option>)}
         </select>
         <span className="muted" style={{ marginLeft: "auto" }}>
           {filtered.length} {tr(filtered.length === 1 ? "model" : "models")}
@@ -286,18 +405,20 @@ export function Models() {
         <EmptyState
           title={tr("No matching models")}
           description={
-            filter || providerFilter !== "all"
+            filter || providerFilter !== "all" || typeFilter !== "all" || capabilityFilter !== "all"
               ? tr("Try clearing your search or switching the provider filter.")
               : tr("Connect a provider to populate the model catalog.")
           }
           action={
-            (filter || providerFilter !== "all") ? (
+            (filter || providerFilter !== "all" || typeFilter !== "all" || capabilityFilter !== "all") ? (
               <button
                 type="button"
                 className="btn-ghost"
                 onClick={() => {
                   setFilter("");
                   setProviderFilter("all");
+                  setTypeFilter("all");
+                  setCapabilityFilter("all");
                   setPage(1);
                 }}
               >
@@ -311,6 +432,7 @@ export function Models() {
       {!catalogLoading && filtered.length > 0 && (
         <>
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <TableScroll label={tr("Models table")} stickyPrimary>
             <table className="table">
               <thead>
                 <tr>
@@ -323,18 +445,27 @@ export function Models() {
                 </tr>
               </thead>
               <tbody>
-                {pageRows.map((row) => {
-                  const bareId = row.id.includes("/") ? row.id.slice(row.id.indexOf("/") + 1) : row.id;
+                {pageGroups.flatMap((group) => {
+                  const summary = group.rows.length > 1 ? <tr key={`${group.key}-summary`}>
+                    <td><button type="button" className="btn-ghost" aria-expanded={expanded.has(group.key)} onClick={() => setExpanded((previous) => { const next = new Set(previous); if (next.has(group.key)) next.delete(group.key); else next.add(group.key); return next; })}>{group.name} · {group.rows.length} models</button></td>
+                    <td>{providerNames[identity(group.rows[0])] || identity(group.rows[0])}</td>
+                    <td>—</td>
+                    <td>{[...new Set(group.rows.map((r) => formatContextTokens(r.context_length)))].join(" / ")}</td>
+                    <td>{tr("Available across variants:")} {[...new Set(group.rows.flatMap(extractCatalogCapabilities))].join(", ") || "—"}</td><td />
+                  </tr> : null;
+                  const visible = group.rows.length === 1 || expanded.has(group.key) ? group.rows : [];
+                  return [summary, ...visible.map((row, index) => {
                   const tags = extractCatalogCapabilities(row);
                   return (
-                    <tr key={row.id}>
+                    <tr key={`${group.key}-${row.id}-${row.type || "chat"}-${index}`}>
+
                       <td>
                         <code>{row.id}</code>
                       </td>
                       <td>
-                        <span className="vendor-badge">{row.owned_by}</span>
+                        <span className="vendor-badge">{providerNames[identity(row)] || identity(row)}</span>
                       </td>
-                      <td className="muted">{row.type ?? "chat"}</td>
+                      <td className="muted">{rowType(row)}</td>
                       <td>
                         <code>{formatContextTokens(row.context_length)}</code>
                       </td>
@@ -355,29 +486,33 @@ export function Models() {
                         <button
                           type="button"
                           className="btn-ghost"
-                          disabled={loading}
-                          onClick={() => openModel(row.owned_by, bareId)}
+                          disabled={loading || nodeIds === null}
+                          onClick={() => { const explicit = catalogMetadataIdentity(row); void openModel(row.providerId ? explicit.provider : (nodeIds?.[identity(row)] || identity(row)), row.providerId ? explicit.modelId : modelIdForCatalogRow(row, identity(row))); }}
                         >{tr("Configure")}</button>
                       </td>
                     </tr>
                   );
+                  })];
                 })}
               </tbody>
             </table>
+            </TableScroll>
           </div>
           <Pagination
-            total={filtered.length}
+            total={groups.length}
             page={pg.page}
             pageSize={pg.pageSize}
             onPageChange={setPage}
             onPageSizeChange={setPageSize}
             pageSizeOptions={[15, 20, 50, 100]}
-            itemLabel="models"
+            itemLabel="families"
             label={tr("Models pagination")}
           />
         </>
       )}
 
+      </div>
+      </div>
       <Modal
         open={customOpen}
         onOpenChange={setCustomOpen}

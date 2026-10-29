@@ -4,6 +4,7 @@ import { Copy, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { EmptyState, LoadingState } from "../components/PageStates.tsx";
+import { TableScroll } from "../components/TableScroll.tsx";
 import { Pagination } from "../components/Pagination.tsx";
 import { Modal } from "../lib/actions.tsx";
 import { DASH, int, ms, when } from "../lib/format.ts";
@@ -95,12 +96,13 @@ export function Activity() {
         <input
           type="search"
           placeholder={tr("Filter by model, provider, account, key, or error…")}
+          aria-label={tr("Filter by model, provider, account, key, or error…")}
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
             setPage(1);
           }}
-          style={{ minWidth: 340 }}
+          style={{ width: "min(100%, 340px)", minWidth: 0 }}
         />
         <label className="check">
           <input type="checkbox" checked={onlyErrors} onChange={(e) => toggleErrors(e.target.checked)} />{tr("errors only")}</label>
@@ -151,6 +153,7 @@ export function Activity() {
       {state.status === "ok" && rows.length > 0 && (
         <>
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <TableScroll label={tr("Activity table")} stickyPrimary>
             <table className="table">
               <thead>
                 <tr>
@@ -175,7 +178,7 @@ export function Activity() {
                       onClick={() => setSelected(r)}
                       title={tr("Click to inspect request details")}
                     >
-                      <td className="nowrap">{when(r.timestamp)}</td>
+                      <td className="nowrap"><button type="button" className="table-detail-button" aria-label={tr("Inspect request details")} onClick={(event) => { event.stopPropagation(); setSelected(r); }}>{when(r.timestamp)}</button></td>
                       <td>{r.apiKeyName ?? DASH}</td>
                       <td>{resolveProvider(r)}</td>
                       <td>{r.account ?? DASH}</td>
@@ -208,6 +211,7 @@ export function Activity() {
                 })}
               </tbody>
             </table>
+            </TableScroll>
           </div>
           <Pagination
             total={rows.length}

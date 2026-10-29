@@ -1,0 +1,10 @@
+import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import { PreferencesProvider } from '../src/lib/preferences.tsx';
+import { ShellFrame } from '../src/components/shell/ShellFrame.tsx';
+import { BrandMark } from '../src/components/BrandMark.tsx';
+import { Login } from '../src/pages/Login.tsx';
+import '@radix-ui/themes/styles.css';
+import '../src/main.css';
+const login = new URLSearchParams(location.search).has('login');
+createRoot(document.getElementById('root')!).render(<PreferencesProvider><BrowserRouter>{login ? <Login /> : <ShellFrame brand={<BrandMark />} logout={() => {}}><h1>Fixture</h1></ShellFrame>}</BrowserRouter></PreferencesProvider>);
