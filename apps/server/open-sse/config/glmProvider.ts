@@ -1,4 +1,5 @@
 import { getClaudeCodeUserAgent } from "@/shared/constants/claudeCodeClient";
+import { getZcodeVersionPin } from "@/lib/db/zcodeVersionPin";
 
 import { ANTHROPIC_VERSION_HEADER } from "./anthropicHeaders.ts";
 import {
@@ -589,7 +590,7 @@ export function buildGlmCodingHeaders(apiKey: string, stream = true): Record<str
   // Desktop/CLI client sends on every coding/paas/v4 call (reverse-engineered
   // from zai-org/ZCode + the pi-zcode-headers plugin by the community). The
   // version string is drift-tracked by zcodeVersion.ts and refreshed every 6h.
-  const zcodeVersion = getCachedZcodeVersion();
+  const zcodeVersion = getZcodeVersionPin() ?? getCachedZcodeVersion();
   return {
     "Content-Type": "application/json",
     Accept: stream ? "text/event-stream" : "application/json",
@@ -658,7 +659,7 @@ export function getZcodeDeviceMid(): string {
 }
 
 export function buildZcodeStartPlanHeaders(zcodeJwt: string, stream = true): Record<string, string> {
-  const zcodeVersion = getCachedZcodeVersion();
+  const zcodeVersion = getZcodeVersionPin() ?? getCachedZcodeVersion();
   const reqId = globalThis.crypto?.randomUUID?.() || `${Date.now()}`;
   const traceId = globalThis.crypto?.randomUUID?.() || `${Date.now()}`;
   return {

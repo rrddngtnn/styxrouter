@@ -14,6 +14,7 @@ import {
   updateProviderConnection,
   getProviderConnectionById,
 } from "../src/lib/db/providers.ts";
+import { DuplicateProviderNodePrefixError } from "../src/lib/db/providers/nodes.ts";
 import { getAuditLog, countAuditLog, logAuditEvent } from "../src/lib/compliance/index.ts";
 import { isReservedProviderPrefix } from "../src/shared/constants/reservedProviderPrefixes.ts";
 import { REGISTRY } from "../open-sse/config/providers/index.ts";
@@ -124,7 +125,9 @@ export function createAdminApi2() {
   api.post("/provider-nodes", async (c) => {
     const v = validateBody(createNodeSchema, await bodyOf(c));
     if (isValidationFailure(v)) return bad(c, v.error);
-    const node = await createProviderNode(v.data as never);
+    let node;
+    try { node = await createProviderNode(v.data as never); }
+    catch (error) { if (error instanceof DuplicateProviderNodePrefixError) return bad(c, error.message, 409); throw error; }
     audit("providerNode.create", String(node.id), { name: v.data.name, prefix: v.data.prefix });
     return c.json({ node: nodeView(node) }, 201);
   });
@@ -136,7 +139,9 @@ export function createAdminApi2() {
     if (v.data.prefix && nodePrefixReserved(v.data.prefix)) {
       return bad(c, `"${v.data.prefix}" is reserved`);
     }
-    const node = await updateProviderNode(id, v.data as never);
+    let node;
+    try { node = await updateProviderNode(id, v.data as never); }
+    catch (error) { if (error instanceof DuplicateProviderNodePrefixError) return bad(c, error.message, 409); throw error; }
     if (!node) return notFound(c, "Provider node");
     audit("providerNode.update", id, { fields: Object.keys(v.data) });
     return c.json({ node: nodeView(node) });
@@ -157,8 +162,10 @@ export function createAdminApi2() {
     const offset = Math.max(0, Number(c.req.query("offset") ?? 0));
     const action = c.req.query("action")?.trim() || undefined;
     const actor = c.req.query("actor")?.trim() || undefined;
-    const entries = getAuditLog({ limit, offset, action, actor });
-    return c.json({ entries, total: countAuditLog({ action, actor }) });
+    const target = c.req.query("target");
+    if (target !== undefined && !target.trim()) return bad(c, "Invalid target");
+    const entries = getAuditLog({ limit, offset, action, actor, target });
+    return c.json({ entries, total: countAuditLog({ action, actor, target }) });
   });
 
   // ── Bulk account import ──────────────────────────────────────────────────
@@ -170,10 +177,10 @@ export function createAdminApi2() {
     let providerSpecificData: Record<string, unknown> | undefined;
     if (entry && entry.id === provider) {
       const modes: string[] = Array.isArray(entry.authModes) ? entry.authModes : [entry.authType];
-      if (!modes.includes("apikey")) return bad(c, `Provider '${provider}' does not use an API key`);
+      if (!modes.includes("apikey")) return bad(c, "Provider does not use an API key");
     } else {
       const node = (await getProviderNodeById(provider)) as any;
-      if (!node) return bad(c, `Unknown provider '${provider}'`);
+      if (!node) return bad(c, "Unknown provider");
       providerSpecificData = {
         prefix: node.prefix ?? undefined,
         apiType: node.apiType ?? undefined,
@@ -185,7 +192,10 @@ export function createAdminApi2() {
       };
     }
 
-    const created: { id: string; name: string }[] = [];
+    // Names are untrusted too: a pasted key can appear in any entry's name.
+    const keys = lines.map((raw) => (raw.includes("|") && raw.indexOf("|") > 0 ? raw.slice(0, raw.indexOf("|")) : raw).trim()).filter(Boolean);
+    const safeName = (name: string) => !keys.some((key) => name.includes(key));
+    const created: { id: string; name: string | null }[] = [];
     const skipped: { line: string; reason: string }[] = [];
     for (const raw of lines) {
       // "key" | "key|name" | "name:key" (only when the key half looks like a key)
@@ -200,14 +210,15 @@ export function createAdminApi2() {
         const conn = (await createProviderConnection({
           provider,
           authType: "apikey",
-          name: name || `${provider}-${created.length + 1}`,
+          name: name && safeName(name) ? name : `Imported account ${created.length + 1}`,
           apiKey: key,
           isActive: true,
           ...(providerSpecificData ? { providerSpecificData } : {}),
         })) as any;
-        created.push({ id: conn.id, name: conn.name });
+        created.push({ id: conn.id, name: typeof conn.name === "string" && safeName(conn.name) ? conn.name : null });
       } catch (e) {
-        skipped.push({ line: raw.slice(0, 40), reason: (e instanceof Error ? e.message : String(e)).slice(0, 120) });
+        // Neither the submitted line nor an arbitrary persistence error is safe to echo.
+        skipped.push({ line: "[redacted]", reason: "Could not import this credential" });
       }
     }
     audit("connection.bulkCreate", provider, { created: created.length, skipped: skipped.length });

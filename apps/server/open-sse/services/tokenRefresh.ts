@@ -231,6 +231,23 @@ export async function refreshAccessToken(
   log,
   proxyConfig: unknown = null
 ) {
+  if (provider === "codex" && process.env.STYX_BLOCK_CODEX_REFRESH === "1") {
+    throw new Error("Codex refresh is disabled by operator; re-authenticate or remove the refresh freeze");
+  }
+  if (credentials?.providerSpecificData?.importedToken) {
+    throw new Error("Imported credential refresh is disabled; re-authenticate the connection");
+  }
+  if (provider === "codebuddy-cn" || provider === "cbcn") {
+    if (!credentials?.refreshContext?.db || !credentials.refreshContext.connectionId) throw new Error("CodeBuddy CN refresh context required: provide database and connection ID");
+    const { refreshWithContext } = await import("@/lib/db/codebuddyRefreshFence");
+    return refreshWithContext(credentials.refreshContext, refreshToken,
+      () => refreshAccessTokenUnfenced(provider, refreshToken, credentials, log, proxyConfig),
+      { allowImported: false });
+  }
+  return refreshAccessTokenUnfenced(provider, refreshToken, credentials, log, proxyConfig);
+}
+
+async function refreshAccessTokenUnfenced(provider, refreshToken, credentials, log, proxyConfig) {
   const config = PROVIDERS[provider];
 
   const refreshEndpoint = config?.refreshUrl || config?.tokenUrl;
@@ -273,7 +290,7 @@ export async function refreshAccessToken(
       const errorText = await response.text();
       log?.error?.("TOKEN_REFRESH", `Failed to refresh token for ${provider}`, {
         status: response.status,
-        error: errorText,
+        ...(provider === "codex" ? {} : { error: errorText }),
       });
       const code = extractOAuthErrorCode(errorText);
       if (code === "invalid_grant" || code === "invalid_request") {
@@ -297,7 +314,7 @@ export async function refreshAccessToken(
     };
   } catch (error) {
     log?.error?.("TOKEN_REFRESH", `Error refreshing token for ${provider}`, {
-      error: error.message,
+      ...(provider === "codex" ? {} : { error: error.message }),
     });
     return null;
   }
@@ -430,7 +447,7 @@ async function _getAccessTokenInternal(provider, credentials, log, proxyConfig: 
       );
 
     case "codebuddy-cn":
-      return await refreshCodebuddyCnToken(credentials.refreshToken, log, proxyConfig);
+      return await refreshCodebuddyCnToken(credentials.refreshToken, log, proxyConfig, credentials.refreshContext);
 
     case "codebuddy-intl":
       return await refreshCodebuddyIntlToken(credentials.refreshToken, log, proxyConfig);
@@ -504,9 +521,22 @@ export async function getAccessToken(
   proxyConfig: unknown = null,
   onPersist?: RefreshPersistFn
 ) {
+  // An in-process mutex cannot protect a rotating token across replicas or crashes.
+  if (credentials?.providerSpecificData?.importedToken && credentials.refreshToken) {
+    throw new Error("Imported credential refresh is disabled; re-authenticate the connection");
+  }
   if (!credentials || !credentials.refreshToken || typeof credentials.refreshToken !== "string") {
     log?.warn?.("TOKEN_REFRESH", `No valid refresh token available for provider: ${provider}`);
     return null;
+  }
+
+  if (provider === "codebuddy-cn" || provider === "cbcn") {
+    if (!credentials?.connectionId) throw new Error("CodeBuddy CN refresh context required: provide database and connection ID");
+    const { getDbInstance } = await import("@/lib/db/core");
+    const context = credentials.refreshContext ?? { db: getDbInstance(), connectionId: credentials.connectionId };
+    if (context.connectionId !== credentials.connectionId) throw new Error("CodeBuddy CN refresh context required: connection ID mismatch");
+    if (provider === "codebuddy-cn") return refreshCodebuddyCnToken(credentials.refreshToken, log, proxyConfig, context);
+    return refreshAccessToken(provider, credentials.refreshToken, { ...credentials, refreshContext: context }, log, proxyConfig);
   }
 
   // If the caller did not pass onPersist explicitly, fall back to the active
@@ -516,6 +546,10 @@ export async function getAccessToken(
   const effectiveOnPersist = onPersist ?? getActiveOnPersist();
 
   const connectionId = credentials.connectionId;
+  if (credentials.providerSpecificData?.importedToken &&
+      (!effectiveOnPersist || typeof connectionId !== "string" || !connectionId)) {
+    throw new Error("Secure credential persistence required");
+  }
 
   // ── Layer 1: per-connection mutex ──────────────────────────────────────────
   if (connectionId && typeof connectionId === "string") {
@@ -544,11 +578,16 @@ export async function getAccessToken(
         // #4038: skip the persist if a concurrent writer already rotated this row past the
         // refresh_token we presented (compare-and-swap) — overwriting would revert it.
         if (await casGuardShouldSkipPersist(log)) {
+          if (credentials.providerSpecificData?.importedToken) throw new Error("Secure credential persistence failed");
           return result;
         }
         try {
           await effectiveOnPersist(result);
         } catch (persistErr) {
+          if (credentials.providerSpecificData?.importedToken) {
+            log?.error?.("TOKEN_REFRESH", "Secure credential persistence failed");
+            throw new Error("Secure credential persistence failed");
+          }
           const { sanitizeErrorMessage } = await import("../utils/error.ts");
           log?.error?.(
             "TOKEN_REFRESH",
@@ -586,11 +625,16 @@ export async function getAccessToken(
         // #4038: same compare-and-swap guard as Layer 1 — skip the persist if a concurrent
         // writer already rotated this row past the refresh_token we presented.
         if (await casGuardShouldSkipPersist(log)) {
+          if (credentials.providerSpecificData?.importedToken) throw new Error("Secure credential persistence failed");
           return result;
         }
         try {
           await effectiveOnPersist(result);
         } catch (persistErr) {
+          if (credentials.providerSpecificData?.importedToken) {
+            log?.error?.("TOKEN_REFRESH", "Secure credential persistence failed");
+            throw new Error("Secure credential persistence failed");
+          }
           const { sanitizeErrorMessage } = await import("../utils/error.ts");
           log?.error?.(
             "TOKEN_REFRESH",

@@ -39,14 +39,31 @@ export async function hasSession(c: Context): Promise<boolean> {
 // Bearer only: that is the one scheme the /v1 handlers behind this gate honour.
 function apiKeyOf(c: Context): string | null {
   const bearer = c.req.header("authorization")?.trim();
-  return bearer && /^bearer\s+/i.test(bearer) ? bearer.replace(/^bearer\s+/i, "").trim() || null : null;
+  return bearer && /^bearer /i.test(bearer) ? bearer.slice(7).trim() || null : null;
 }
 
 // A cookie is attached by the browser on any request, so a write made with one must come from our own origin.
 function foreignOrigin(c: Context): boolean {
   const origin = c.req.header("origin");
+  const configured = process.env.STYX_TRUSTED_PUBLIC_ORIGIN;
+  if (configured !== undefined) {
+    // Require a canonical origin, not a URL with credentials, path or other components.
+    let trusted: URL;
+    try {
+      trusted = new URL(configured);
+      if (trusted.protocol !== "https:" || trusted.origin !== configured || trusted.hostname.includes("*")) return true;
+    } catch {
+      return true;
+    }
+    if (!origin) return false; // Preserve non-browser client compatibility.
+    // A loopback socket may belong to a reverse proxy; Host and forwarding
+    // headers cannot prove that the original client was local.
+    return origin !== trusted.origin;
+  }
   if (!origin) return false;
-  const host = c.req.header("x-forwarded-host") ?? c.req.header("host");
+  // Caddy's default HTTP reverse_proxy preserves Host. Forwarded headers are
+  // client-controlled unless a separately configured proxy trust boundary exists.
+  const host = c.req.header("host") ?? new URL(c.req.url).host;
   try {
     return new URL(origin).host !== host;
   } catch {
@@ -81,7 +98,15 @@ export const requireAuth: MiddlewareHandler = async (c, next) => {
 
   if (path === "/v1" || path.startsWith("/v1/")) {
     const key = apiKeyOf(c);
-    if (key && (await validateApiKey(key))) return next();
+    if (key && (await validateApiKey(key))) {
+      // The models catalog does not run the request policy itself, unlike chat.
+      if (c.req.method === "GET" && path === "/v1/models") {
+        const { enforceApiKeyPolicy } = await import("../src/shared/utils/apiKeyPolicy.ts");
+        const policy = await enforceApiKeyPolicy(c.req.raw, null);
+        if (policy.rejection) return policy.rejection;
+      }
+      return next();
+    }
     if (!key && c.req.method === "GET" && path === "/v1/models" && (await hasSession(c))) return next();
     return denied(c, 401, key ? "Invalid API key" : "Authentication required");
   }

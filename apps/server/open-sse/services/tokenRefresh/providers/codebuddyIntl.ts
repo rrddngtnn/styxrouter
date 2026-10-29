@@ -31,25 +31,20 @@ export async function refreshCodebuddyIntlToken(
       })
     );
     if (!response.ok) {
-      const errorText = await response.text();
+      // Upstream error bodies are untrusted and can contain submitted credentials.
       log?.error?.("TOKEN_REFRESH", "Failed to refresh CodeBuddy Intl token", {
         status: response.status,
-        body: errorText.slice(0, 200),
       });
       return null;
     }
     const data = await response.json();
-    if (data.code !== 0 || !data.data) {
-      log?.error?.("TOKEN_REFRESH", "CodeBuddy Intl refresh returned error", {
-        code: data.code,
-      });
+    if (data.code !== 0 || typeof data.data?.accessToken !== "string" || !data.data.accessToken.trim()) {
+      log?.error?.("TOKEN_REFRESH", "CodeBuddy Intl refresh returned an error");
       return null;
     }
     return data.data;
-  } catch (err) {
-    log?.error?.("TOKEN_REFRESH", "CodeBuddy Intl refresh exception", {
-      message: String(err),
-    });
+  } catch {
+    log?.error?.("TOKEN_REFRESH", "CodeBuddy Intl refresh exception");
     return null;
   }
 }

@@ -14,6 +14,7 @@ import {
 } from "../config/providerHeaderProfiles.ts";
 import { sanitizeResponsesInputItems } from "../services/responsesInputSanitizer.ts";
 import { stripUnsupportedParams } from "../translator/paramSupport.ts";
+import { parseCopilotToken, parseGithubToken } from "./copilotRefreshResponses.ts";
 
 /** Correlation-id fallback for runtimes without crypto.randomUUID — still CSPRNG-backed. */
 function randomIdFallback(): string {
@@ -430,7 +431,8 @@ export class GithubExecutor extends BaseExecutor {
         headers: getGitHubCopilotRefreshHeaders(`token ${githubAccessToken}`),
       });
       if (!response.ok) return null;
-      const data = await response.json();
+      const data = parseCopilotToken(await response.json());
+      if (!data) return null;
       log?.info?.("TOKEN", "Copilot token refreshed");
       return { token: data.token, expiresAt: data.expires_at };
     } catch (error) {
@@ -461,7 +463,8 @@ export class GithubExecutor extends BaseExecutor {
         body: params,
       });
       if (!response.ok) return null;
-      const tokens = await response.json();
+      const tokens = parseGithubToken(await response.json());
+      if (!tokens) return null;
       log?.info?.("TOKEN", "GitHub token refreshed");
       return {
         accessToken: tokens.access_token,
@@ -475,6 +478,7 @@ export class GithubExecutor extends BaseExecutor {
   }
 
   async refreshCredentials(credentials, log): Promise<RefreshedCopilotCredentials | null> {
+    if (credentials?.providerSpecificData?.importedToken) throw new Error("Imported credential refresh is disabled; re-authenticate the connection");
     let copilotResult = await this.refreshCopilotToken(credentials.accessToken, log);
 
     if (!copilotResult && credentials.refreshToken) {

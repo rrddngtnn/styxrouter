@@ -467,7 +467,7 @@ export async function parseUpstreamError(response: Response, provider: string | 
 
   const retryAfterHeader = response.headers?.get?.("retry-after");
   if (retryAfterHeader && !retryAfterMs) {
-    const retryAfterSec = Number.parseInt(retryAfterHeader, 10);
+    const retryAfterSec = /^\d+$/.test(retryAfterHeader.trim()) ? Number(retryAfterHeader) : NaN;
     if (Number.isFinite(retryAfterSec) && retryAfterSec > 0) {
       retryAfterMs = retryAfterSec * 1000;
     } else {

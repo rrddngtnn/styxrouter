@@ -189,7 +189,9 @@ export function extractKimiAccessToken(rawValue: string): string {
     if (match) return match[1];
   }
 
-  return !trimmed.includes("=") && !trimmed.includes(";") ? trimmed : "";
+  // A single opaque bearer may contain '='. An explicitly labelled cookie
+  // header or a multi-pair jar without a Kimi token is not a bearer.
+  return !/^cookie\s*:/i.test(raw) && !trimmed.includes(";") ? trimmed : "";
 }
 
 /** Extract Kimi Web refresh_token from key-value, raw string, or localStorage JSON dump. */

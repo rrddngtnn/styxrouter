@@ -32,6 +32,7 @@ import {
 import type { ResetWindowConfig } from "./quotaScoring.ts";
 import {
   _registerExecutionCandidates,
+  applyRequestTagRouting,
   expandAutoComboCandidatePool,
   extractPromptForIntent,
   getIntentConfig,
@@ -187,6 +188,8 @@ export async function resolveAutoStrategyOrder(
     }
 
     eligibleTargets = await expandAutoComboCandidatePool(eligibleTargets, combo);
+    // Expansion may add new provider targets after the initial tag gate.
+    eligibleTargets = await applyRequestTagRouting(eligibleTargets, body, log);
   }
 
   const prompt = extractPromptForIntent(body);

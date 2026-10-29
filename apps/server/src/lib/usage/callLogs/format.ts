@@ -1,6 +1,7 @@
 import type { RequestPipelinePayloads } from "@styxrouter/open-sse/utils/requestLogger.ts";
 import { classifyProviderError } from "@styxrouter/open-sse/services/errorClassifier.ts";
 import { sanitizePII } from "../../piiSanitizer";
+import { redactLogUrl } from "../../logUrlRedaction";
 import { omitEncryptedReasoningFromLogChunks, protectPayloadForLog } from "../../logPayloads";
 import type { CallLogDetailState } from "../callLogArtifacts";
 // #7879: re-export the canonical helper so existing consumers of this module
@@ -44,11 +45,11 @@ export function normalizeDetailState(value: unknown): CallLogDetailState {
 
 export function sanitizeErrorForLog(error: unknown): unknown {
   if (error === null || error === undefined) return null;
-  if (typeof error === "string") return sanitizePII(error).text;
+  if (typeof error === "string") return redactLogUrl(sanitizePII(error).text);
   if (error instanceof Error) {
     return {
-      message: sanitizePII(error.message).text,
-      stack: sanitizePII(error.stack || "").text || undefined,
+      message: redactLogUrl(sanitizePII(error.message).text),
+      stack: redactLogUrl(sanitizePII(error.stack || "").text) || undefined,
       name: error.name,
     };
   }
@@ -84,7 +85,16 @@ export function protectPipelinePayloads(payloads: unknown): RequestPipelinePaylo
           .filter(([, chunkValue]) => Array.isArray(chunkValue) && chunkValue.length > 0)
           .map(([stage, chunkValue]) => [
             stage,
-            omitEncryptedReasoningFromLogChunks(chunkValue as string[]),
+            // A URL can cross arbitrary transport chunk boundaries; redact only after
+            // reconstructing the captured stream, not each fragment independently.
+            [omitEncryptedReasoningFromLogChunks(chunkValue as string[])
+              .map((chunk) => chunk.replace(/^\[\d{2}:\d{2}:\d{2}\.\d{3}\] /, ""))
+              .join("")
+              // Decode JSON's escaped ASCII for inspection of URL-shaped values.
+              // This affects the log copy only; the streamed response is untouched.
+              .replace(/\\(?:\/|u00([0-7][0-9a-f]))/gi, (match, hex: string | undefined) =>
+                hex ? String.fromCharCode(parseInt(hex, 16)) : "/"
+              )],
           ])
       );
       if (Object.keys(compacted).length > 0) {

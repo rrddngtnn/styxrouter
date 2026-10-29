@@ -35,6 +35,7 @@ export interface ModelCapabilityResolutionSnapshot {
   readonly maxInputTokenOverrides: NestedOverrideMap;
   readonly reasoningEffortsOverrides: NestedReasoningEffortsOverrideMap;
   readonly contextOverrides: NestedOverrideMap;
+  readonly manualContextOverrides?: NestedOverrideMap;
   readonly customVisionOverrides: CustomModelVisionOverrideMap;
 }
 
@@ -95,8 +96,10 @@ export function createModelCapabilityResolutionSnapshot(
   }
 
   const contextOverrides = new Map<string, Map<string, number>>();
+  const manualContextOverrides = new Map<string, Map<string, number>>();
   for (const entry of listModelContextOverrides()) {
     setNestedOverride(contextOverrides, entry.provider, entry.modelId, entry.realContext);
+    if (entry.source === "manual") setNestedOverride(manualContextOverrides, entry.provider, entry.modelId, entry.realContext);
   }
 
   return {
@@ -106,6 +109,7 @@ export function createModelCapabilityResolutionSnapshot(
     maxInputTokenOverrides,
     reasoningEffortsOverrides,
     contextOverrides,
+    manualContextOverrides,
     customVisionOverrides: listCustomModelVisionOverrides(options.customModelVision),
   };
 }

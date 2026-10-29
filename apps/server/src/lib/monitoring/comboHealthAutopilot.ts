@@ -1,5 +1,5 @@
 import { getCombos } from "@/lib/db/combos";
-import { buildProviderHealthAutopilotReport } from "@/lib/monitoring/providerHealthAutopilot";
+import { buildProviderHealthAutopilotReport, type ProviderAutopilotReport } from "@/lib/monitoring/providerHealthAutopilot";
 import { buildComboForecastResponse } from "@/lib/usage/comboForecast";
 import { buildComboHealthResponse } from "@/lib/usage/comboHealth";
 import type {
@@ -16,7 +16,6 @@ import type {
   ComboForecastMetrics,
   ComboForecastResponse,
   ComboForecastRiskLevel,
-  ProviderAutopilotReport,
   ComboHealthMetrics,
   ComboHealthResponse,
   ComboRecord,

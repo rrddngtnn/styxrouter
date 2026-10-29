@@ -52,6 +52,7 @@ export const refreshAccessToken = async (
 };
 
 export const refreshClaudeOAuthToken = async (refreshToken: string, credentials?: any) => {
+  if (credentials?.providerSpecificData?.importedToken) throw new Error("Imported credential refresh is disabled; re-authenticate the connection");
   const proxy = await resolveProxyForCredentials("claude", credentials);
   return _refreshClaudeOAuthToken(refreshToken, log, proxy);
 };
@@ -68,6 +69,7 @@ export const refreshGoogleToken = async (
 };
 
 export const refreshCodexToken = async (refreshToken: string, credentials?: any) => {
+  if (credentials?.providerSpecificData?.importedToken) throw new Error("Imported credential refresh is disabled; re-authenticate the connection");
   const proxy = await resolveProxyForCredentials("codex", credentials);
   return _refreshCodexToken(refreshToken, log, proxy);
 };
@@ -190,10 +192,7 @@ export async function updateProviderCredentials(connectionId: string, newCredent
     });
     return !!result;
   } catch (error) {
-    log.error("TOKEN_REFRESH", "Error updating credentials in localDb", {
-      connectionId,
-      error: (error as any).message,
-    });
+    log.error("TOKEN_REFRESH", "Error updating credentials in localDb", { connectionId });
     return false;
   }
 }
@@ -206,7 +205,7 @@ export async function checkAndRefreshToken(provider: string, credentials: any) {
   // token providers (Codex/OpenAI) refresh FAR ahead of access_token expiry. This
   // keeps the refresh_token "warm" — refreshed regularly enough that Auth0 doesn't
   // mark it as stale and revoke the token family on first use after long idle.
-  if (updatedCredentials.expiresAt) {
+  if (updatedCredentials.expiresAt && !updatedCredentials.providerSpecificData?.importedToken) {
     const expiresAt = new Date(updatedCredentials.expiresAt).getTime();
     const now = Date.now();
     const refreshLead = _getRefreshLeadMs(provider, updatedCredentials.providerSpecificData);
@@ -227,7 +226,7 @@ export async function checkAndRefreshToken(provider: string, credentials: any) {
       // The separate withConnectionRefreshMutex wrapper is no longer needed here.
       const persistCallback = connectionId
         ? async (result: any) => {
-            await updateProviderCredentials(connectionId, result);
+            if (!(await updateProviderCredentials(connectionId, result))) throw new Error("Secure credential persistence failed");
           }
         : undefined;
 

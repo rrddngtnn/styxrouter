@@ -15,7 +15,9 @@
 import { createHmac } from "node:crypto";
 
 
-import { getModelCatalogCacheVersion } from "@/lib/db/readCache";
+import { getModelCatalogCacheVersion, invalidateDbCache } from "@/lib/db/readCache";
+import { getCatalogPermissionRevision } from "@/lib/db/catalogPermissionRevision";
+import { getCatalogContextRevision } from "@/lib/db/catalogContextRevision";
 import { extractApiKey } from "@/sse/services/auth";
 
 import { isCodexModelCatalogClient } from "./catalogRequest";
@@ -118,22 +120,23 @@ export function defaultBackgroundRefreshScheduler(task: () => Promise<void>): vo
   }, 0);
 }
 
-type CatalogInFlight = {
-  version: number;
-  promise: Promise<CachedCatalog>;
-};
+// Bind cached and in-flight work to local writes and durable permission and
+// context revisions. Neither revision requires combo reconciliation.
+function getCatalogGeneration(contextRevision = getCatalogContextRevision()): string {
+  return `${getModelCatalogCacheVersion()}:${getCatalogPermissionRevision()}:${contextRevision}`;
+}
 
 const catalogCache = new Map<string, CachedCatalog>();
 
 /**
  * An in-flight build is bound to the catalog-state generation it started from
- * (`getModelCatalogCacheVersion()` at launch). After a write invalidates the
+ * (local cache version + durable permission revision at launch). After a write invalidates the
  * catalog, the generation moves on: a stale in-flight build must neither be
  * joined by new requests nor repopulate the now-current cache when it finishes.
  * It still resolves to its own original caller (that request legitimately waits
  * on it), just without being persisted.
  */
-type InFlightBuild = { generation: number; promise: Promise<CachedCatalog> };
+type InFlightBuild = { generation: string; promise: Promise<CachedCatalog> };
 const catalogInFlight = new Map<string, InFlightBuild>();
 
 let _catalogBuilderRuns = 0;
@@ -150,14 +153,23 @@ function buildCatalogCacheKey(request: Request, catalogSettings?: CatalogResolve
 }
 
 // Tracks the model-catalog cache version (src/lib/db/readCache.ts) as of the last
-// cache access. invalidateDbCache() bumps that version on every settings/connections/
+// cache access. The durable permission revision also catches other processes.
+// invalidateDbCache() bumps the local version on every settings/connections/
 // combos/pricing write; when it moves on, every memoized entry here was built from
 // state that no longer holds, so drop them all rather than keying by version (which
 // would leak one Map entry per version forever instead of ever pruning old ones).
-let lastSeenCatalogCacheVersion = getModelCatalogCacheVersion();
-function dropCatalogCacheIfStateChanged(): void {
-  const currentVersion = getModelCatalogCacheVersion();
-  if (currentVersion === lastSeenCatalogCacheVersion) return;
+let lastSeenCatalogCacheVersion: string | undefined;
+let lastSeenContextRevision: number | undefined;
+function dropCatalogCacheIfStateChanged(): string {
+  const contextRevision = getCatalogContextRevision();
+  if (contextRevision !== lastSeenContextRevision) {
+    // The catalog builder reads the shared raw connection cache. A durable
+    // cross-process change must invalidate that dependency as well as the body.
+    invalidateDbCache("connections");
+    lastSeenContextRevision = contextRevision;
+  }
+  const currentVersion = getCatalogGeneration(contextRevision);
+  if (currentVersion === lastSeenCatalogCacheVersion) return currentVersion;
   lastSeenCatalogCacheVersion = currentVersion;
   catalogCache.clear();
   // Deliberately NOT clearing catalogInFlight: an in-flight build bound to the
@@ -166,6 +178,7 @@ function dropCatalogCacheIfStateChanged(): void {
   // it, and the generation check in storePayload keeps it from repopulating
   // the now-current cache. Clearing it here would just detach the entry while
   // the build still ran — wasted work with no correctness gain.
+  return currentVersion;
 }
 
 // Header sources mix Title-Case keys (diagnostic/cors headers built by app code) with
@@ -191,14 +204,14 @@ export function mergeCatalogHeaders(
 /**
  * Persist a freshly built payload — but only when the build still belongs to the
  * current catalog-state generation. A build that started before a write
- * invalidation (its `buildGeneration` is older than `getModelCatalogCacheVersion()`)
+ * invalidation (its local version or durable permission revision changed)
  * returns its entry to its original caller but must NOT repopulate the cache: the
  * payload reflects pre-write state and caching it would serve stale data.
  */
 function storePayload(
   cacheKey: string,
   payload: CatalogPayload,
-  buildGeneration: number
+  buildGeneration: string
 ): CachedCatalog {
   const entry: CachedCatalog = {
     body: payload.body,
@@ -206,7 +219,7 @@ function storePayload(
     status: payload.status,
     expiresAt: Date.now() + payload.cacheTTL,
   };
-  if (buildGeneration === getModelCatalogCacheVersion()) {
+  if (buildGeneration === getCatalogGeneration()) {
     catalogCache.set(cacheKey, entry);
   }
   return entry;
@@ -233,11 +246,11 @@ function scheduleBackgroundRefresh(
   cacheKey: string,
   request: Request,
   buildPayload: (request: Request) => Promise<CatalogPayload>,
-  schedule: BackgroundRefreshScheduler = defaultBackgroundRefreshScheduler
+  schedule: BackgroundRefreshScheduler = defaultBackgroundRefreshScheduler,
+  generation: string
 ): void {
-  if (catalogInFlight.has(cacheKey)) return; // a refresh for this key is already running
+  if (catalogInFlight.get(cacheKey)?.generation === generation) return; // already refreshing this generation
 
-  const generation = getModelCatalogCacheVersion();
   const refreshPromise: Promise<CachedCatalog> = new Promise((resolve, reject) => {
     schedule(() =>
       runBuilder(buildPayload, request)
@@ -288,8 +301,10 @@ export async function resolveCachedCatalogResponse(
   buildPayload: (request: Request) => Promise<CatalogPayload>,
   catalogSettings?: CatalogResolveOptions
 ): Promise<Response> {
+  const { ensureQuotaCombosCurrent } = await import("@/lib/db/quotaComboGeneration");
+  await ensureQuotaCombosCurrent();
   const { corsHeaders, diagnosticHeaders } = headerSources;
-  dropCatalogCacheIfStateChanged();
+  const currentGeneration = dropCatalogCacheIfStateChanged();
 
   const cacheKey = buildCatalogCacheKey(request, catalogSettings);
   const now = Date.now();
@@ -314,7 +329,8 @@ export async function resolveCachedCatalogResponse(
       cacheKey,
       request,
       buildPayload,
-      catalogSettings?.scheduleBackgroundRefresh
+      catalogSettings?.scheduleBackgroundRefresh,
+      currentGeneration
     );
     return new Response(cached.body, {
       status: cached.status,
@@ -322,7 +338,6 @@ export async function resolveCachedCatalogResponse(
     });
   }
 
-  const currentGeneration = getModelCatalogCacheVersion();
   let inflight = catalogInFlight.get(cacheKey);
   // Only join an in-flight build from the CURRENT generation. A build bound to an
   // older (pre-write) generation reflects stale state, so a new request starts a
@@ -354,7 +369,7 @@ export function __resetCatalogBuilderRunsForTest(): void {
   _catalogBuilderRuns = 0;
   catalogCache.clear();
   catalogInFlight.clear();
-  lastSeenCatalogCacheVersion = getModelCatalogCacheVersion();
+  lastSeenCatalogCacheVersion = getCatalogGeneration();
 }
 
 /** Counts full builder executions — proves concurrent requests share one run (#6408). */
@@ -405,7 +420,7 @@ export function __forceCatalogInFlightRejectionForTest(request: Request, error: 
   // Bind to the current generation so the cold path still joins it (a stale
   // generation would be skipped as pre-write state and never awaited).
   catalogInFlight.set(buildCatalogCacheKey(request), {
-    generation: getModelCatalogCacheVersion(),
+    generation: getCatalogGeneration(),
     promise: rejected,
   });
 }

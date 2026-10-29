@@ -27,12 +27,21 @@ import { createUpstreamApi } from "./upstream.ts";
 import { createBackupsApi, startBackupScheduler } from "./backups.ts";
 import { createV1Api } from "./v1.ts";
 import { startProviderLimitsAutoSync } from "./providerLimitsSync.ts";
+import { startSessionAccountAffinityCleanup } from "../src/lib/db/sessionAccountAffinity.ts";
 import { createModelSyncApi } from "./modelSync.ts";
+import { createProviderModelsApi } from "./providerModels.ts";
+import { createRoutingTraceApi } from "./routingTrace.ts";
+import { tokenSchedulerHealth } from "./tokenSchedulerHealth";
+import { createProcessHealthApi } from "./processHealth.ts";
+import { createStorageHealthApi } from "./storageHealth.ts";
 import { startModelSyncScheduler } from "../src/shared/services/modelSyncScheduler.ts";
 
 const app = new Hono<ModelMetadataEnv>();
 // Registered first so it runs before every route below, including the mounted sub-app.
 app.use("*", requireAuth);
+app.route("/api/process-health", createProcessHealthApi());
+app.route("/api/storage-health", createStorageHealthApi());
+app.route("/api/routing/trace", createRoutingTraceApi());
 app.route("/api/model-metadata", createModelMetadataApi());
 
 // Root `/` redirects to the panel so a bare domain hit lands somewhere useful
@@ -196,6 +205,7 @@ app.get("/api/activity", (c) => {
 // Admin writes (keys, combos). GET readers for the same paths stay in this file.
 app.route("/api", createAdminApi());
 app.route("/api", createAdminApi2());
+app.route("/api", createProviderModelsApi());
 
 app.get("/v1/models", (c) => {
   const url = new URL(c.req.url);
@@ -456,6 +466,9 @@ app.route("/api", await createUpstreamApi());
 app.route("/api", createBackupsApi());
 startBackupScheduler();
 startProviderLimitsAutoSync();
+// Hono boot replaces the former framework instrumentation lifecycle.
+// The cleanup timer is unref'd and synchronous, so it cannot keep shutdown alive.
+startSessionAccountAffinityCleanup();
 app.route("/api", createModelSyncApi());
 if (process.env.STYX_TEST_MODE !== "1" && !process.env.BUN_TEST) {
   startModelSyncScheduler(undefined, undefined, { revalidateCodexCatalogOnStartup: false });
@@ -505,8 +518,18 @@ const tokenHealthDisabled =
   process.env.STYX_TEST_MODE === "1" ||
   Boolean(process.env.BUN_TEST);
 
+let tokenHealthPassGeneration = 0;
+let activeTokenHealthPasses = 0;
 async function runTokenHealthPass(): Promise<void> {
   if (tokenHealthDisabled) return;
+  const generation = ++tokenHealthPassGeneration;
+  activeTokenHealthPasses++;
+  tokenSchedulerHealth.running = true;
+  tokenSchedulerHealth.lastStartedAt = Date.now();
+  tokenSchedulerHealth.lastFinishedAt = null;
+  tokenSchedulerHealth.lastOutcome = null;
+  tokenSchedulerHealth.lastDueCount = null;
+  tokenSchedulerHealth.lastRefreshedCount = null;
   try {
     const { getProviderConnections } = await import(
       "../src/lib/db/providers.ts"
@@ -545,29 +568,47 @@ async function runTokenHealthPass(): Promise<void> {
           providerSpecificData: conn.providerSpecificData,
         },
         {
-          warn: (...a: unknown[]) => console.warn("[TOKEN-HEALTH]", ...a),
-          error: (...a: unknown[]) => console.error("[TOKEN-HEALTH]", ...a),
+          warn: () => console.warn("[TOKEN-HEALTH] refresh warning"),
+          error: () => console.error("[TOKEN-HEALTH] refresh error"),
         },
         null,
         async (persisted) => {
-          await updateProviderCredentials(conn.id, persisted as Record<string, unknown>);
+          if (!(await updateProviderCredentials(conn.id, persisted as Record<string, unknown>))) throw new Error("Secure credential persistence failed");
         },
       );
       if (result?.accessToken) refreshed++;
     }
+    if (generation === tokenHealthPassGeneration) {
+      tokenSchedulerHealth.lastOutcome = "completed";
+      tokenSchedulerHealth.lastDueCount = checked;
+      tokenSchedulerHealth.lastRefreshedCount = refreshed;
+    }
     if (checked > 0) {
       console.log(`[TOKEN-HEALTH] pass: ${checked} due, ${refreshed} refreshed`);
     }
-  } catch (e: any) {
-    console.warn("[TOKEN-HEALTH] pass failed:", e?.message || e);
+  } catch {
+    if (generation === tokenHealthPassGeneration) tokenSchedulerHealth.lastOutcome = "failed";
+    console.warn("[TOKEN-HEALTH] pass failed");
+  } finally {
+    activeTokenHealthPasses--;
+    tokenSchedulerHealth.running = activeTokenHealthPasses > 0;
+    if (generation === tokenHealthPassGeneration) {
+      tokenSchedulerHealth.lastFinishedAt = Date.now();
+    }
   }
 }
 
 if (!tokenHealthDisabled) {
-  const tokenHealthTimer = setInterval(runTokenHealthPass, TOKEN_HEALTH_INTERVAL_MS);
+  tokenSchedulerHealth.enabled = true;
+  tokenSchedulerHealth.nextScheduledAt = Date.now() + 30_000;
+  const intervalFirstAt = Date.now() + TOKEN_HEALTH_INTERVAL_MS;
+  const tokenHealthTimer = setInterval(() => {
+    tokenSchedulerHealth.nextScheduledAt = Date.now() + TOKEN_HEALTH_INTERVAL_MS;
+    void runTokenHealthPass();
+  }, TOKEN_HEALTH_INTERVAL_MS);
   tokenHealthTimer.unref?.(); // never hold the process open on its own
   // first pass shortly after boot (after the DB has settled)
-  setTimeout(() => { void runTokenHealthPass(); }, 30_000).unref?.();
+  setTimeout(() => { tokenSchedulerHealth.nextScheduledAt = intervalFirstAt; void runTokenHealthPass(); }, 30_000).unref?.();
 }
 
 // Prime version-drift caches and apply persisted DB runtime settings at boot.

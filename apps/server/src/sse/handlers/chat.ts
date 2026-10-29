@@ -1,6 +1,9 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
+import { getDbInstance } from "@/lib/db/core";
+import { getConnectionRoutingTags, matchesRoutingTags, resolveRequestRoutingTags } from "@/domain/tagRouter";
 import { resolveChatRequestBody } from "./requestBody";
 import * as chatAdmission from "./chatAdmission.ts";
+import { withRoutingTraceRequest } from "../services/routingDecisionTrace.ts";
 import { buildClientRawRequest, resolveDispatchClientRawRequest } from "./chat/clientRawRequest.ts";
 export { buildClientRawRequest, resolveDispatchClientRawRequest };
 import { normalizeReasoningRequest } from "@/shared/reasoning/effortStandardization";
@@ -29,6 +32,7 @@ import { stripContextWindowSuffix } from "@styxrouter/open-sse/services/model.ts
 import { resolveBareModelToConnectionDefault } from "@styxrouter/open-sse/services/model.ts";
 import {
   errorResponse,
+  createErrorResult,
   isUpstreamAuthStatus,
   upstreamAuthFailureResponse,
 } from "@styxrouter/open-sse/utils/error.ts";
@@ -140,7 +144,7 @@ import { logAuditEvent } from "../../lib/compliance/index";
 import { enforceApiKeyPolicy } from "../../shared/utils/apiKeyPolicy";
 import { hasProviderQuotaBypassScope } from "../../shared/constants/apiKeyPolicyScopes";
 import { cloneBoundedForLog } from "@styxrouter/open-sse/utils/requestLogger.ts";
-import { handleInternalUsageCommand } from "@/lib/usage/internalUsageCommand";
+import { extractLastUserText, isInternalUsageCommand, handleInternalUsageCommand } from "@/lib/usage/internalUsageCommand";
 import {
   applyTaskAwareRouting,
   getTaskRoutingConfig,
@@ -268,6 +272,8 @@ async function resolveComboContextOverflowDeferral(
 }
 
 async function getCombosCachedForChat(): Promise<ComboLike[]> {
+  const { ensureQuotaCombosCurrent } = await import("@/lib/db/quotaComboGeneration");
+  await ensureQuotaCombosCurrent();
   const now = Date.now();
   // Explicit non-null check: we intentionally cache and return the Promise
   // itself (to dedupe concurrent callers), so this is not a forgotten await.
@@ -557,10 +563,15 @@ async function handleChatImplementation(
     log.debug("AUTH", "No API key provided (local mode)");
   }
 
-  const internalUsageCommandResponse = await handleInternalUsageCommand(request, body);
-  if (internalUsageCommandResponse) {
-    recordTelemetry(telemetry);
-    return internalUsageCommandResponse;
+  if (isInternalUsageCommand(extractLastUserText(body))) {
+    // Local usage responses must not bypass the authenticated key's request policy.
+    const policy = await enforceApiKeyPolicy(request, modelStr || null);
+    if (policy.rejection) return policy.rejection;
+    const internalUsageCommandResponse = await handleInternalUsageCommand(request, body);
+    if (internalUsageCommandResponse) {
+      recordTelemetry(telemetry);
+      return internalUsageCommandResponse;
+    }
   }
 
   const isComboLiveTest = request.headers?.get?.("x-internal-test") === "combo-health-check";
@@ -595,12 +606,9 @@ async function handleChatImplementation(
 
   // T04: client-provided external session header has priority over generated fingerprint.
   const externalSessionId = extractExternalSessionId(request.headers);
-  const sessionId = externalSessionId || generateStableSessionId(body);
-  const sessionAffinityKey = extractSessionAffinityKey(body, request.headers) || sessionId;
+  const clientSessionId = externalSessionId || generateStableSessionId(body);
+  const unscopedSessionAffinityKey = extractSessionAffinityKey(body, request.headers) || clientSessionId;
   const requestedConnectionId = request.headers.get("x-styx-connection")?.trim() || null;
-  if (sessionId) {
-    touchSession(sessionId);
-  }
 
   // Pipeline: API key policy enforcement (model restrictions + budget limits)
   telemetry.startPhase("policy");
@@ -613,6 +621,18 @@ async function handleChatImplementation(
     return policy.rejection;
   }
   const apiKeyInfo = policy.apiKeyInfo;
+  if (policy.apiKey && !apiKeyInfo?.id) {
+    return errorResponse(HTTP_STATUS.UNAUTHORIZED, "API key identity unavailable");
+  }
+  // Public traffic has a distinct namespace; unowned legacy rows are never read.
+  const sessionId = clientSessionId
+    ? `session-v1:${createHash("sha256").update(JSON.stringify([apiKeyInfo?.id ?? null, clientSessionId])).digest("hex")}`
+    : null;
+  if (sessionId) touchSession(sessionId);
+  // Namespace every pin by authenticated key identity; local mode has its own namespace.
+  const sessionAffinityKey = unscopedSessionAffinityKey
+    ? `affinity-v1:${createHash("sha256").update(JSON.stringify([apiKeyInfo?.id ?? null, unscopedSessionAffinityKey])).digest("hex")}`
+    : null;
   let managedLease: ManagedLeaseDispatchContext | null = null;
   if (isExclusiveLeaseManagedKey(apiKeyInfo)) {
     try {
@@ -745,7 +765,10 @@ async function handleChatImplementation(
   // incoming HTTP request, before combo dispatch / credential retries, so
   // every attempt for this request shares the same id and the
   // agentic_conversations row is only touched once.
-  const clientConversationHeader = request.headers.get("x-styx-session-id")?.trim() || null;
+  const rawConversationHeader = request.headers.get("x-styx-session-id")?.trim() || null;
+  const clientConversationHeader = rawConversationHeader
+    ? `conv-v1:${createHash("sha256").update(JSON.stringify([apiKeyInfo?.id ?? null, rawConversationHeader.slice(0, 128)])).digest("hex")}`
+    : null;
   let conversationId: string | null = null;
   try {
     ({ conversationId } = await resolveConversationId({
@@ -777,7 +800,7 @@ async function handleChatImplementation(
       if (sessionViolation) {
         return withSessionHeader(
           errorResponse(HTTP_STATUS.RATE_LIMITED, sessionViolation.message),
-          sessionId
+          clientSessionId
         );
       }
       registerKeySession(apiKeyInfo.id, sessionId);
@@ -965,8 +988,10 @@ async function handleChatImplementation(
       if (!provider) return true; // can't determine provider, let it try
 
       const resolvedModel = modelInfo.model || modelString;
+      if (requestedConnectionId && target?.connectionId && target.connectionId !== requestedConnectionId) return false;
+      const forcedConnectionId = requestedConnectionId || target?.connectionId || null;
       const hasForcedConnection =
-        typeof target?.connectionId === "string" && target.connectionId.trim().length > 0;
+        typeof forcedConnectionId === "string" && forcedConnectionId.trim().length > 0;
       let allowedConnections = intersectAllowedConnectionIds(
         apiKeyInfo?.allowedConnections ?? null,
         target?.allowedConnectionIds ?? null
@@ -993,7 +1018,7 @@ async function handleChatImplementation(
         {
           sessionKey: sessionAffinityKey,
           ...(target?.allowRateLimitedConnection ? { allowRateLimitedConnections: true } : {}),
-          ...(target?.connectionId ? { forcedConnectionId: target.connectionId } : {}),
+          ...(hasForcedConnection ? { forcedConnectionId, explicitConnectionPin: true } : {}),
           ...(bypassProviderQuotaPolicy ? { bypassQuotaPolicy: true } : {}),
           ...(managedLease ? { lease: credentialLease(managedLease) } : {}),
         }
@@ -1076,7 +1101,8 @@ async function handleChatImplementation(
             sessionId,
             sessionAffinityKey,
             forceLiveComboTest: isComboLiveTest,
-            forcedConnectionId: target?.connectionId ?? null,
+            forcedConnectionId: requestedConnectionId || target?.connectionId || null,
+            explicitConnectionPin: Boolean(requestedConnectionId || target?.connectionId?.trim()),
             allowedConnectionIds: target?.allowedConnectionIds ?? null,
             comboStepId: target?.stepId || null,
             comboExecutionKey: target?.executionKey || target?.stepId || null,
@@ -1176,7 +1202,7 @@ async function handleChatImplementation(
           log.info("GLOBAL_FALLBACK", `Global fallback ${fallbackModel} succeeded`);
           recordTelemetry(telemetry);
           return withModalityBridgeHeader(
-            withConversationId(withSessionHeader(fallbackResponse, sessionId), conversationId),
+            withConversationId(withSessionHeader(fallbackResponse, clientSessionId), rawConversationHeader?.slice(0, 128) || conversationId),
             modalityBridgeHeader
           );
         }
@@ -1218,8 +1244,8 @@ async function handleChatImplementation(
     }
     return withModalityBridgeHeader(
       withConversationId(
-        withCorrelationId(withSessionHeader(response, sessionId), reqId),
-        conversationId
+        withCorrelationId(withSessionHeader(response, clientSessionId), reqId),
+        rawConversationHeader?.slice(0, 128) || conversationId
       ),
       modalityBridgeHeader
     );
@@ -1254,6 +1280,7 @@ async function handleChatImplementation(
       sessionAffinityKey,
       forceLiveComboTest: isComboLiveTest,
       forcedConnectionId: requestedConnectionId,
+      explicitConnectionPin: Boolean(requestedConnectionId),
       correlationId: reqId,
       conversationId,
       routingComboId,
@@ -1268,14 +1295,16 @@ async function handleChatImplementation(
   recordTelemetry(telemetry);
   return withModalityBridgeHeader(
     withConversationId(
-      withCorrelationId(withSessionHeader(response, sessionId), reqId),
-      conversationId
+      withCorrelationId(withSessionHeader(response, clientSessionId), reqId),
+      rawConversationHeader?.slice(0, 128) || conversationId
     ),
     modalityBridgeHeader
   );
 }
 
-export const handleChat = chatAdmission.withChatAdmission(handleChatImplementation);
+export const handleChat = chatAdmission.withChatAdmission((...args: Parameters<typeof handleChatImplementation>) =>
+  withRoutingTraceRequest(() => handleChatImplementation(...args))
+);
 
 /** Handle one resolved model through gates, credentials, and retry/fallback. */
 async function handleSingleModelChat(
@@ -1292,6 +1321,7 @@ async function handleSingleModelChat(
     sessionId?: string | null;
     sessionAffinityKey?: string | null;
     forcedConnectionId?: string | null;
+    explicitConnectionPin?: boolean;
     allowedConnectionIds?: string[] | null;
     comboStepId?: string | null;
     comboExecutionKey?: string | null;
@@ -1577,6 +1607,7 @@ async function handleSingleModelChat(
               model,
               {
                 sessionKey: occupancySessionKey,
+                explicitConnectionPin: runtimeOptions.explicitConnectionPin === true && excludedConnectionIds.size === 0,
                 reserveOAuthSession: true,
                 excludeConnectionIds: Array.from(excludedConnectionIds),
                 ...(runtimeOptions.allowRateLimitedConnection
@@ -1610,6 +1641,27 @@ async function handleSingleModelChat(
               }
             );
       preselectedCredentials = null;
+
+      // Eligibility is only a snapshot: another process may retag an account
+      // before selection, including after a preflight cached its credentials.
+      // Revalidate against durable state at the credential dispatch boundary.
+      const routingTags = resolveRequestRoutingTags(body);
+      if (isCombo && routingTags.tags.length > 0 && credentials && "connectionId" in credentials && credentials.connectionId) {
+        let tagError: string | null = null;
+        try {
+          const row = getDbInstance().prepare("SELECT provider_specific_data, is_active FROM provider_connections WHERE id = ?").get(credentials.connectionId) as { provider_specific_data: string | null; is_active: number } | undefined;
+          const data = row?.provider_specific_data ? JSON.parse(row.provider_specific_data) : null;
+          if (!row || !row.is_active || !matchesRoutingTags(getConnectionRoutingTags(data), routingTags.tags, routingTags.matchMode)) {
+            tagError = "Selected connection no longer matches requested routing tags";
+          }
+        } catch {
+          tagError = "Unable to validate requested routing tags";
+        }
+        if (tagError) {
+          credentials.releaseOAuthSession?.();
+          return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, tagError);
+        }
+      }
 
       if (runtimeOptions.managedLease && credentials) {
         const leaseError = buildManagedLeaseSelectionErrorResponse(credentials);
@@ -1708,6 +1760,17 @@ async function handleSingleModelChat(
 
       const accountId = credentials.connectionId.slice(0, 8);
       const releaseOAuthSession = credentials.releaseOAuthSession ?? (() => {});
+      // Imported access-only tokens have no recovery path. Do not dispatch an
+      // already-expired token, invoke refresh, or silently switch accounts.
+      const importedExpiry = credentials.expiresAt ? Date.parse(credentials.expiresAt) : NaN;
+      if (credentials.providerSpecificData?.importedToken &&
+          Number.isFinite(importedExpiry) && importedExpiry <= Date.now()) {
+        releaseOAuthSession();
+        return withSelectedConnectionHeader(
+          createErrorResult(HTTP_STATUS.UNAUTHORIZED, "Token expired; re-import or re-authenticate", null, "IMPORTED_TOKEN_REAUTH_REQUIRED", "upstream_auth_error").response,
+          credentials.connectionId
+        );
+      }
       // #10348: redact the account prefix by default. Gated on the narrow
       // AUTH_LOG_INCLUDE_ACCOUNT_ID flag (default off) rather than the broad
       // `debugMode` setting — `debugMode` is a general dashboard-visibility
@@ -1909,6 +1972,11 @@ async function handleSingleModelChat(
         }
         releaseOAuthSession();
         return result.response;
+      }
+
+      if (result.errorCode === "IMPORTED_TOKEN_REAUTH_REQUIRED" ||
+          result.errorCode === "IMPORTED_TOKEN_FORBIDDEN") {
+        return withSelectedConnectionHeader(result.response, credentials.connectionId);
       }
 
       // A final hard-lease fence rejection is authoritative. It must never mutate
@@ -2295,8 +2363,14 @@ async function handleSingleModelChat(
                 (failureKind === "rate_limit" || failureKind === "transient")
               ),
               isCombo,
+              upstreamRetryAfterMs: provider === "codebuddy-cn" && result.status === 429 ? result.retryAfterMs : undefined,
             }
           );
+
+      if (result.status === 429) {
+        const { recordRoutingTrace } = await import("../services/routingDecisionTrace.ts");
+        recordRoutingTrace({ kind: "outcome", provider, account: credentials.connectionId, reason: "routing429", cooldownMs });
+      }
 
       // An explicit pin (combo step `connectionId` / `x-styx-connection`) is an
       // operator instruction, not a suggestion: the account cooldown above is still

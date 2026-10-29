@@ -18,15 +18,9 @@
  *     public target and the prefix must never be canonicalized to that node —
  *     runtime routes reserved prefixes to the built-in provider, so the
  *     override route must too.
- *   - `unique`: a single runtime-routable node owns the prefix. When two or
- *     more nodes share a prefix, the runtime winner is deterministic (first
- *     openai-compatible node by id order, else first anthropic-compatible
- *     node — see `getModelInfo`), and the prefix index selects that same
- *     winner. Only the winner is targetable/displayed under the prefix;
- *     losing nodes are ineligible and never fall back to a node UUID target.
- *   - `ambiguous`: multiple nodes share the prefix but no runtime winner is
- *     selectable (no compatible node matches) — practically unreachable since
- *     only compatible nodes carry prefixes, kept for safety.
+ *   - `unique`: exactly one compatible node owns the prefix.
+ *   - `ambiguous`: multiple compatible nodes share the prefix; neither node
+ *     is advertised as the owner, matching the fail-closed runtime resolver.
  *
  * Model-Overrides eligibility: a compatible node is eligible only when it is
  * the unique, non-reserved winner of its configured prefix (i.e. it is in
@@ -81,19 +75,16 @@ export interface CompatibleNodeLike {
 }
 
 /**
- * Pure prefix→node winner selection replicating the runtime `getModelInfo`
- * rule exactly: the first openai-compatible node (by DB/id order) whose
- * `prefix` matches wins; otherwise the first anthropic-compatible node.
- * `nodes` must already be in the runtime's id-ascending order (as
- * `getProviderNodes` returns).
+ * Select only a unique compatible prefix; duplicates fail closed.
  */
 export function selectCompatibleNodeForPrefix(
   nodes: CompatibleNodeLike[],
   prefix: string
 ): CompatibleNodeLike | null {
-  const openaiMatch = nodes.find((n) => n.type === "openai-compatible" && n.prefix === prefix);
-  if (openaiMatch) return openaiMatch;
-  return nodes.find((n) => n.type === "anthropic-compatible" && n.prefix === prefix) ?? null;
+  const matches = nodes.filter((n) =>
+    (n.type === "openai-compatible" || n.type === "anthropic-compatible") && n.prefix === prefix
+  );
+  return matches.length === 1 ? matches[0] : null;
 }
 
 export async function getProviderPrefixIndex(): Promise<ProviderPrefixIndex> {

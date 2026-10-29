@@ -152,6 +152,7 @@ import {
   type CredentialLeaseSelectionContext,
 } from "./exclusiveConnectionLeasePolicy";
 import { readHeaderValue, type AuthRequestHeaders } from "./headerReader.ts";
+import { recordRoutingTrace } from "./routingDecisionTrace.ts";
 import {
   getOAuthSessionAvailability,
   reserveOAuthSession,
@@ -172,6 +173,7 @@ export interface CredentialSelectionOptions {
   allowRateLimitedConnections?: boolean;
   bypassQuotaPolicy?: boolean;
   forcedConnectionId?: string | null;
+  explicitConnectionPin?: boolean;
   excludeConnectionIds?: string[] | null;
   sessionKey?: string | null;
   sessionAffinityTtlMs?: number | null;
@@ -1131,7 +1133,7 @@ function planLastUsedCommit(
 function materializeConnection(
   connection: ProviderConnectionView,
   options: CredentialSelectionOptions,
-  extra: DeferredLeaseSelection & { exclusiveLease?: ExclusiveConnectionLease } = {}
+  extra: DeferredLeaseSelection & { exclusiveLease?: ExclusiveConnectionLease; codexExactModel?: string } = {}
 ) {
   const apiKeyHealth = connection.providerSpecificData?.apiKeyHealth as
     Record<string, KeyHealth> | undefined;
@@ -1333,7 +1335,7 @@ export async function getProviderCredentials(
 
     // #5903: an active session-affinity pin outranks a per-request reset-aware
     // forcedConnectionId (see sessionAffinityPin leaf for the full rationale).
-    if (!options.lease) {
+    if (!options.lease && !options.explicitConnectionPin) {
       forcedConnectionId =
         applySessionAffinityPin({
           forcedConnectionId,
@@ -1350,7 +1352,7 @@ export async function getProviderCredentials(
         }) ?? forcedConnectionId;
     }
 
-    forcedConnectionId = resolveForcedConnectionForCredentialPool({
+    forcedConnectionId = options.explicitConnectionPin ? forcedConnectionId : resolveForcedConnectionForCredentialPool({
       forcedConnectionId,
       excludedConnectionIds,
       connections,
@@ -1501,6 +1503,14 @@ export async function getProviderCredentials(
       connections,
       requestedModel
     );
+    const codexExactModel = provider === "codex" && requestedModel
+      ? (await import("@/lib/db/models/activeSyncedCatalog")).getActiveSyncedCatalog("codex")
+          .then((catalog) => catalog.authoritative && catalog.models.some((item) => item.id === requestedModel))
+          .catch(() => false)
+      : Promise.resolve(false);
+    // Resolve against all active accounts before applying caller allowlists or affinity:
+    // the same spelling must not mean a literal on one account and an alias on another.
+    const preserveCodexExactModel = await codexExactModel;
     // Filter out unavailable accounts and excluded connection
     let availableConnections = connections.filter((c) => {
       if (excludedConnectionIds.has(c.id)) {
@@ -1513,7 +1523,7 @@ export async function getProviderCredentials(
       }
       if (
         requestedModel &&
-        !isModelAdvertisedByConnection(requestedModel, advertisedModelsByConnection.get(c.id), c.provider)
+        !isModelAdvertisedByConnection(requestedModel, advertisedModelsByConnection.get(c.id), c.provider, preserveCodexExactModel)
       ) {
         connectionFilterStatus.set(c.id, "modelNotAdvertised");
         return false;
@@ -1577,6 +1587,7 @@ export async function getProviderCredentials(
     }
     connections.forEach((c) => {
       const status = connectionFilterStatus.get(c.id);
+      if (status) recordRoutingTrace({ kind: "selection", provider, account: c.id, reason: status });
       const excluded = status === "excluded";
       const rateLimited = status === "rateLimited";
       const terminalStatus = status === "terminalStatus";
@@ -1741,6 +1752,7 @@ export async function getProviderCredentials(
           reasons: evaluation.reasons,
           resetAt: evaluation.resetAt,
         });
+        recordRoutingTrace({ kind: "selection", provider, account: connection.id, reason: "quotaPolicy" });
         return false;
       });
     } else if (availableConnections.length > 0) {
@@ -1811,6 +1823,7 @@ export async function getProviderCredentials(
         withQuota.push(c);
       } else {
         exhaustedQuota.push(c);
+        recordRoutingTrace({ kind: "selection", provider, account: c.id, reason: "quotaExhausted" });
       }
     }
 
@@ -2108,6 +2121,7 @@ export async function getProviderCredentials(
         return materializeConnection(connection, options, {
           commitSelectionSideEffects,
           selectNextLeaseCandidate,
+          ...(provider === "codex" ? { codexExactModel: preserveCodexExactModel ? requestedModel ?? undefined : undefined } : {}),
         });
       }
       let claim = mutateExclusiveConnectionLease(
@@ -2138,7 +2152,11 @@ export async function getProviderCredentials(
       );
     }
 
-    return materializeConnection(connection, options, { exclusiveLease });
+    recordRoutingTrace({ kind: "selection", provider, account: connection.id, reason: "selected" });
+    return materializeConnection(connection, options, {
+      exclusiveLease,
+      ...(provider === "codex" ? { codexExactModel: preserveCodexExactModel ? requestedModel ?? undefined : undefined } : {}),
+    });
   } finally {
     selectionLock?.release();
   }
@@ -2526,6 +2544,7 @@ export async function markAccountUnavailable(
     persistUnavailableState?: boolean;
     /** Caller is the combo engine — it records its own model-level lockouts. */
     isCombo?: boolean;
+    upstreamRetryAfterMs?: number | null;
   } = {}
 ) {
   const currentMutex = markMutexes.get(connectionId) || Promise.resolve();
@@ -2989,9 +3008,11 @@ export async function markAccountUnavailable(
     const cachedQuotaResetMs = parseFutureDateMs(cachedQuotaResetAt);
     const cooldownMs = terminalStatus
       ? 0
-      : cachedQuotaResetMs
-        ? cachedQuotaResetMs - Date.now()
-        : rawCooldownMs;
+      : provider === "codebuddy-cn" && status === 429 && typeof options.upstreamRetryAfterMs === "number" && Number.isFinite(options.upstreamRetryAfterMs) && options.upstreamRetryAfterMs > 0
+        ? options.upstreamRetryAfterMs
+        : cachedQuotaResetMs
+          ? cachedQuotaResetMs - Date.now()
+          : rawCooldownMs;
 
     // ── #3027: per-model subscription/permission 403 → model-only lockout ──
     if (

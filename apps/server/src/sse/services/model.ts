@@ -4,7 +4,6 @@ import {
   getComboByName,
   getComboById,
   getComboByNameInsensitive,
-  getCachedProviderNodes,
   getCustomModels,
 } from "@/lib/localDb";
 import { getCachedSettings } from "@/lib/localDb";
@@ -20,6 +19,8 @@ import {
 import { getLearnedReasoningEffortForModel } from "@styxrouter/open-sse/services/learnedReasoningEffortCaps.ts";
 import { REGISTRY } from "@styxrouter/open-sse/config/providerRegistry.ts";
 import { getRegisteredProviderEffortBaseModelId } from "@styxrouter/open-sse/utils/registeredEffortVariants.ts";
+import { splitCodexReasoningSuffix } from "@styxrouter/open-sse/executors/codex/reasoningSuffix.ts";
+import { getProviderNodes } from "@/lib/db/providers/nodes";
 import { getReservedProviderPrefixes } from "@/shared/constants/reservedProviderPrefixes";
 
 export { parseModel, stripContextWindowSuffix };
@@ -351,8 +352,8 @@ async function lookupModelMeta(
       resolvedModelId = registryResolution.modelId;
       effort = registryResolution.effort;
     }
-    // Custom models remain explicit operator overrides even when live discovery
-    // is authoritative for the provider.
+    // Custom metadata may decorate live models, but does not establish Codex
+    // availability when the active account catalog is authoritative.
     const customMatch = findCustomModelMeta(customModels, resolvedModelId);
     const syncedMatch = findLiveCatalogModelMeta(
       providerId,
@@ -369,8 +370,11 @@ async function lookupModelMeta(
     const liveBackedEffortVariant =
       effortBaseModelId !== null && syncedModels.some((model) => model.id === effortBaseModelId);
 
+    const codexSuffix = providerId === "codex" ? splitCodexReasoningSuffix(modelId) : null;
+    const codexLiveBackedVariant =
+      codexSuffix?.effort != null && syncedModels.some((model) => model.id === codexSuffix.baseModel);
     const available =
-      !liveCatalog.authoritative || Boolean(customMatch || syncedMatch || liveBackedEffortVariant);
+      !liveCatalog.authoritative || Boolean((providerId !== "codex" && customMatch) || syncedMatch || liveBackedEffortVariant || codexLiveBackedVariant);
 
     const metadata = buildRuntimeModelMeta(
       customMatch,
@@ -453,10 +457,13 @@ export async function getModelInfo(modelStr) {
       // Match by node.prefix (user-defined alias) OR node.id (internal UUID id stored by
       // combo steps), so that combo targets using the internal node id still resolve
       // correctly (#2778).
-      const openaiNodes = await getCachedProviderNodes({ type: "openai-compatible" });
-      const matchedOpenAI = openaiNodes.find(
-        (node) => node.prefix === prefixToCheck || node.id === prefixToCheck
-      );
+      const nodes = (await getProviderNodes()) as any[];
+      const exactNode = nodes.find((node) => node.id === prefixToCheck);
+      const aliasNodes = nodes.filter((node) => (node.type === "openai-compatible" || node.type === "anthropic-compatible") && node.prefix === prefixToCheck);
+      if (!exactNode && aliasNodes.length > 1) {
+        return { provider: null, model: parsed.model, errorType: "model_not_found", errorMessage: `Ambiguous provider prefix '${prefixToCheck}'; use the node ID.` };
+      }
+      const matchedOpenAI = (exactNode || aliasNodes[0])?.type === "openai-compatible" ? (exactNode || aliasNodes[0]) : null;
       if (matchedOpenAI) {
         const normalizedModel = stripRedundantNodePrefix(
           parsed.model as string,
@@ -469,16 +476,15 @@ export async function getModelInfo(modelStr) {
         return {
           provider: matchedOpenAI.id,
           model: modelId,
+          compatibleNodeType: matchedOpenAI.type,
+          compatibleNodeApiType: matchedOpenAI.apiType,
           extendedContext,
           ...metadata,
         };
       }
 
       // Check Anthropic Compatible nodes
-      const anthropicNodes = await getCachedProviderNodes({ type: "anthropic-compatible" });
-      const matchedAnthropic = anthropicNodes.find(
-        (node) => node.prefix === prefixToCheck || node.id === prefixToCheck
-      );
+      const matchedAnthropic = (exactNode || aliasNodes[0])?.type === "anthropic-compatible" ? (exactNode || aliasNodes[0]) : null;
       if (matchedAnthropic) {
         const normalizedModel = stripRedundantNodePrefix(
           parsed.model as string,
@@ -491,6 +497,7 @@ export async function getModelInfo(modelStr) {
         return {
           provider: matchedAnthropic.id,
           model: modelId,
+          compatibleNodeType: matchedAnthropic.type,
           extendedContext,
           ...metadata,
         };

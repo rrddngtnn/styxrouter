@@ -89,7 +89,7 @@ async function sniffJsonBodyForSse(
   let sniffedBytes = 0;
   const maxSniffBytes = 4096;
   while (sniffedBytes < maxSniffBytes) {
-    const chunk = await deps.withBodyTimeout<ReadableStreamReadResult<Uint8Array>>(reader.read());
+    const chunk = await deps.withBodyTimeout(reader.read());
     if (chunk.done || !chunk.value) break;
     bufferedChunks.push(chunk.value);
     sniffedBytes += chunk.value.byteLength;

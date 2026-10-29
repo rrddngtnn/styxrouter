@@ -365,6 +365,7 @@ async function persistGitLabDirectAccessCache(
 }
 
 export class GitlabExecutor extends BaseExecutor {
+  override readonly serializesCredentialRefresh = true;
   constructor(providerId = "gitlab") {
     super(providerId, {
       id: providerId,

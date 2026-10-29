@@ -13,6 +13,8 @@ import { getApiKeyById, updateApiKeyPermissions } from "@/lib/db/apiKeys";
 import { quotaGroupSlug } from "./quotaModelNaming";
 import { getGroupName } from "@/lib/db/quotaGroups";
 
+export const QUOTA_ACCESS_REVOKED = "__quota_access_revoked__";
+
 // ---------------------------------------------------------------------------
 // Public interface
 // ---------------------------------------------------------------------------
@@ -94,6 +96,7 @@ export async function resolveQuotaKeyScope(
   // Deduplicate: a key in 2 pools of the same group expands once.
   const groupIdSet = new Set<string>();
   for (const poolId of allowedQuotas) {
+    if (poolId === QUOTA_ACCESS_REVOKED) continue;
     const pool = getPool(poolId);
     if (!pool) continue;
     groupIdSet.add(pool.groupId);
@@ -157,7 +160,8 @@ export async function resolveQuotaKeyScope(
  *   `prevApiKeyIds` and `nextApiKeyIds`.
  *
  * Only writes when the set actually changed (avoids needless DB round-trips).
- * Missing keys are silently skipped — this function never throws.
+ * Legacy helper: callers must handle failures; pool mutations reconcile atomically
+ * in the database layer instead of using this asynchronous helper.
  */
 export async function reconcilePoolExclusivity(
   poolId: string,
@@ -170,7 +174,7 @@ export async function reconcilePoolExclusivity(
   for (const keyId of affectedIds) {
     try {
       const keyRow = await getApiKeyById(keyId);
-      if (!keyRow) continue;
+      if (!keyRow) throw new Error(`Quota allocation references missing API key: ${keyId}`);
 
       const currentQuotas: string[] = Array.isArray(
         (keyRow as Record<string, unknown>).allowedQuotas,
@@ -195,8 +199,8 @@ export async function reconcilePoolExclusivity(
       }
 
       await updateApiKeyPermissions(keyId, { allowedQuotas: nextQuotas });
-    } catch {
-      // Defensive: a single key failure must never abort reconciliation for others.
+    } catch (err) {
+      throw new Error(`Failed to reconcile quota permissions for API key ${keyId}`, { cause: err });
     }
   }
 }

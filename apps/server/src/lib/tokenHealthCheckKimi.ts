@@ -34,7 +34,7 @@ export async function checkKimiWebConnectionIfNeeded(params: {
    */
   jitterSecFn?: () => number;
 }): Promise<boolean> {
-  const { conn, log, logWarn, getConnectionLogLabel, logPrefix } = params;
+  const { conn, log, logWarn, logPrefix } = params;
   const provider = String(conn?.provider || "").toLowerCase();
   if (provider !== "kimi-web" && provider !== "kimi_web") return false;
 
@@ -48,7 +48,7 @@ export async function checkKimiWebConnectionIfNeeded(params: {
   if (!expiringSoon) return true;
 
   log(
-    `${logPrefix} Kimi Web connection ${getConnectionLogLabel(conn)} token expiring soon; refreshing in background...`
+    `${logPrefix} Kimi Web token expiring soon; refreshing in background...`
   );
 
   const exchange = params.exchangeFn || exchangeKimiRefreshToken;
@@ -56,9 +56,6 @@ export async function checkKimiWebConnectionIfNeeded(params: {
 
   const res = await exchange(refreshToken);
   if (res.success && res.accessToken) {
-    log(
-      `${logPrefix} Kimi Web connection ${getConnectionLogLabel(conn)} token refreshed successfully.`
-    );
     await persist(conn.id, {
       apiKey: res.accessToken,
       accessToken: res.accessToken,
@@ -68,8 +65,9 @@ export async function checkKimiWebConnectionIfNeeded(params: {
       lastError: null,
       errorCode: null,
     });
+    log(`${logPrefix} Kimi Web token refreshed successfully.`);
   } else {
-    logWarn(`${logPrefix} Failed to auto-refresh Kimi Web token: ${res.error}`);
+    logWarn(`${logPrefix} Failed to auto-refresh Kimi Web token`);
   }
 
   return true;

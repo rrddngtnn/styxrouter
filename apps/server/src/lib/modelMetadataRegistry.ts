@@ -4,7 +4,7 @@ import { getModelInfo } from "@/sse/services/model";
 import { getModelAliases } from "@/lib/db/models";
 import {
   getResolvedModelCapabilities,
-  getResolvedModelContextOverride,
+  getManualCatalogContextOverride,
   isNonChatCatalogSurface,
 } from "@/lib/modelCapabilities";
 import { getModelCapabilityOverride } from "@/lib/db/modelCapabilityOverrides";
@@ -31,6 +31,9 @@ import {
 } from "@/shared/reasoning/effortStandardization";
 
 const MODEL_METADATA_SCHEMA_VERSION = "model-metadata-v1";
+
+// Internal-only provenance survives catalog alias construction but is not JSON-serialized.
+export const MANUAL_CATALOG_CONTEXT = Symbol("manual catalog context");
 
 export const MODEL_ALIAS_AMBIGUOUS = "MODEL_ALIAS_AMBIGUOUS";
 export const MODEL_NOT_MAPPED = "MODEL_NOT_MAPPED";
@@ -457,10 +460,12 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
     getAuthoritativeContextWindow(model);
   const specialtySurface = isNonChatCatalogSurface(entry.type);
   const capabilitySnapshot = snapshot?.capabilityResolutionSnapshot ?? null;
-  const persistedContextWindow = getResolvedModelContextOverride(
+  const manualContextWindow = getManualCatalogContextOverride(
     { provider, model },
     capabilitySnapshot
-  );
+  ) ?? (model?.startsWith("no-think/")
+    ? getManualCatalogContextOverride({ provider, model: model.slice("no-think/".length) }, capabilitySnapshot)
+    : null);
   const existingCapabilities =
     entry.capabilities && typeof entry.capabilities === "object"
       ? (entry.capabilities as JsonRecord)
@@ -547,29 +552,11 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
     nextEntry.output_modalities = metadata.modalities.output;
   }
 
-  if (
-    !specialtySurface &&
-    (typeof nextEntry.context_length !== "number" ||
-      authoritativeContextWindow !== null ||
-      persistedContextWindow !== null) &&
-    typeof metadata.limits.contextWindow === "number"
-  ) {
-    nextEntry.context_length = metadata.limits.contextWindow;
-  } else if (specialtySurface && persistedContextWindow !== null) {
-    // Exact persisted overrides are authoritative for every surface of the model.
-    nextEntry.context_length = persistedContextWindow;
-  } else if (
-    specialtySurface &&
-    authoritativeContextWindow !== null &&
-    typeof authoritativeContextWindow === "number"
-  ) {
-    // Only authoritative static windows may otherwise decorate specialty rows.
-    nextEntry.context_length = authoritativeContextWindow;
-  } else if (specialtySurface && typeof nextEntry.context_length === "number") {
-    // Keep an explicit source-provided context if the emitter already set one.
-  } else if (specialtySurface) {
-    delete nextEntry.context_length;
-  }
+  // Catalog presentation is an operator-chosen default, not a capability claim.
+  // Actual context budgeting and max_input_tokens retain their separate sources.
+  const customManualContext = (entry as Record<symbol, unknown>)[MANUAL_CATALOG_CONTEXT];
+  nextEntry.context_length = manualContextWindow ??
+    (typeof customManualContext === "number" && customManualContext > 0 ? customManualContext : 1_000_000);
 
   const persistedOutputLimit =
     getModelCapabilityOverride(
@@ -606,7 +593,16 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
     nextEntry.max_output_tokens = metadata.limits.maxOutputTokens;
   }
 
-  if (
+  const persistedInputLimit = getModelCapabilityOverride(
+    provider, model, "max_input_tokens", capabilitySnapshot?.maxInputTokenOverrides
+  ) ?? getModelCapabilityOverride(
+    publicProvider, model, "max_input_tokens", capabilitySnapshot?.maxInputTokenOverrides
+  );
+  if (persistedInputLimit !== null) {
+    nextEntry.max_input_tokens = persistedInputLimit;
+  } else if (typeof customManualContext === "number" && customManualContext > 0) {
+    nextEntry.max_input_tokens = customManualContext;
+  } else if (
     typeof metadata.limits.maxInputTokens === "number" &&
     (typeof nextEntry.max_input_tokens !== "number" || authoritativeContextWindow !== null)
   ) {

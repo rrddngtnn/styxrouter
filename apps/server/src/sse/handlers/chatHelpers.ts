@@ -314,8 +314,12 @@ export async function resolveModelOrError(
         ? ((modelInfo as { targetFormat?: string }).targetFormat as string)
         : undefined
       : undefined;
+  const nodeType = (modelInfo as any).compatibleNodeType;
+  const wireProvider = nodeType === "openai-compatible"
+    ? `openai-compatible-${(modelInfo as any).compatibleNodeApiType || "chat"}-${provider}`
+    : nodeType === "anthropic-compatible" ? `anthropic-compatible-${provider}` : provider;
   const { alias: providerAlias, targetFormat } = resolveChatCoreTargetFormat({
-    provider,
+    provider: wireProvider,
     resolvedModel: model,
     apiFormat,
     customModelTargetFormat,
@@ -488,7 +492,7 @@ export async function executeChatWithBreaker({
             managedLease,
             skipResourcePressureGuard: true,
             onCredentialsRefreshed: async (newCreds: any) => {
-              await updateProviderCredentials(credentials.connectionId, {
+              const persisted = await updateProviderCredentials(credentials.connectionId, {
                 accessToken: newCreds.accessToken,
                 refreshToken: newCreds.refreshToken,
                 expiresIn: newCreds.expiresIn,
@@ -501,6 +505,7 @@ export async function executeChatWithBreaker({
                 testStatus: newCreds.testStatus ?? "active",
                 isActive: newCreds.isActive,
               });
+              if (!persisted) throw new Error("Secure credential persistence failed");
             },
             onRequestSuccess: async () => {
               if (isShadowTraffic) return;

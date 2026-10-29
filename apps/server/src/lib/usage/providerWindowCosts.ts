@@ -339,7 +339,7 @@ function buildUsageHistoryFilter(
 
 function fetchAggregatedUsageRows(filter: UsageHistoryFilter): AggregatedUsageCostRow[] {
   return getDbInstance()
-    .prepare<AggregatedUsageCostRow>(
+    .prepare(
       `
       SELECT
         NULLIF(api_key_id, '') as apiKeyId,
@@ -366,12 +366,12 @@ function fetchAggregatedUsageRows(filter: UsageHistoryFilter): AggregatedUsageCo
       ORDER BY totalTokens DESC
       `
     )
-    .all(filter.params);
+    .all(filter.params) as AggregatedUsageCostRow[];
 }
 
 function fetchUsageRequestCountByApiKey(filter: UsageHistoryFilter): Map<string, number> {
   const rows = getDbInstance()
-    .prepare<{ apiKeyId: string; requestCount: number }>(
+    .prepare(
       `
       SELECT
         COALESCE(NULLIF(api_key_id, ''), '') as apiKeyId,
@@ -381,7 +381,7 @@ function fetchUsageRequestCountByApiKey(filter: UsageHistoryFilter): Map<string,
       GROUP BY COALESCE(NULLIF(api_key_id, ''), '')
       `
     )
-    .all(filter.params);
+    .all(filter.params) as { apiKeyId: string; requestCount: number }[];
 
   const counts = new Map<string, number>();
   for (const row of rows) {
@@ -396,7 +396,7 @@ function fetchDetailedUsageRowsForApiKey(
   apiKeyId: string
 ): UsageCostRow[] {
   return getDbInstance()
-    .prepare<UsageCostRow>(
+    .prepare(
       `
       SELECT
         id,
@@ -418,7 +418,7 @@ function fetchDetailedUsageRowsForApiKey(
       ORDER BY timestamp ASC, id ASC
       `
     )
-    .all({ ...filter.params, apiKeyId });
+    .all({ ...filter.params, apiKeyId }) as UsageCostRow[];
 }
 
 function getRecordedCostSummariesByApiKey(
@@ -435,7 +435,7 @@ function getRecordedCostSummariesByApiKey(
     };
     const placeholders = appendNamedPlaceholders(params, "apiKey", apiKeyIds);
     const rows = getDbInstance()
-      .prepare<{ apiKeyId: string; totalCost: number; entryCount: number }>(
+      .prepare(
         `
         SELECT
           api_key_id as apiKeyId,
@@ -448,7 +448,7 @@ function getRecordedCostSummariesByApiKey(
         GROUP BY api_key_id
       `
       )
-      .all(params);
+      .all(params) as { apiKeyId: string; totalCost: number; entryCount: number }[];
 
     const summaries = new Map<string, RecordedCostSummary>();
     for (const row of rows) {
@@ -492,7 +492,7 @@ function getRecordedCostsByApiKey(
     };
     const placeholders = appendNamedPlaceholders(params, "apiKey", apiKeyIds);
     const rows = getDbInstance()
-      .prepare<RecordedCostRow>(
+      .prepare(
         `
         SELECT
           id as rowId,
@@ -506,7 +506,7 @@ function getRecordedCostsByApiKey(
         ORDER BY api_key_id ASC, timestamp ASC, rowid ASC
       `
       )
-      .all(params);
+      .all(params) as RecordedCostRow[];
 
     const byApiKey = new Map<string, RecordedCostRow[]>();
     for (const row of rows) {

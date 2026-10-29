@@ -4,6 +4,7 @@
 import { detectMediaParts, type MediaPart } from "@styxrouter/open-sse/utils/mediaParts";
 import { normalizeDataUri } from "@styxrouter/open-sse/utils/imageNormalize";
 import { fetchRemoteImage } from "@/shared/network/remoteImageFetch";
+import { getProviderOutboundGuard } from "@/shared/network/outboundUrlGuardPolicy";
 import { getRuntimePorts } from "@/lib/runtime/ports";
 import { resolveSelfLoopBearer } from "@/shared/middleware/chatBodyAdmission";
 import { getBestVisionModel, getFallbackModels, recordLatency } from "./visionBridgeRouter";
@@ -227,11 +228,13 @@ const VISION_BRIDGE_UA_FETCH: typeof fetch = ((input: RequestInfo | URL, init?: 
     },
   })) as unknown as typeof fetch;
 
+export class GuardedVisionImageFetchError extends Error {}
+
 /**
  * Resolve every image part in the body to a base64 data URI when the target
  * model speaks the Claude wire format (remote URLs unsupported by most
- * claude-format backends, e.g. MiniMax 403 2013). Fail-open: an image that
- * cannot be fetched is left untouched.
+ * claude-format backends, e.g. MiniMax 403 2013). Guarded fetch failures
+ * must not forward the unvalidated URL to a downstream provider.
  */
 export async function ensureBase64ImagesForClaudeWire(
   body: RequestBody,
@@ -239,7 +242,7 @@ export async function ensureBase64ImagesForClaudeWire(
   fetchImpl: typeof fetch = VISION_BRIDGE_UA_FETCH
 ): Promise<RequestBody> {
   if (!isClaudeWireFormatModel(model)) return body;
-  const parts = extractImageParts(body.messages as RequestMessage[]);
+  const parts = extractImageParts((body.messages ?? body.input ?? []) as RequestMessage[]);
   if (parts.length === 0) return body;
 
   const resolved = await Promise.all(
@@ -248,8 +251,9 @@ export async function ensureBase64ImagesForClaudeWire(
       if (normalized.startsWith("data:")) return null; // already base64
       try {
         return await fetchRemoteImageAsDataUri(normalized, new AbortController().signal, fetchImpl);
-      } catch {
-        return null; // fail-open: keep the original part
+      } catch (error) {
+        if (error instanceof GuardedVisionImageFetchError || getProviderOutboundGuard() !== "none") throw error;
+        return null; // Explicitly unguarded mode retains the legacy fail-open behavior.
       }
     })
   );
@@ -262,18 +266,20 @@ export async function ensureBase64ImagesForClaudeWire(
   if (byIndex.size === 0) return body;
 
   const result = structuredClone(body) as RequestBody;
-  let imageIndex = 0;
-  for (const message of result.messages ?? []) {
-    if (!message || !Array.isArray(message.content)) continue;
-    for (const part of message.content as RequestContentPart[]) {
-      if (part.type !== "image_url" && part.type !== "image") continue;
-      const dataUri = byIndex.get(imageIndex);
-      imageIndex++;
-      if (dataUri) {
-        (part as { image_url?: { url: string } }).image_url = { url: dataUri };
-      }
+  const messages = result.messages ?? result.input ?? [];
+  parts.forEach((image, index) => {
+    const dataUri = resolved[index];
+    if (!dataUri) return;
+    const content = messages[image.messageIndex]?.content;
+    if (!Array.isArray(content)) return;
+    const part = content[image.partIndex];
+    if (part.type === "image_url") part.image_url.url = dataUri;
+    else if (part.type === "input_image") part.image_url = dataUri;
+    else if (part.type === "image") {
+      const matches = dataUri.match(/^data:([^;]+);base64,(.*)$/s);
+      if (matches) part.source = { type: "base64", media_type: matches[1], data: matches[2] };
     }
-  }
+  });
   return result;
 }
 
@@ -308,12 +314,23 @@ async function fetchRemoteImageAsDataUri(
   signal: AbortSignal,
   fetchImpl: typeof fetch = VISION_BRIDGE_UA_FETCH
 ): Promise<string> {
-  const remoteImage = await fetchRemoteImage(imageUrl, {
-    signal,
-    // Bypass the runtime's hooked global fetch (ProxyFetch) — a dead local
-    // proxy (e.g. 127.0.0.1:8317) would otherwise break the download.
-    fetchImpl,
-  });
+  const guard = getProviderOutboundGuard();
+  // A generic fetch (including undici) does not bind its connection to the
+  // addresses checked by fetchRemoteImage. Use its pinned transport instead.
+  // Do not silently bypass a configured proxy: it may be a security boundary,
+  // and its independent destination resolution cannot be pinned here.
+  let remoteImage: Awaited<ReturnType<typeof fetchRemoteImage>>;
+  try {
+    remoteImage = await fetchRemoteImage(imageUrl, {
+      signal,
+      guard,
+      headers: { "user-agent": "styx-vision-bridge" },
+      ...(guard === "none" ? { fetchImpl } : {}),
+    });
+  } catch (error) {
+    if (guard !== "none") throw new GuardedVisionImageFetchError(`Guarded vision image fetch failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+    throw error;
+  }
   const mediaType = remoteImage.contentType.split(";")[0]?.trim() || "image/png";
   const dataUri = `data:${mediaType};base64,${remoteImage.buffer.toString("base64")}`;
   // Downscale to the long-edge cap before handing the image to the vision
@@ -428,6 +445,7 @@ export async function callVisionModel(
       return result;
     } catch (error) {
       recordLatency(currentModel, Date.now() - attemptStart, false);
+      if (error instanceof GuardedVisionImageFetchError) throw error;
       lastError = error instanceof Error ? error : new Error(String(error));
       if (config.signal?.aborted) {
         throw lastError;

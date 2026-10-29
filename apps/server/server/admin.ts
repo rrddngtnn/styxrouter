@@ -1,10 +1,10 @@
 // Admin write API: API keys and combos (create / update / delete). Mounted under /api, so the session
 // gate in ./auth.ts already applies. Reuses the upstream validation schemas and DB layer.
 import { Hono, type Context } from "hono";
+import { getConnectionRoutingTags } from "../src/domain/tagRouter.ts";
 import {
   createApiKey,
   deleteApiKey,
-  getApiKeyById,
   regenerateApiKey,
   revokeApiKey,
   updateApiKeyPermissions,
@@ -28,7 +28,10 @@ import {
   getProviderConnectionById,
   getProviderConnections,
   getProviderNodeById,
-  resetConnectionBackoff,
+  releaseProviderConnectionCooldownWithAudit,
+  setProviderConnectionActiveWithAudit,
+  renameProviderConnectionWithAudit,
+  patchProviderConnectionTagsWithAudit,
   updateProviderConnection,
 } from "../src/lib/db/providers.ts";
 import { cleanupComboConnectionRefs } from "../src/lib/db/combos.ts";
@@ -51,6 +54,11 @@ import { normalizeComboModels } from "../src/lib/combos/steps.ts";
 import { ComboInvariantError } from "../src/lib/combos/invariants.ts";
 import { QUOTA_MODEL_PREFIX } from "../src/lib/quota/quotaModelNaming.ts";
 import { clampComboDepth, validateComboDAG } from "../open-sse/services/combo.ts";
+import { prepareTokenImport, saveTokenImport, tokenImportProviders } from "./tokenImport.ts";
+import { getCachedZcodeVersion, getZcodeVersion, getZcodeVersionObservation } from "../open-sse/services/zcodeVersion.ts";
+import { getZcodeVersionPin, setZcodeVersionPin } from "../src/lib/db/zcodeVersionPin.ts";
+import { getAntigravityVersionPin, setAntigravityVersionPin } from "../src/lib/db/antigravityVersionPin.ts";
+import { getCachedAntigravityIdeVersion, getCachedAntigravityCliVersion, getAntigravityVersionObservation, resolveAntigravityIdeVersion, resolveAntigravityCliVersion } from "../open-sse/services/antigravityVersion.ts";
 
 const audit = (c: Context, action: string, target: string, details?: unknown) =>
   logAuditEvent({ action, actor: "admin", target, details, resourceType: "admin_api", status: "success" });
@@ -74,6 +82,68 @@ const notFound = (c: Context, what: string) => c.json({ error: `${what} not foun
 
 export function createAdminApi() {
   const api = new Hono();
+
+  api.get("/versions/antigravity/:product/status", (c) => {
+    const product = c.req.param("product");
+    if (product !== "ide" && product !== "cli") return notFound(c, "Product");
+    const pinnedVersion = getAntigravityVersionPin(product);
+    const cachedVersion = product === "ide" ? getCachedAntigravityIdeVersion() : getCachedAntigravityCliVersion();
+    c.header("Cache-Control", "no-store");
+    return c.json({ cachedVersion, pinnedVersion, effectiveVersion: pinnedVersion ?? cachedVersion, ...getAntigravityVersionObservation(product) });
+  });
+
+  api.get("/versions/antigravity/:product/pin", (c) => {
+    const product = c.req.param("product");
+    if (product !== "ide" && product !== "cli") return notFound(c, "Product");
+    return c.json({ version: getAntigravityVersionPin(product) });
+  });
+  api.put("/versions/antigravity/:product/pin", async (c) => {
+    const product = c.req.param("product");
+    if (product !== "ide" && product !== "cli") return notFound(c, "Product");
+    const parsed = z.object({ version: z.string().regex(/^\d{1,6}\.\d{1,6}\.\d{1,6}$/).nullable() }).strict().safeParse(await bodyOf(c));
+    if (!parsed.success) return bad(c, "Invalid version");
+    setAntigravityVersionPin(product, parsed.data.version);
+    await audit(c, "version.pin", `antigravity:${product}`, { version: parsed.data.version });
+    return c.json({ version: getAntigravityVersionPin(product) });
+  });
+
+  api.post("/versions/antigravity/refresh", async (c) => {
+    const previous = { ide: getCachedAntigravityIdeVersion(), cli: getCachedAntigravityCliVersion() };
+    const [ide, cli] = await Promise.allSettled([
+      resolveAntigravityIdeVersion(fetch, true), resolveAntigravityCliVersion(fetch, true),
+    ]);
+    const versions = { ide: getCachedAntigravityIdeVersion(), cli: getCachedAntigravityCliVersion() };
+    if (ide.status === "rejected" || cli.status === "rejected") {
+      return c.json({ error: "Version sources unavailable", previous, versions, failed: { ide: ide.status === "rejected", cli: cli.status === "rejected" } }, 502);
+    }
+    return c.json({ previous, versions, updated: { ide: versions.ide !== previous.ide, cli: versions.cli !== previous.cli } });
+  });
+
+  api.get("/versions/zcode/status", (c) => {
+    const pinnedVersion = getZcodeVersionPin();
+    const cachedVersion = getCachedZcodeVersion();
+    const { observedVersion, observedAt } = getZcodeVersionObservation();
+    c.header("Cache-Control", "no-store");
+    return c.json({ cachedVersion, pinnedVersion, effectiveVersion: pinnedVersion ?? cachedVersion, observedVersion, observedAt });
+  });
+  api.get("/versions/zcode/pin", (c) => c.json({ version: getZcodeVersionPin() }));
+  api.put("/versions/zcode/pin", async (c) => {
+    const parsed = z.object({ version: z.string().regex(/^\d{1,6}\.\d{1,6}\.\d{1,6}$/).nullable() }).strict().safeParse(await bodyOf(c));
+    if (!parsed.success) return bad(c, "Invalid version");
+    setZcodeVersionPin(parsed.data.version);
+    await audit(c, "version.pin", "zcode", { version: parsed.data.version });
+    return c.json({ version: getZcodeVersionPin() });
+  });
+
+  api.post("/versions/zcode/refresh", async (c) => {
+    const previousVersion = getCachedZcodeVersion();
+    try {
+      const version = await getZcodeVersion(true);
+      return c.json({ previousVersion, version, updated: version !== previousVersion });
+    } catch {
+      return c.json({ error: "Version sources unavailable", previousVersion }, 502);
+    }
+  });
 
   // ── API keys ──────────────────────────────────────────────────────────────
   api.post("/keys", async (c) => {
@@ -100,6 +170,8 @@ export function createAdminApi() {
       name: z.string().trim().min(1).max(100),
       isActive: z.boolean(),
       allowedModels: z.array(z.string().min(1).max(200)).max(200),
+      // Recovery only: the reserved marker denies access and cannot grant it.
+      allowedQuotas: z.array(z.literal("__quota_access_revoked__")).length(1),
       maxRequestsPerDay: z.number().int().positive().nullable(),
       maxRequestsPerMinute: z.number().int().positive().nullable(),
     })
@@ -111,8 +183,10 @@ export function createAdminApi() {
     const id = c.req.param("id");
     const v = validateBody(patchKeySchema, await bodyOf(c));
     if (isValidationFailure(v)) return bad(c, v.error);
-    if (!(await getApiKeyById(id))) return notFound(c, "Key");
-    await updateApiKeyPermissions(id, v.data);
+    // Repair also disables the key: quota checks may have no model to inspect.
+    // Never let a simultaneous isActive:true broaden a corrupt key's access.
+    const update = v.data.allowedQuotas ? { ...v.data, isActive: false } : v.data;
+    if (!(await updateApiKeyPermissions(id, update))) return notFound(c, "Key");
     audit(c, "apiKey.update", id, { fields: Object.keys(v.data) });
     return c.json({ success: true });
   });
@@ -219,10 +293,11 @@ export function createAdminApi() {
   // Metadata only: the column list keeps credential columns out of the query altogether.
   const CONNECTION_COLUMNS = [
     "id", "provider", "auth_type", "name", "display_name", "email", "priority", "is_active", "test_status",
-    "last_error", "last_error_at", "backoff_level", "rate_limited_until", "token_expires_at", "last_used_at",
+    "last_error", "last_error_at", "backoff_level", "rate_limited_until", "token_expires_at", "last_used_at", "provider_specific_data",
   ];
   const connectionView = (r: any) => ({
     id: r.id,
+    tags: getConnectionRoutingTags(r.providerSpecificData ?? r.provider_specific_data),
     provider: r.provider,
     authType: r.auth_type ?? r.authType,
     name: r.name || r.display_name || null,
@@ -239,8 +314,46 @@ export function createAdminApi() {
   });
 
   api.get("/connections", async (c) => {
+    const tags = new URL(c.req.url).searchParams.getAll("tag");
+    if (tags.length > 1 || (tags.length === 1 && (!tags[0].trim() || tags[0].trim().length > 64))) {
+      return bad(c, "Invalid tag filter");
+    }
+    const tag = tags[0]?.trim().toLowerCase();
     const rows = (await getProviderConnections({}, undefined, undefined, CONNECTION_COLUMNS)) as any[];
-    return c.json({ connections: rows.map(connectionView) });
+    const connections = rows.map(connectionView);
+    return c.json({ connections: tag === undefined ? connections : connections.filter((row) => row.tags.includes(tag)) });
+  });
+
+  // Import preview never persists credentials. The request is resubmitted for
+  // save; no secrets or preview state are retained in the server session.
+  api.get("/connections/import/providers", (c) => c.json({ providers: tokenImportProviders() }));
+  const readImport = async (c: Context) => {
+    const reader = c.req.raw.body?.getReader();
+    if (!reader) return null;
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > 1024 * 1024) { await reader.cancel(); return null; }
+        chunks.push(value);
+      }
+      return prepareTokenImport(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    } catch { return null; }
+  };
+  api.post("/connections/import/preview", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const items = await readImport(c);
+    return items ? c.json({ results: items.map((item) => item.view) }) : bad(c, "Invalid import request");
+  });
+  api.post("/connections/import", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const items = await readImport(c);
+    if (!items) return bad(c, "Invalid import request");
+    const results = await saveTokenImport(items);
+    return c.json({ results });
   });
 
   const addConnectionSchema = z
@@ -292,6 +405,69 @@ export function createAdminApi() {
     }
   });
 
+  const bulkTagsSchema = z.object({
+    ids: z.array(z.string().min(1).max(200)).min(1).max(100).refine(ids => new Set(ids).size === ids.length),
+    operation: z.enum(["add", "remove", "replace"]),
+    tags: z.array(z.string().trim().min(1).max(64)).max(50),
+  }).strict();
+  api.post("/connections/bulk-tags", async (c) => {
+    const parsed = validateBody(bulkTagsSchema, await bodyOf(c));
+    if (isValidationFailure(parsed)) return bad(c, parsed.error);
+    const results = parsed.data.ids.map(id => {
+      try { return { id, ...patchProviderConnectionTagsWithAudit(id, parsed.data.operation, parsed.data.tags) }; }
+      catch { return { id, success: false, error: "Could not update tags" }; }
+    });
+    return c.json({ results });
+  });
+
+  // Rename only the explicitly selected accounts; individual failures do not stop the batch.
+  const bulkRenameSchema = z.object({
+    ids: z.array(z.string().min(1).max(200)).min(1).max(100).refine(ids => new Set(ids).size === ids.length),
+    pattern: z.string().min(1).max(200),
+  }).strict();
+  api.post("/connections/bulk-rename", async (c) => {
+    const parsed = validateBody(bulkRenameSchema, await bodyOf(c));
+    if (isValidationFailure(parsed)) return bad(c, parsed.error);
+    const results: Record<string, unknown>[] = [];
+    for (const [index, id] of parsed.data.ids.entries()) {
+      try {
+        results.push({ id, ...renameProviderConnectionWithAudit(id, parsed.data.pattern, index + 1) });
+      } catch { results.push({ id, success: false, error: "Could not rename connection" }); }
+    }
+    return c.json({ results });
+  });
+
+  const bulkActivationSchema = z.object({
+    ids: z.array(z.string().min(1).max(200)).min(1).max(100).refine(ids => new Set(ids).size === ids.length),
+    isActive: z.boolean(),
+  }).strict();
+  api.post("/connections/bulk-activation", async (c) => {
+    const parsed = validateBody(bulkActivationSchema, await bodyOf(c));
+    if (isValidationFailure(parsed)) return bad(c, parsed.error);
+    const results = parsed.data.ids.map(id => {
+      try { return { id, ...setProviderConnectionActiveWithAudit(id, parsed.data.isActive) }; }
+      catch { return { id, success: false, error: "Could not update connection" }; }
+    });
+    return c.json({ results });
+  });
+
+  const bulkCooldownSchema = z.object({
+    ids: z.array(z.string().min(1).max(200)).min(1).max(100).refine(ids => new Set(ids).size === ids.length),
+  }).strict();
+  api.post("/connections/bulk-release-cooldown", async (c) => {
+    const parsed = validateBody(bulkCooldownSchema, await bodyOf(c));
+    if (isValidationFailure(parsed)) return bad(c, parsed.error);
+    const results: Record<string, unknown>[] = [];
+    for (const id of parsed.data.ids) {
+      try {
+        results.push({ id, ...releaseProviderConnectionCooldownWithAudit(id) });
+      } catch {
+        results.push({ id, success: false, error: "Could not release cooldown" });
+      }
+    }
+    return c.json({ results });
+  });
+
   // Strict: secrets (apiKey, tokens) are not editable here, a stray key is a 400.
   const patchConnectionSchema = z
     .object({
@@ -312,10 +488,8 @@ export function createAdminApi() {
 
   api.post("/connections/:id/release-cooldown", async (c) => {
     const id = c.req.param("id");
-    if (!(await getProviderConnectionById(id))) return notFound(c, "Connection");
-    await resetConnectionBackoff(id);
-    await updateProviderConnection(id, { rateLimitedUntil: null });
-    audit(c, "connection.release-cooldown", id);
+    const result = releaseProviderConnectionCooldownWithAudit(id, false);
+    if (!result.success) return notFound(c, "Connection");
     return c.json({ success: true });
   });
 
@@ -341,7 +515,10 @@ export function createAdminApi() {
         const rawExp = conn.tokenExpiresAt ?? conn.expiresAt ?? null;
         const expiresAt = rawExp ? new Date(rawExp).getTime() : null;
         const due = expiresAt !== null && Date.now() >= expiresAt - getRefreshLeadMs(conn.provider) - TOKEN_EXPIRY_BUFFER_MS;
-        if (!due) {
+        if (conn.providerSpecificData?.importedToken &&
+            (conn.testStatus === "expired" || (expiresAt !== null && Date.now() >= expiresAt))) {
+          error = "Token expired; re-import or re-authenticate";
+        } else if (!due || conn.providerSpecificData?.importedToken) {
           ok = conn.testStatus === "active" || !conn.testStatus;
           if (!ok) error = conn.lastError || `Account status is ${conn.testStatus}`;
         } else {
@@ -351,7 +528,7 @@ export function createAdminApi() {
             { refreshToken: conn.refreshToken, connectionId: id, accessToken: conn.accessToken, expiresAt: rawExp, providerSpecificData: conn.providerSpecificData },
             log,
             null,
-            async (persisted) => { await updateProviderCredentials(id, persisted as Record<string, unknown>); }
+            async (persisted) => { if (!(await updateProviderCredentials(id, persisted as Record<string, unknown>))) throw new Error("Secure credential persistence failed"); }
           );
           ok = Boolean(r?.accessToken);
           if (!ok) error = "token refresh failed";
@@ -364,7 +541,7 @@ export function createAdminApi() {
     } catch (e) {
       error = (e instanceof Error ? e.message : "test failed").slice(0, 200);
     }
-    await updateProviderConnection(id, { testStatus: ok ? "active" : "error", lastTested: new Date().toISOString() });
+    await updateProviderConnection(id, { testStatus: ok ? "active" : error === "Token expired; re-import or re-authenticate" ? "expired" : "error", lastTested: new Date().toISOString() });
     audit(c, "connection.test", id, { ok });
     return c.json({ ok, error });
   });

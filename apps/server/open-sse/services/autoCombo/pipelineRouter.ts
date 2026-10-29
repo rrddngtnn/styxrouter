@@ -18,6 +18,7 @@ import {
 } from "../../../src/domain/pipeline.ts";
 import { renderPrompt } from "../../../src/domain/prompts.ts";
 import { getTaskFitness } from "./taskFitness.ts";
+import type { ResolvedComboTarget } from "../combo/types.ts";
 
 // ---------------------------------------------------------------------------
 // Fitness tiers — map pipeline behavior to model fitness thresholds
@@ -55,7 +56,8 @@ export interface PipelineComboParams {
   body: Record<string, unknown>;
   combo: Record<string, unknown>;
   availableModels?: readonly string[];
-  handleChatCore: (body: Record<string, unknown>, modelStr?: string) => Promise<Response>;
+  availableTargets?: readonly ResolvedComboTarget[];
+  handleChatCore: (body: Record<string, unknown>, modelStr: string, target?: ResolvedComboTarget) => Promise<Response>;
   log: {
     info: (...args: unknown[]) => void;
     warn: (...args: unknown[]) => void;
@@ -82,7 +84,7 @@ export interface StageExecutorResult {
 
 /**
  * Resolve a fitness tier to a concrete model string using the available models
- * from the combo's candidate pool. Falls back to sensible defaults.
+ * from the combo's candidate pool. Never invent an unrelated model.
  */
 function resolveModelForTier(
   tier: FitnessTier,
@@ -98,7 +100,8 @@ function resolveModelForTier(
     .sort((a, b) => b.fitness - a.fitness);
 
   const tierConfig = FITNESS_TIERS[tier] as FitnessTierConfig | undefined;
-  if (!tierConfig) return scored[0]?.model ?? "deepseek-chat";
+  if (scored.length === 0) throw new Error("PIPELINE_NO_MODELS");
+  if (!tierConfig) return scored[0].model;
 
   // Filter by fitness threshold
   const filtered = scored.filter(({ fitness }) => {
@@ -108,7 +111,7 @@ function resolveModelForTier(
   });
 
   // Return best match in tier, or fall back to best available
-  return filtered[0]?.model ?? scored[0]?.model ?? "deepseek-chat";
+  return filtered[0]?.model ?? scored[0].model;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,10 +127,11 @@ function resolveModelForTier(
  */
 function createStageExecutor(
   body: Record<string, unknown>,
-  handleChatCore: (body: Record<string, unknown>, modelStr?: string) => Promise<Response>,
+  handleChatCore: PipelineComboParams["handleChatCore"],
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void },
   availableModels: readonly string[],
-  taskType: string
+  taskType: string,
+  availableTargets?: readonly ResolvedComboTarget[]
 ): (args: StageExecutorArgs & { fitnessTier?: FitnessTier }) => Promise<StageExecutorResult> {
   return async ({
     messages,
@@ -135,9 +139,9 @@ function createStageExecutor(
     fitnessTier,
   }: StageExecutorArgs & { fitnessTier?: FitnessTier }): Promise<StageExecutorResult> => {
     // Resolve model for this stage's fitness tier
-    const model = fitnessTier
-      ? resolveModelForTier(fitnessTier, availableModels, taskType)
-      : undefined;
+    const model = resolveModelForTier(fitnessTier ?? "moderate", availableModels, taskType);
+    const target = availableTargets?.find((entry) => entry.modelStr === model);
+    if (availableTargets && !target) throw new Error("PIPELINE_NO_TARGET");
 
     // Build a modified request body with pipeline stage messages
     const stageBody: Record<string, unknown> = {
@@ -147,7 +151,7 @@ function createStageExecutor(
     };
 
     log.info("PIPELINE", `Stage: tier=${fitnessTier}, model=${model}, stream=${stream}`);
-    const response = await handleChatCore(stageBody, model);
+    const response = await handleChatCore(stageBody, model, target);
 
     // Final stage: return raw Response for streaming
     if (stream) {
@@ -224,6 +228,7 @@ export async function handlePipelineCombo({
   body,
   combo,
   availableModels: routedModels,
+  availableTargets,
   handleChatCore,
   log,
   settings,
@@ -293,16 +298,15 @@ export async function handlePipelineCombo({
         })
         .filter((model): model is string => typeof model === "string" && model.length > 0)
     : [];
-  const availableModels =
-    routedModels === undefined
-      ? comboModels.length
-        ? comboModels
-        : ["deepseek-chat"]
+  const availableModels = availableTargets !== undefined
+    ? availableTargets.map((target) => target.modelStr)
+    : routedModels === undefined
+      ? comboModels
       : routedModels;
   if (availableModels.length === 0) throw new Error("PIPELINE_NO_MODELS");
 
   // ── Create stage executor ─────────────────────────────────────────────────
-  const stageExecutor = createStageExecutor(body, handleChatCore, log, availableModels, taskType);
+  const stageExecutor = createStageExecutor(body, handleChatCore, log, availableModels, taskType, availableTargets);
 
   // ── Execute pipeline ──────────────────────────────────────────────────────
   const maxReflectionLoops =

@@ -10,16 +10,9 @@
  * Guard: combo-sync failures never propagate to pool CRUD callers.
  */
 
-import { getPool } from "@/lib/db/quotaPools";
+import { getPool, listPools } from "@/lib/db/quotaPools";
 import { getGroupName } from "@/lib/db/quotaGroups";
-import { getCachedProviderConnectionById } from "@/lib/localDb";
-import {
-  getCombos,
-  createCombo,
-  deleteComboByName,
-  getComboByName,
-  updateCombo,
-} from "@/lib/db/combos";
+import { getDbInstance } from "@/lib/db/core";
 import { REGISTRY } from "@styxrouter/open-sse/config/providerRegistry";
 import {
   quotaModelName,
@@ -27,7 +20,6 @@ import {
   isQuotaModelName,
   quotaGroupSlug,
 } from "./quotaModelNaming";
-import { createLogger } from "@/shared/utils/logger";
 import type { AnyRoutingStrategyValue } from "@/shared/constants/routingStrategies";
 
 /**
@@ -36,8 +28,6 @@ import type { AnyRoutingStrategyValue } from "@/shared/constants/routingStrategi
  * selection in combo.ts (Phase 3 #9). Was "fill-first" before the hardening.
  */
 export const QUOTA_SHARE_STRATEGY: AnyRoutingStrategyValue = "quota-share";
-
-const log = createLogger("quota/quotaCombos");
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -53,7 +43,7 @@ const log = createLogger("quota/quotaCombos");
  * `qtSd/<groupSlug>/...` instead of `qtSd/<poolSlug>/...`.
  * Falls back to pool.name when the group record is missing.
  */
-async function resolvePoolForSync(poolId: string): Promise<{
+export async function resolvePoolForSync(poolId: string): Promise<{
   pool: {
     id: string;
     connectionId: string;
@@ -113,158 +103,59 @@ function getProviderModelIds(provider: string): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Synchronise `quotaShared-*` combos for a pool:
- *
- * 1. Resolve pool → connection → provider.
- * 2. For each model in PROVIDER_MODELS[provider], upsert a combo named
- *    `quotaModelName(pool.name, provider, model)` with a single model-step
- *    pinned to the pool's connectionId.
- * 3. Prune stale quota combos for this pool slug that are no longer in the
- *    desired set.
- *
- * Idempotent: running twice produces no changes on the second call.
- * Defensive: missing pool, missing connection, or empty model list → prune to
- * empty without throwing.
+ * Reconcile all managed qtSd/ names from authoritative pool membership and
+ * provider metadata. The pool ID remains a caller/diagnostic hint; a deleted
+ * pool still triggers orphan cleanup. Shared slugs merge their connections.
+ * Preparation failures abort before writes; source mutations reject and retry
+ * the entire batch. CRUD hooks handle failures without rolling back pool CRUD.
  */
 export async function syncQuotaCombos(poolId: string): Promise<void> {
-  const resolved = await resolvePoolForSync(poolId);
+  const { applyQuotaComboReconciliation, listQuotaComboNames } = await import("@/lib/db/quotaComboReconciliation");
+  const { getQuotaComboGeneration } = await import("@/lib/db/quotaComboGeneration");
 
-  if (!resolved) {
-    // Pool gone — prune any leftover combos (best effort).
-    await removeQuotaCombosForPool(poolId);
-    return;
-  }
-
-  const { pool } = resolved;
-  // B4: use the GROUP name for combo naming (qtSd/<groupSlug>/...).
-  // Falls back to pool.name when the group record is missing.
-  const groupName = pool.groupName;
-  const groupSlug = quotaGroupSlug(groupName);
-
-  // D2: build desired names as the UNION across ALL member connections.
-  // A missing connection (no DB row / no provider field) is silently skipped —
-  // it contributes nothing to the desired set but does NOT abort the whole sync.
-  const desiredNames = new Set<string>();
-
-  // Track (connId, provider, modelIds) tuples for upsert, in order.
-  const upsertWork: Array<{ connId: string; provider: string; modelIds: string[] }> = [];
-
-  for (const connId of pool.connectionIds) {
-    let connection: Record<string, unknown> | null = null;
-    try {
-      connection = (await getCachedProviderConnectionById(connId)) as Record<
-        string,
-        unknown
-      > | null;
-    } catch {
-      // Connection lookup failure — skip this connection.
-      continue;
-    }
-    if (!connection) continue;
-
-    const provider = connection.provider;
-    if (typeof provider !== "string" || provider.length === 0) continue;
-
-    const modelIds = getProviderModelIds(provider);
-    if (modelIds.length === 0) continue;
-
-    for (const modelId of modelIds) {
-      // B4: use groupName (not pool.name) as the first arg so combos carry the group slug.
-      desiredNames.add(quotaModelName(groupName, provider, modelId));
-    }
-    upsertWork.push({ connId, provider, modelIds });
-  }
-
-  // B4: the pool is single-provider (guard enforced at pool creation).
-  // Compute the pool's provider so the prune is scoped to group+provider only
-  // (never touching another provider's combos in the same group).
-  const poolProvider: string | undefined = upsertWork[0]?.provider;
-
-  // Group steps by model across all connections (Task 3 guarantees a single provider).
-  // This produces one combo per model with ALL connections' steps + the dedicated
-  // "quota-share" strategy (Phase 3 #9), fixing the collision where two same-provider
-  // connections would overwrite each other.
-  const byModel = new Map<string, Array<{ connId: string; provider: string }>>();
-  for (const { connId, provider, modelIds } of upsertWork) {
-    for (const modelId of modelIds) {
-      const arr = byModel.get(modelId) ?? [];
-      arr.push({ connId, provider });
-      byModel.set(modelId, arr);
-    }
-  }
-  for (const [modelId, conns] of byModel) {
-    const provider = conns[0].provider;
-    // B4: use groupName for the combo name.
-    const comboName = quotaModelName(groupName, provider, modelId);
-    const steps = conns.map((c) => ({
-      kind: "model" as const,
-      model: `${provider}/${modelId}`,
-      providerId: provider,
-      connectionId: c.connId,
-      weight: 100,
-    }));
-    try {
-      const existing = await getComboByName(comboName);
-      // A pool may be deleted while this fire-and-forget sync is awaiting combo
-      // lookups. Re-check immediately before the synchronous DB upsert so stale
-      // create/update work cannot recreate managed combos after delete cleanup.
-      if (!getPool(poolId)) return;
-      const payload = {
-        name: comboName,
-        models: steps,
-        strategy: QUOTA_SHARE_STRATEGY,
-        isHidden: true,
-      };
-      if (existing && typeof existing.id === "string") await updateCombo(existing.id, payload);
-      else await createCombo(payload);
-    } catch (err) {
-      log.warn({ err: (err as Error)?.message, comboName, poolId }, "quota-combo upsert failed");
-    }
-  }
-
-  // B4: Prune stale combos that belong to THIS pool's group+provider but are no
-  // longer in the desired set. CRITICAL: must NOT prune another provider's combos
-  // in the same group (e.g. syncing openrouter pool must not delete baidu combos).
-  //
-  // Prune condition: groupSlug matches AND provider matches AND name not in desiredNames.
-  // If poolProvider is undefined (no valid connection), skip pruning to be safe.
-  if (!poolProvider) {
-    // No valid connections → nothing to prune (can't scope by provider).
-    return;
-  }
-
-  let allCombos: Awaited<ReturnType<typeof getCombos>> = [];
-  try {
-    allCombos = await getCombos();
-  } catch (err) {
-    log.warn({ err: (err as Error)?.message, poolId }, "quota-combo prune: getCombos failed");
-    return;
-  }
-
-  for (const combo of allCombos) {
-    const name = typeof combo.name === "string" ? combo.name : null;
-    if (!name) continue;
-    if (!isQuotaModelName(name)) continue;
-
-    const parsed = parseQuotaModelName(name);
-    if (!parsed) continue;
-
-    // B4: provider-scoped prune — only prune combos for THIS group+provider.
-    if (parsed.groupSlug !== groupSlug) continue;
-    if (parsed.provider !== poolProvider) continue;
-
-    // Belongs to this group+provider but not produced by any current connection → prune.
-    if (!desiredNames.has(name)) {
-      try {
-        await deleteComboByName(name);
-      } catch (err) {
-        log.warn(
-          { err: (err as Error)?.message, comboName: name, poolId },
-          "quota-combo prune failed"
-        );
+  // Rebuild the complete managed projection, including orphan names left by
+  // deletes, group moves/renames, and provider changes. A pool may already be gone.
+  // The generation is read BEFORE source data and checked under the write lock.
+  for (let attempt = 0; attempt < 32; attempt++) {
+    const generation = getQuotaComboGeneration();
+    const desired = new Map<string, {
+      name: string;
+      models: Array<{ kind: "model"; model: string; providerId: string; connectionId: string; weight: number }>;
+      strategy: string;
+      isHidden: true;
+    }>();
+    const seen = new Map<string, Set<string>>();
+    const providerFor = getDbInstance().prepare("SELECT provider FROM provider_connections WHERE id = ?");
+    for (const pool of listPools().items) {
+      const groupName = getGroupName(pool.groupId) ?? pool.name;
+      for (const connectionId of pool.connectionIds) {
+        // Cached/decrypted credential readers can retain metadata from an older
+        // generation in another process. Read only authoritative routing metadata.
+        const connection = providerFor.get(connectionId) as { provider: string } | undefined;
+        if (!connection || typeof connection.provider !== "string") continue;
+        const provider = connection.provider;
+        for (const modelId of getProviderModelIds(provider)) {
+          const name = quotaModelName(groupName, provider, modelId);
+          let combo = desired.get(name);
+          if (!combo) {
+            combo = { name, models: [], strategy: QUOTA_SHARE_STRATEGY, isHidden: true };
+            desired.set(name, combo);
+            seen.set(name, new Set());
+          }
+          if (seen.get(name)!.has(connectionId)) continue;
+          seen.get(name)!.add(connectionId);
+          combo.models.push({ kind: "model", model: `${provider}/${modelId}`, providerId: provider, connectionId, weight: 100 });
+        }
       }
     }
+
+    // Preparation needs row names only, not deserialized routing payloads. The
+    // fenced writer repairs desired corrupt JSON and deletes corrupt orphans.
+    const pruneNames = (await listQuotaComboNames())
+      .filter(name => isQuotaModelName(name) && !desired.has(name));
+    if (applyQuotaComboReconciliation(generation, [...desired.values()], pruneNames)) return;
   }
+  throw new Error(`Quota combo reconciliation remained contended for pool: ${poolId}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -339,83 +230,9 @@ export async function buildQuotaExclusiveModels<TCombo extends { name?: unknown 
   return out;
 }
 
-/**
- * Delete ALL `quotaShared-*` combos that belong to the given pool.
- *
- * B4: scoped to this pool's group+provider so that removing one pool does not
- * accidentally delete another provider's combos that share the same group.
- *
- * Used on pool deletion. The pool record is looked up to resolve the group
- * name and provider. If the pool is already gone from the DB, this is a
- * best-effort no-op (nothing to match on provider).
- */
-export async function removeQuotaCombosForPool(poolId: string): Promise<void> {
-  // Resolve pool → groupName + provider for scoped deletion.
-  const resolved = await resolvePoolForSync(poolId);
-
-  // If the pool is already gone, we can't safely scope deletion.
-  // Fall back: try to delete by provider-discovery from DB combos (best-effort).
-  if (!resolved) {
-    // Pool gone — nothing to scope by; skip (no partial prune without knowing the provider).
-    return;
-  }
-
-  const { pool } = resolved;
-  const groupName = pool.groupName;
-  const groupSlug = quotaGroupSlug(groupName);
-
-  // Resolve the pool's provider from its connections.
-  let poolProvider: string | undefined;
-  for (const connId of pool.connectionIds) {
-    try {
-      const connection = (await getCachedProviderConnectionById(connId)) as Record<
-        string,
-        unknown
-      > | null;
-      if (connection && typeof connection.provider === "string" && connection.provider.length > 0) {
-        poolProvider = connection.provider;
-        break;
-      }
-    } catch {
-      // skip
-    }
-  }
-
-  if (!poolProvider) {
-    // Can't scope by provider — skip to avoid nuking unrelated combos.
-    return;
-  }
-
-  let allCombos: Awaited<ReturnType<typeof getCombos>> = [];
-  try {
-    allCombos = await getCombos();
-  } catch (err) {
-    log.warn(
-      { err: (err as Error)?.message, poolId },
-      "removeQuotaCombosForPool: getCombos failed"
-    );
-    return;
-  }
-
-  for (const combo of allCombos) {
-    const name = typeof combo.name === "string" ? combo.name : null;
-    if (!name) continue;
-    if (!isQuotaModelName(name)) continue;
-
-    const parsed = parseQuotaModelName(name);
-    if (!parsed) continue;
-
-    // B4: only delete combos for this group+provider.
-    if (parsed.groupSlug !== groupSlug) continue;
-    if (parsed.provider !== poolProvider) continue;
-
-    try {
-      await deleteComboByName(name);
-    } catch (err) {
-      log.warn(
-        { err: (err as Error)?.message, comboName: name, poolId },
-        "quota-combo remove failed"
-      );
-    }
-  }
+/** Reconcile after deletion, retaining routes owned by surviving siblings. */
+export async function removeQuotaCombosForPool(poolId: string, _snapshot?: Awaited<ReturnType<typeof resolvePoolForSync>>): Promise<void> {
+  // Cleanup is the same generation-fenced projection as sync. An old snapshot
+  // must never authorize deleting a newly created sibling's shared combo names.
+  await syncQuotaCombos(poolId);
 }

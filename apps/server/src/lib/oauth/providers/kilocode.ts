@@ -19,7 +19,11 @@ export const kilocode = {
       throw new Error(`Device auth initiation failed: ${error}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as {
+      code: string;
+      verificationUrl: string;
+      expiresIn?: number;
+    };
     return {
       device_code: data.code,
       user_code: data.code,
@@ -55,7 +59,11 @@ export const kilocode = {
       };
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as {
+      status?: string;
+      token?: string;
+      userEmail?: string;
+    };
     if (data.status === "approved" && data.token) {
       return {
         ok: true,

@@ -1,5 +1,17 @@
 import { CLINE_CONFIG } from "../constants/oauth";
 
+type ClineTokenResponse = {
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: string;
+  data?: {
+    accessToken?: string;
+    refreshToken?: string;
+    expiresAt?: string;
+    userInfo?: { email?: string };
+  };
+};
+
 export const cline = {
   config: CLINE_CONFIG,
   flowType: "authorization_code",
@@ -60,7 +72,7 @@ export const cline = {
         throw new Error(`Cline token exchange failed: ${error}`);
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as ClineTokenResponse;
       return {
         access_token: data.data?.accessToken || data.accessToken,
         refresh_token: data.data?.refreshToken || data.refreshToken,

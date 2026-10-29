@@ -4,6 +4,7 @@
 import { PROVIDERS, OAUTH_ENDPOINTS } from "../../../config/constants.ts";
 import { runWithProxyContext } from "../../../utils/proxyFetch.ts";
 import { buildFormParams, readRefreshErrorBody } from "../shared.ts";
+import { parseSafeRefreshResponse } from "../importSafeResponse.ts";
 
 /**
  * Specialized refresh for Claude OAuth tokens
@@ -34,10 +35,9 @@ export async function refreshClaudeOAuthToken(refreshToken, log, proxyConfig: un
       // the invalid_grant 400 as a JSON string, a double-encoded string, a
       // nested {error:{code}}, or raw text — all must yield the sentinel so the
       // HealthCheck deactivates instead of looping every 60s.
-      const { rawText, code } = await readRefreshErrorBody(response);
+      const { code } = await readRefreshErrorBody(response);
       log?.error?.("TOKEN_REFRESH", "Failed to refresh Claude OAuth token", {
         status: response.status,
-        error: rawText.slice(0, 300),
       });
       if (code === "invalid_grant" || code === "invalid_request") {
         return { error: "unrecoverable_refresh_error", code };
@@ -45,21 +45,18 @@ export async function refreshClaudeOAuthToken(refreshToken, log, proxyConfig: un
       return null;
     }
 
-    const tokens = await response.json();
+    const tokens = parseSafeRefreshResponse(await response.json(), refreshToken);
+    if (!tokens) return null;
 
     log?.info?.("TOKEN_REFRESH", "Successfully refreshed Claude OAuth token", {
-      hasNewAccessToken: !!tokens.access_token,
-      hasNewRefreshToken: !!tokens.refresh_token,
-      expiresIn: tokens.expires_in,
+      hasNewAccessToken: true,
+      hasNewRefreshToken: tokens.refreshToken !== refreshToken,
+      expiresIn: tokens.expiresIn,
     });
 
-    return {
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token || refreshToken,
-      expiresIn: tokens.expires_in,
-    };
-  } catch (error) {
-    log?.error?.("TOKEN_REFRESH", `Network error refreshing Claude token: ${error.message}`);
+    return tokens;
+  } catch {
+    log?.error?.("TOKEN_REFRESH", "Network error refreshing Claude token");
     return null;
   }
 }

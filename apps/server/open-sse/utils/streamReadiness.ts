@@ -1,6 +1,8 @@
 import { HTTP_STATUS } from "../config/constants.ts";
 import { buildErrorBody, sanitizeErrorMessage } from "./error.ts";
 
+type ByteStreamReadResult = Awaited<ReturnType<ReadableStreamDefaultReader<Uint8Array>["read"]>>;
+
 type StreamReadinessLogger = {
   debug?: (tag: string, message: string) => void;
   warn?: (tag: string, message: string) => void;
@@ -451,7 +453,7 @@ function prependBufferedChunks(
 function readWithTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   timeoutMs: number
-): Promise<ReadableStreamReadResult<Uint8Array>> {
+): Promise<ByteStreamReadResult> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("STREAM_READINESS_TIMEOUT")), timeoutMs);
     reader.read().then(
@@ -527,7 +529,7 @@ export async function ensureStreamReadiness(
         };
       }
 
-      let readResult: ReadableStreamReadResult<Uint8Array>;
+      let readResult: ByteStreamReadResult;
       try {
         readResult = await readWithTimeout(reader, remainingMs);
       } catch {

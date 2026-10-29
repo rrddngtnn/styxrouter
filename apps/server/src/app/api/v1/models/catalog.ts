@@ -64,6 +64,7 @@ import {
   INTERNAL_PROXY_ERROR,
   getCanonicalModelMetadata,
   getCatalogDiagnosticsHeaders,
+  MANUAL_CATALOG_CONTEXT,
   type CatalogEnrichmentSnapshot,
 } from "@/lib/modelMetadataRegistry";
 import { createModelCapabilityResolutionSnapshot } from "@/lib/modelCapabilityResolutionSnapshot";
@@ -1521,10 +1522,6 @@ async function buildUnifiedModelsResponseCore(
     try {
       const customModelsMap = (await getAllCustomModels()) as Record<string, unknown>;
       for (const [providerId, rawProviderCustomModels] of Object.entries(customModelsMap)) {
-        if (providerUsesCuratedModelsOnly(providerId)) continue;
-        // Skip Gemini — handled by syncedAvailableModels above
-        if (providerId === "gemini") continue;
-        if (providerId === "reka") continue;
         const providerCustomModels: CustomModelEntry[] = Array.isArray(rawProviderCustomModels)
           ? rawProviderCustomModels.filter(
               (model): model is CustomModelEntry =>
@@ -1547,7 +1544,19 @@ async function buildUnifiedModelsResponseCore(
         )
           continue;
 
+        if (
+          blockedProviders.has(providerId) || blockedProviders.has(alias) ||
+          blockedProviders.has(canonicalProviderId) ||
+          isNoAuthProviderBlocked(blockedProviders, canonicalProviderId, providerId, alias)
+        ) continue;
+
         for (const model of providerCustomModels) {
+          // These providers intentionally suppress discovered custom rows. Only
+          // operator-owned rows bypass that source-specific suppression.
+          if (
+            (providerUsesCuratedModelsOnly(providerId) || providerId === "gemini" || providerId === "reka") &&
+            model.source && model.source !== "manual"
+          ) continue;
           const modelId = typeof model.id === "string" ? model.id : null;
           if (!modelId) continue;
           if (!isUnifiedChatSourceModelSelectable(canonicalProviderId, { ...model, id: modelId }))
@@ -1579,17 +1588,20 @@ async function buildUnifiedModelsResponseCore(
           // Preserve catalog identity and discovered metadata, but let every field
           // explicitly stored on the custom row determine the effective metadata.
           const aliasId = `${alias}/${modelId}`;
-          const existingIndex = models.findIndex((m) => m.id === aliasId);
-          if (existingIndex !== -1) {
+          const publicIds = [aliasId, ...(!prefix && canonicalProviderId !== alias ? [`${canonicalProviderId}/${modelId}`] : [])];
+          for (const publicId of publicIds) {
+            const existingIndex = models.findIndex((m) => m.id === publicId);
+            if (existingIndex === -1) continue;
             const existing = models[existingIndex] as Record<string, unknown> & { id: string };
             const endpoints = Array.isArray(model.supportedEndpoints)
               ? model.supportedEndpoints
               : undefined;
             const apiFormat = typeof model.apiFormat === "string" ? model.apiFormat : undefined;
+            const classification = endpoints ? classifyModelSupportedEndpoints(endpoints) : undefined;
             const visionFields =
               typeof model.supportsVision === "boolean"
                 ? model.supportsVision
-                  ? getCustomVisionCapabilityFields(model, aliasId, modelId)
+                  ? getCustomVisionCapabilityFields(model, publicId, modelId)
                   : {
                       capabilities: {
                         ...((existing.capabilities as Record<string, unknown>) || {}),
@@ -1599,22 +1611,32 @@ async function buildUnifiedModelsResponseCore(
                       output_modalities: ["text"],
                     }
                 : null;
-            models[existingIndex] = mergeCustomModelMetadata(existing, {
-              id: aliasId,
-              ...(typeof model.name === "string" ? { name: model.name } : {}),
-              ...(apiFormat ? { api_format: apiFormat } : {}),
-              ...(endpoints ? { supported_endpoints: endpoints } : {}),
-              ...(typeof model.inputTokenLimit === "number"
-                ? { context_length: model.inputTokenLimit }
+            models[existingIndex] = {
+              ...mergeCustomModelMetadata(existing, {
+                id: publicId,
+                ...(typeof model.name === "string" ? { name: model.name } : {}),
+                ...(apiFormat ? { api_format: apiFormat } : {}),
+                ...(endpoints
+                  ? { supported_endpoints: endpoints, type: classification?.type || "chat" }
+                  : {}),
+                ...(typeof model.inputTokenLimit === "number"
+                  ? { context_length: model.inputTokenLimit }
+                  : {}),
+                ...(typeof model.outputTokenLimit === "number"
+                  ? { max_output_tokens: model.outputTokenLimit }
+                  : {}),
+                ...(visionFields
+                  ? { ...visionFields, capabilities: { ...((existing.capabilities as Record<string, unknown>) || {}), ...visionFields.capabilities } }
+                  : {}),
+                custom: true,
+              }),
+              ...(endpoints ? { subtype: classification?.subtype } : {}),
+              ...(model.source === "manual" && typeof model.inputTokenLimit === "number"
+                ? { [MANUAL_CATALOG_CONTEXT]: model.inputTokenLimit }
                 : {}),
-              ...(typeof model.outputTokenLimit === "number"
-                ? { max_output_tokens: model.outputTokenLimit }
-                : {}),
-              ...(visionFields || {}),
-              custom: true,
-            });
-            continue;
+            };
           }
+          if (publicIds.some((id) => models.some((m) => m.id === id))) continue;
 
           // Determine type from supportedEndpoints
           const endpoints = Array.isArray(model.supportedEndpoints)
@@ -1631,7 +1653,7 @@ async function buildUnifiedModelsResponseCore(
             continue;
           }
           const visionFields =
-            !modelType || modelType === "chat"
+            !modelType
               ? getCustomVisionCapabilityFields(model, aliasId, modelId)
               : null;
 
@@ -1645,6 +1667,7 @@ async function buildUnifiedModelsResponseCore(
               root: modelId,
               parent: null,
               custom: true,
+              ...(typeof model.name === "string" ? { name: model.name } : {}),
               ...(modelType ? { type: modelType } : {}),
               ...(classification.subtype ? { subtype: classification.subtype } : {}),
               ...(apiFormat !== "chat-completions" ? { api_format: apiFormat } : {}),
@@ -1652,7 +1675,7 @@ async function buildUnifiedModelsResponseCore(
                 ? { supported_endpoints: endpoints }
                 : {}),
               ...(typeof model.inputTokenLimit === "number"
-                ? { context_length: model.inputTokenLimit }
+                ? { context_length: model.inputTokenLimit, ...(model.source === "manual" ? { [MANUAL_CATALOG_CONTEXT]: model.inputTokenLimit } : {}) }
                 : {}),
               ...(typeof (model as any).outputTokenLimit === "number"
                 ? { max_output_tokens: (model as any).outputTokenLimit }
@@ -1665,7 +1688,7 @@ async function buildUnifiedModelsResponseCore(
             const providerPrefixedId = `${canonicalProviderId}/${modelId}`;
             if (models.some((m) => m.id === providerPrefixedId)) continue;
             const providerVisionFields =
-              !modelType || modelType === "chat"
+              !modelType
                 ? getCustomVisionCapabilityFields(model, providerPrefixedId, modelId)
                 : null;
             models.push({
@@ -1677,9 +1700,13 @@ async function buildUnifiedModelsResponseCore(
               root: modelId,
               parent: includeAlias ? aliasId : null,
               custom: true,
+              ...(typeof model.name === "string" ? { name: model.name } : {}),
               ...(modelType ? { type: modelType } : {}),
+              ...(classification.subtype ? { subtype: classification.subtype } : {}),
+              ...(apiFormat !== "chat-completions" ? { api_format: apiFormat } : {}),
+              ...(endpoints.length > 1 || !endpoints.includes("chat") ? { supported_endpoints: endpoints } : {}),
               ...(typeof model.inputTokenLimit === "number"
-                ? { context_length: model.inputTokenLimit }
+                ? { context_length: model.inputTokenLimit, ...(model.source === "manual" ? { [MANUAL_CATALOG_CONTEXT]: model.inputTokenLimit } : {}) }
                 : {}),
               ...(typeof (model as any).outputTokenLimit === "number"
                 ? { max_output_tokens: (model as any).outputTokenLimit }

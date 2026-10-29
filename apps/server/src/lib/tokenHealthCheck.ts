@@ -580,6 +580,9 @@ export async function checkConnection(conn) {
     return;
   }
 
+  // Imported tokens cannot safely rotate across processes; do not schedule refresh.
+  if (conn.providerSpecificData?.importedToken) return;
+
   // Cursor's refreshToken is always null (no refresh_token by design), so
   // falling into the generic !conn.refreshToken block below was always a
   // silent no-op for Cursor. Explicit provider dispatch here is clearer than
@@ -909,8 +912,10 @@ export async function checkConnection(conn) {
           updateData.providerSpecificData = mergedProviderData;
         }
         try {
-          await updateProviderConnection(conn.id, updateData);
+          const updated = await updateProviderConnection(conn.id, updateData);
+          if (!updated && conn.providerSpecificData?.importedToken) throw new Error("Secure credential persistence failed");
         } catch (dbErr) {
+          if (conn.providerSpecificData?.importedToken) throw new Error("Secure credential persistence failed");
           // DB write failed after successful refresh - log but do not throw.
           // The outer catch would misclassify this as a network error.
           logWarn(
@@ -1061,7 +1066,11 @@ export async function checkConnection(conn) {
     // Only write the lastHealthCheckAt timestamp (and any fields onPersist may have
     // missed) here, to avoid a redundant full update that would race against another
     // concurrent refresh that already wrote fresh credentials.
-    if (persistedResult) {
+    if (conn.provider === "codebuddy-cn" && result.credentialsPersisted === true) {
+      const { getDbInstance } = await import("@/lib/db/core");
+      const { recordRefreshHealth } = await import("@/lib/db/codebuddyRefreshFence");
+      recordRefreshHealth({ db: getDbInstance(), connectionId: conn.id }, result as { accessToken: string; refreshToken: string }, now);
+    } else if (persistedResult) {
       await updateProviderConnection(conn.id, { lastHealthCheckAt: now });
     } else {
       // No onPersist (e.g. no connectionId — token-hash dedup path). Write all fields.

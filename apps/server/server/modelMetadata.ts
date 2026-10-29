@@ -30,7 +30,8 @@ export function createModelMetadataApi() {
     const authed = await hasSession(c);
     const origin = c.req.header("origin");
     const url = new URL(c.req.url);
-    const host = c.req.header("x-forwarded-host") ?? c.req.header("host") ?? url.host;
+    // As in requireAuth, Host is preserved by Caddy; forwarding headers are not trusted.
+    const host = c.req.header("host") ?? url.host;
     let originMismatch = false;
     if (origin) {
       try {

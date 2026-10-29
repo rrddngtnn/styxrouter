@@ -1,7 +1,7 @@
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/db/providers";
 import { getKimiWebBaseUrl } from "@styxrouter/open-sse/executors/kimi-web.ts";
 import { parseKimiJwt } from "@styxrouter/open-sse/utils/kimiJwt.ts";
-import { sanitizeErrorMessage } from "@styxrouter/open-sse/utils/error.ts";
+
 
 export interface KimiRefreshResult {
   success: boolean;
@@ -37,10 +37,9 @@ export async function exchangeKimiRefreshToken(
     });
 
     if (!resp.ok) {
-      const errText = await resp.text().catch(() => "");
       return {
         success: false,
-        error: `Kimi refresh returned HTTP ${resp.status}: ${sanitizeErrorMessage(errText)}`,
+        error: `Kimi refresh returned HTTP ${resp.status}`,
       };
     }
 
@@ -61,10 +60,10 @@ export async function exchangeKimiRefreshToken(
       refreshToken: newRefresh,
       expiresAtSec,
     };
-  } catch (err) {
+  } catch {
     return {
       success: false,
-      error: `Network error refreshing Kimi token: ${err instanceof Error ? err.message : "unknown"}`,
+      error: "Kimi token refresh failed",
     };
   }
 }

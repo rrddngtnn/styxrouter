@@ -141,6 +141,7 @@ function applyCustomHeaders(headers: Record<string, string>, rawCustomHeaders: u
 }
 
 export class DefaultExecutor extends BaseExecutor {
+  override readonly serializesCredentialRefresh = true;
   constructor(provider) {
     super(provider, PROVIDERS[provider] || PROVIDERS.openai);
     const registryEntry = getRegistryEntry(provider);

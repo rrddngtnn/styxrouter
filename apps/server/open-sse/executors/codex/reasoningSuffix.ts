@@ -16,6 +16,10 @@ export function splitCodexReasoningSuffix(model: unknown): {
   effort: CodexEffortLevel | null;
 } {
   const modelId = typeof model === "string" ? model : "";
+  const terra61Match = /^(gpt-6\.1-terra)(?:-(max|ultra)|\((max|ultra)\))$/.exec(modelId);
+  if (terra61Match) {
+    return { baseModel: terra61Match[1], effort: (terra61Match[2] ?? terra61Match[3]) as CodexEffortLevel };
+  }
   const gpt56Match = /^(gpt-5\.6-(?:sol|terra|luna))(?:-(max|ultra)|\((max|ultra)\))$/.exec(
     modelId
   );

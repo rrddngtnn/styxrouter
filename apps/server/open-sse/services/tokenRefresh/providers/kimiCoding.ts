@@ -11,6 +11,7 @@ import {
 import { getKimiDeviceModel } from "../../../utils/kimiDevice.ts";
 import { runWithProxyContext } from "../../../utils/proxyFetch.ts";
 import type { RefreshLogger } from "../shared.ts";
+import { parseSafeRefreshResponse } from "../importSafeResponse.ts";
 
 /**
  * Specialized refresh for Kimi Coding OAuth tokens.
@@ -96,30 +97,21 @@ export async function refreshKimiCodingToken(
 
       log?.error?.("TOKEN_REFRESH", "Failed to refresh Kimi Coding token", {
         status: response.status,
-        error: errorText.slice(0, 200),
       });
       return null;
     }
 
-    const tokens = await response.json();
+    const tokens = parseSafeRefreshResponse(await response.json(), refreshToken);
+    if (!tokens) return null;
     log?.info?.("TOKEN_REFRESH", "Successfully refreshed Kimi Coding token", {
-      hasNewAccessToken: !!tokens.access_token,
-      hasNewRefreshToken: !!tokens.refresh_token,
-      expiresIn: tokens.expires_in,
+      hasNewAccessToken: true,
+      hasNewRefreshToken: tokens.refreshToken !== refreshToken,
+      expiresIn: tokens.expiresIn,
     });
 
-    return {
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token || refreshToken,
-      expiresIn: tokens.expires_in,
-      tokenType: tokens.token_type,
-      scope: tokens.scope,
-    };
-  } catch (error) {
-    log?.error?.(
-      "TOKEN_REFRESH",
-      `Network error refreshing Kimi Coding token: ${error instanceof Error ? error.message : String(error)}`
-    );
+    return tokens;
+  } catch {
+    log?.error?.("TOKEN_REFRESH", "Network error refreshing Kimi Coding token");
     return null;
   }
 }

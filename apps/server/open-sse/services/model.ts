@@ -148,6 +148,14 @@ const KNOWN_MODEL_IDS = new Set(MODEL_TO_PROVIDERS.keys());
 // `openai/gpt-5.6-sol`) — the prefix path always wins.
 export const CODEX_NATIVE_UNPREFIXED_MODELS = new Set([
   "codex-auto-review",
+  "gpt-6.1-terra",
+  "gpt-6.1-terra-none",
+  "gpt-6.1-terra-low",
+  "gpt-6.1-terra-medium",
+  "gpt-6.1-terra-high",
+  "gpt-6.1-terra-xhigh",
+  "gpt-6.1-terra-max",
+  "gpt-6.1-terra-ultra",
   "gpt-5.6-sol",
   "gpt-5.6-sol-ultra",
   "gpt-5.6-sol-max",
@@ -635,15 +643,32 @@ async function resolveModelByProviderInference(modelId: string, extendedContext:
   // is the honest error. With codex active the preference still beats OpenAI, and an
   // explicit `openai/…` prefix remains the per-request override either way.
   if (CODEX_NATIVE_UNPREFIXED_MODELS.has(modelId)) {
-    const codexNativeAlternatives = (MODEL_TO_PROVIDERS.get(modelId) || []).filter(
-      (p) => p !== "codex"
-    );
+    const codexNativeAlternatives = Array.from(new Set([
+      ...(MODEL_TO_PROVIDERS.get(modelId) || []),
+      ...activeSyncedProviders,
+    ])).filter((p) => p !== "codex");
     if (codexNativeAlternatives.length === 0 || activeProviders?.has("codex")) {
-      return {
-        provider: "codex",
-        model: modelId,
-        extendedContext,
-      };
+      // A configured Codex account does not imply that its authoritative catalog
+      // contains this model. Do not preempt an eligible alternative in that case.
+      const { splitCodexReasoningSuffix } = await import("../executors/codex/reasoningSuffix.ts");
+      let exactAllowed = false;
+      try {
+        const { reconcileProvidersWithActiveSyncedCatalog } = await import("@/lib/db/models/activeSyncedCatalog");
+        exactAllowed = (await reconcileProvidersWithActiveSyncedCatalog(["codex"], modelId)).providers.includes("codex");
+      } catch {
+        // Preserve the existing fail-open behavior when the app DB is unavailable.
+        exactAllowed = true;
+      }
+      const codexCatalog = await reconcileInferredProvidersWithActiveCatalog(
+        ["codex"], splitCodexReasoningSuffix(modelId).baseModel
+      );
+      if (exactAllowed || !codexCatalog.excludedProviders.includes("codex") || codexNativeAlternatives.length === 0) {
+        return {
+          provider: "codex",
+          model: modelId,
+          extendedContext,
+        };
+      }
     }
   }
 
@@ -685,6 +710,20 @@ async function resolveModelByProviderInference(modelId: string, extendedContext:
   }
   const nonOpenAIProviders = providers.filter((p) => p !== "openai");
 
+  // A live catalog rejection must not fall through to an inactive static provider.
+  if (
+    excludedProviders.length > 0 && activeProviders && activeProviders.size > 0 &&
+    !providers.some((provider) => activeProviders.has(provider))
+  ) {
+    return {
+      provider: null,
+      model: modelId,
+      extendedContext,
+      errorType: "model_not_found",
+      errorMessage: `Model '${modelId}' is not available in the active live catalog for provider(s): ${excludedProviders.join(", ")}.`,
+    };
+  }
+
   // Bare model IDs from Codex CLI do not preserve StyxRouter's `cx/` prefix.
   // Route overlapping models through Codex only for Codex-only installations;
   // when OpenAI is also active, preserve the historical OpenAI default below.
@@ -705,7 +744,11 @@ async function resolveModelByProviderInference(modelId: string, extendedContext:
   // Outside the Codex subscription preference above, preserve the historical
   // OpenAI default whenever its catalog contains the bare model ID. Callers can
   // always make either route authoritative with an explicit provider prefix.
-  if (providers.includes("openai")) {
+  if (
+    providers.includes("openai") &&
+    !(excludedProviders.length > 0 && activeProviders && !activeProviders.has("openai") &&
+      providers.some((provider) => activeProviders.has(provider)))
+  ) {
     return {
       provider: "openai",
       model: modelId,

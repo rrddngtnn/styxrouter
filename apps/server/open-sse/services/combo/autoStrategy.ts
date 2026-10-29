@@ -304,6 +304,8 @@ export async function applyRequestTagRouting(
     }
 
     if (target.connectionId) {
+      if (Array.isArray(target.allowedConnectionIds) && target.allowedConnectionIds.length > 0 &&
+          !target.allowedConnectionIds.includes(target.connectionId)) return acc;
       acc.push(target);
       return acc;
     }
@@ -337,9 +339,9 @@ export async function applyRequestTagRouting(
   if (filteredTargets.length === 0) {
     log.info?.(
       "COMBO",
-      `Tag routing matched 0/${targets.length} targets for [${tags.join(", ")}] (${matchMode}); falling back to the full target set`
+      `Tag routing matched 0/${targets.length} targets (${matchMode}); refusing unmatched targets`
     );
-    return targets;
+    return [];
   }
 
   log.info?.(

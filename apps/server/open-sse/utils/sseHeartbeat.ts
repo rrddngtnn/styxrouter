@@ -116,7 +116,7 @@ export function createSseHeartbeatTransform({
     intervalId = undefined;
   };
 
-  return new TransformStream<Uint8Array, Uint8Array>({
+  const transformer: Transformer<Uint8Array, Uint8Array> & { cancel(): void } = {
     start(controller) {
       intervalId = globalThis.setInterval(() => {
         if (signal?.aborted) {
@@ -148,8 +148,7 @@ export function createSseHeartbeatTransform({
       stop();
     },
 
-    cancel() {
-      stop();
-    },
-  });
+    cancel() { stop(); },
+  };
+  return new TransformStream<Uint8Array, Uint8Array>(transformer);
 }

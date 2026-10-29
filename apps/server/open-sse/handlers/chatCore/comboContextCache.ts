@@ -28,6 +28,8 @@ let _combosCacheVersionSnapshot = -1;
 const COMBOS_CACHE_TTL = 10_000;
 
 export async function getCombosCached(): Promise<unknown[]> {
+  const { ensureQuotaCombosCurrent } = await import("@/lib/db/quotaComboGeneration");
+  await ensureQuotaCombosCurrent();
   const now = Date.now();
   const { getCombos, getCombosCacheVersion } = await import("@/lib/localDb");
   const version = getCombosCacheVersion();

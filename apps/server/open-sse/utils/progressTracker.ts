@@ -34,8 +34,7 @@ export function createProgressTransform({
 
   const encoder = new TextEncoder();
 
-  return new TransformStream(
-    {
+  const transformer: Transformer<Uint8Array | string, Uint8Array | string> & { cancel(): void } = {
       start(controller) {
         writer = controller;
         startTime = Date.now();
@@ -93,10 +92,10 @@ export function createProgressTransform({
         }
       },
 
-      cancel() {
-        clearInterval(intervalId);
-      },
-    },
+      cancel() { clearInterval(intervalId); },
+    };
+  return new TransformStream(
+    transformer,
     { highWaterMark: 16384 },
     { highWaterMark: 16384 }
   );

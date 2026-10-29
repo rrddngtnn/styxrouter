@@ -42,18 +42,18 @@ export async function POST(request) {
   }
   const body = validation.data;
 
-  const tokenizerContext: TokenizerContext = {
-    model: typeof body.model === "string" ? body.model : undefined,
-  };
-  const estimated = buildEstimatedCountResponse(body, tokenizerContext);
   const requestedModel = typeof body.model === "string" ? body.model : "";
-  if (!requestedModel) {
-    return estimated;
-  }
-
-  const policy = await enforceApiKeyPolicy(request, requestedModel);
+  const policy = await enforceApiKeyPolicy(request, requestedModel || null);
   if (policy.rejection) {
     return policy.rejection;
+  }
+
+  const tokenizerContext: TokenizerContext = {
+    model: requestedModel || undefined,
+  };
+  const estimated = buildEstimatedCountResponse(body, tokenizerContext);
+  if (!requestedModel) {
+    return estimated;
   }
   const allowedConnections = policy.apiKeyInfo?.allowedConnections?.length
     ? policy.apiKeyInfo.allowedConnections
@@ -71,7 +71,11 @@ export async function POST(request) {
       allowedConnections,
       modelInfo.model
     );
-    if (!credentials || credentials.allRateLimited) {
+    if (
+      !credentials ||
+      ("allRateLimited" in credentials && credentials.allRateLimited) ||
+      ("allExpired" in credentials && credentials.allExpired)
+    ) {
       return estimated;
     }
 
@@ -79,7 +83,7 @@ export async function POST(request) {
     // The provider-side count is a real upstream call — it must honor the
     // connection's proxy assignment exactly like chat execution does.
     const proxyInfo = await safeResolveProxy(
-      credentials.connectionId,
+      "connectionId" in credentials ? credentials.connectionId : undefined,
       undefined,
       modelInfo.provider
     );

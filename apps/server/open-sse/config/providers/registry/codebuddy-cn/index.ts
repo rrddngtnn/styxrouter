@@ -29,6 +29,7 @@ export const codebuddy_cnProvider: RegistryEntry = {
   executor: "codebuddy-cn",
   baseUrl: "https://copilot.tencent.com/v2/chat/completions",
   authType: "oauth",
+  authModes: ["oauth", "apikey"],
   authHeader: "bearer",
   headers: {
     "User-Agent": "CLI/2.108.1 CodeBuddy/2.108.1",

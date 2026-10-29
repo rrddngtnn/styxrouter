@@ -12,8 +12,7 @@ interface SessionEntry {
   lastActive: number;
   requestCount: number;
   connectionId: string | null;
-  /** Timestamp when the last tool_calls finish_reason was emitted (cross-request TTFT tracking) */
-  lastToolFinishAt?: number;
+
 }
 
 interface SessionFingerprintOptions {
@@ -37,6 +36,9 @@ interface SessionBody {
 // In-memory session store with metadata
 // key: sessionId → { createdAt, lastActive, requestCount, connectionId? }
 const sessions = new Map<string, SessionEntry>();
+// Stream fingerprints are distinct from dashboard session IDs; keep timing
+// independently so a stream need not create a visible monitoring session.
+const toolFinishTimes = new Map<string, number>();
 
 // Hard cap on active sessions to prevent memory exhaustion
 const MAX_SESSIONS = 200;
@@ -45,6 +47,9 @@ const MAX_SESSIONS = 200;
 const SESSION_TTL_MS = 15 * 60 * 1000;
 const _cleanupTimer = setInterval(() => {
   const now = Date.now();
+  for (const [key, timestamp] of toolFinishTimes) {
+    if (now - timestamp > SESSION_TTL_MS) toolFinishTimes.delete(key);
+  }
   // Evict expired sessions
   for (const [key, entry] of sessions) {
     if (now - entry.lastActive > SESSION_TTL_MS) {
@@ -170,8 +175,9 @@ export function touchSession(sessionId: string | null, connectionId: string | nu
  */
 export function markToolFinish(sessionId: string | null): void {
   if (!sessionId) return;
-  const session = sessions.get(sessionId);
-  if (session) session.lastToolFinishAt = Date.now();
+  toolFinishTimes.delete(sessionId);
+  toolFinishTimes.set(sessionId, Date.now());
+  if (toolFinishTimes.size > MAX_SESSIONS) toolFinishTimes.delete(toolFinishTimes.keys().next().value!);
 }
 
 /**
@@ -180,11 +186,9 @@ export function markToolFinish(sessionId: string | null): void {
  */
 export function consumeToolFinishTime(sessionId: string | null): number | null {
   if (!sessionId) return null;
-  const session = sessions.get(sessionId);
-  if (!session?.lastToolFinishAt) return null;
-  const ts = session.lastToolFinishAt;
-  session.lastToolFinishAt = undefined;
-  return ts;
+  const ts = toolFinishTimes.get(sessionId);
+  toolFinishTimes.delete(sessionId);
+  return ts !== undefined && Date.now() - ts <= SESSION_TTL_MS ? ts : null;
 }
 
 /**
@@ -235,6 +239,7 @@ export function getActiveSessions(): Array<SessionEntry & { sessionId: string; a
  */
 export function clearSessions(): void {
   sessions.clear();
+  toolFinishTimes.clear();
   activeSessionsByKey.clear();
 }
 

@@ -1,4 +1,5 @@
 import type { AntigravityClientProfile } from "@/shared/constants/antigravityClientProfile";
+import { getAntigravityVersionPin } from "@/lib/db/antigravityVersionPin";
 import {
   getCachedAntigravityCliVersion,
   getCachedAntigravityIdeVersion,
@@ -26,18 +27,18 @@ function withOptionalBearerAuth(
   return headers;
 }
 
-export function antigravityIdeUserAgent(version = getCachedAntigravityIdeVersion()): string {
+export function antigravityIdeUserAgent(version = getAntigravityVersionPin("ide") ?? getCachedAntigravityIdeVersion()): string {
   return `antigravity/ide/${version} ${ANTIGRAVITY_OS_TYPE}/${ANTIGRAVITY_ARCH}`;
 }
 
 export function antigravityCliUserAgent(
-  version = getCachedAntigravityCliVersion(),
+  version = getAntigravityVersionPin("cli") ?? getCachedAntigravityCliVersion(),
   authMethod = "consumer"
 ): string {
   return `antigravity/cli/${version} (aidev_client; os_type=${ANTIGRAVITY_OS_TYPE}; arch=${ANTIGRAVITY_ARCH}; auth_method=${authMethod})`;
 }
 
-export function antigravityIdeNodeUserAgent(version = getCachedAntigravityIdeVersion()): string {
+export function antigravityIdeNodeUserAgent(version = getAntigravityVersionPin("ide") ?? getCachedAntigravityIdeVersion()): string {
   return `antigravity/${version} ${ANTIGRAVITY_OS_TYPE}/${ANTIGRAVITY_ARCH} ${ANTIGRAVITY_IDE_NODE_API_CLIENT}`;
 }
 

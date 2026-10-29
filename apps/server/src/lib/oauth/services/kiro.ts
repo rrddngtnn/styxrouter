@@ -15,6 +15,13 @@ import {
 
 const KIRO_AUTH_SERVICE = "https://prod.us-east-1.auth.desktop.kiro.dev";
 
+type KiroRegistrationResponse = { clientId: string; clientSecret: string; clientSecretExpiresAt: number };
+type KiroDeviceResponse = { deviceCode: string; userCode: string; verificationUri: string; verificationUriComplete: string; expiresIn: number; interval?: number };
+type KiroTokenResponse = { accessToken: string; refreshToken?: string; expiresIn?: number; tokenType?: string; profileArn?: string; error?: string; error_description?: string };
+type ExternalIdpTokenResponse = { access_token: string; refresh_token?: string; expires_in?: number };
+type KiroProfilesResponse = { profiles?: { arn?: string; profileArn?: string }[] };
+
+
 export class KiroService {
   /**
    * Register OIDC client with AWS SSO
@@ -43,7 +50,7 @@ export class KiroService {
       throw new Error(`Failed to register client: ${error}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as KiroRegistrationResponse;
     return {
       clientId: data.clientId,
       clientSecret: data.clientSecret,
@@ -80,7 +87,7 @@ export class KiroService {
       throw new Error(`Failed to start device authorization: ${error}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as KiroDeviceResponse;
     return {
       deviceCode: data.deviceCode,
       userCode: data.userCode,
@@ -116,7 +123,7 @@ export class KiroService {
       }),
     });
 
-    const data = await response.json();
+    const data = (await response.json()) as KiroTokenResponse;
 
     // Handle pending/slow_down/errors
     if (!response.ok || data.error) {
@@ -176,7 +183,7 @@ export class KiroService {
       throw new Error(`Token exchange failed: ${error}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as KiroTokenResponse;
     return {
       accessToken: data.accessToken,
       refreshToken: data.refreshToken,
@@ -209,7 +216,7 @@ export class KiroService {
         const error = await response.text();
         throw new Error(`Token refresh failed: ${error}`);
       }
-      const data = await response.json();
+      const data = (await response.json()) as ExternalIdpTokenResponse;
       return {
         accessToken: data.access_token,
         refreshToken: data.refresh_token || refreshToken,
@@ -256,7 +263,7 @@ export class KiroService {
           });
 
           if (retryRes.ok) {
-            const retryData = await retryRes.json();
+            const retryData = (await retryRes.json()) as KiroTokenResponse;
             return {
               accessToken: retryData.accessToken,
               refreshToken: retryData.refreshToken || refreshToken,
@@ -278,7 +285,7 @@ export class KiroService {
         throw new Error(`Token refresh failed: ${error}`);
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as KiroTokenResponse;
       return {
         // Builder ID / IDC OIDC refresh: no profileArn (the social path supplies
         // one; Builder ID connections legitimately have none). expiresIn falls
@@ -306,7 +313,7 @@ export class KiroService {
       throw new Error(`Token refresh failed: ${error}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as KiroTokenResponse;
     return {
       accessToken: data.accessToken,
       refreshToken: data.refreshToken || refreshToken,
@@ -500,7 +507,7 @@ export class KiroService {
       throw new Error(`Failed to list profiles: ${error}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as KiroProfilesResponse;
     const profiles = Array.isArray(data?.profiles) ? data.profiles : [];
     const arnOf = (profile: any) => profile?.arn || profile?.profileArn || null;
     const match =

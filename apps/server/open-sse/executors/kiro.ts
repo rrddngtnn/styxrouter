@@ -1026,6 +1026,7 @@ export class KiroExecutor extends BaseExecutor {
   }
 
   async refreshCredentials(credentials: ProviderCredentials, log?: ExecutorLog | null) {
+    if (credentials?.providerSpecificData?.importedToken) throw new Error("Imported credential refresh is disabled; re-authenticate the connection");
     if (credentials.providerSpecificData?.authMethod === "api_key") return null;
     if (!credentials.refreshToken) return null;
 

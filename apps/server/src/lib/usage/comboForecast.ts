@@ -140,7 +140,7 @@ function buildQuotaForecast(
   }
 
   const ordered = [...snapshots].sort((left, right) =>
-    snapshotTime(left).localeCompare(snapshotTime(right))
+    Date.parse(snapshotTime(left)) - Date.parse(snapshotTime(right))
   );
   const first = ordered.find((entry) => latestRemaining(entry) !== null);
   const last = [...ordered].reverse().find((entry) => latestRemaining(entry) !== null);
@@ -259,13 +259,17 @@ async function buildComboForecast(
   rangeDays: number,
   horizonDays: number,
   projectionFactor: number,
-  since: string
+  since: string,
+  until: string
 ): Promise<ComboForecastMetrics | null> {
   const comboId = typeof combo.id === "string" ? combo.id : "";
   const comboName = typeof combo.name === "string" ? combo.name : "";
   if (!comboId || !comboName) return null;
 
-  const targets = resolveNestedComboTargets(combo, allCombos) as ResolvedComboTargetView[];
+  const targets = resolveNestedComboTargets(
+    { ...combo, name: comboName, models: combo.models || [], config: combo.config as Record<string, unknown>, autoConfig: combo.autoConfig as Record<string, unknown> },
+    allCombos.map((entry) => ({ ...entry }))
+  ) as ResolvedComboTargetView[];
   const rowsByTarget = groupRowsByExecutionKey(rows);
   const totalRequests = rows.reduce((sum, row) => sum + row.requests, 0);
   const totalCostUsd = rows.reduce((sum, row) => sum + row.costUsd, 0);
@@ -291,11 +295,12 @@ async function buildComboForecast(
         provider: target.provider,
         connectionId: target.connectionId,
         since,
+        until,
       });
       if (quotaSnapshots.length > 0) scope = "connection";
     }
     if (quotaSnapshots.length === 0) {
-      quotaSnapshots = getQuotaSnapshots({ provider: target.provider, since });
+      quotaSnapshots = getQuotaSnapshots({ provider: target.provider, since, until });
       if (quotaSnapshots.length > 0) scope = "provider";
     }
     const quota = buildQuotaForecast(quotaSnapshots, rangeDays, horizonDays);
@@ -375,6 +380,7 @@ export async function buildComboForecastResponse(opts: {
 }): Promise<ComboForecastResponse> {
   const now = opts.now ?? Date.now();
   const since = getRangeStartIso(opts.range, now);
+  const until = new Date(now).toISOString();
   const allCombos = opts.combos ?? ((await getCombos()) as ComboRecord[]);
   const rangeDays = daysFromMs(RANGE_MS[opts.range]);
   const horizonDays = daysFromMs(HORIZON_MS[opts.horizon]);
@@ -407,7 +413,7 @@ export async function buildComboForecastResponse(opts: {
   );
   const onlyComboName = comboNames.size === 1 ? Array.from(comboNames)[0] : undefined;
   const usageRows = await attachCosts(
-    getComboForecastUsageRows({ since, comboName: onlyComboName })
+    getComboForecastUsageRows({ since, until, comboName: onlyComboName })
   );
   const rowsByCombo = new Map<string, CostedUsageRow[]>();
   for (const row of usageRows) {
@@ -426,7 +432,8 @@ export async function buildComboForecastResponse(opts: {
         rangeDays,
         horizonDays,
         projectionFactor,
-        since
+        since,
+        until
       )
     )
   );

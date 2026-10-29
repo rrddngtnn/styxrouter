@@ -258,7 +258,8 @@ export interface AffinityPinSettings {
  * Resolve the effective session-affinity TTL for any provider (#7274 — previously
  * hardcoded to codex only): an explicit per-request override wins, else the
  * persisted generic setting (falling back to the legacy codex-only key for
- * pre-migration callers), else 0 (disabled). Kept here so auth.ts can reuse it at
+ * pre-migration callers), else 30 minutes. An explicit zero disables affinity.
+ * Kept here so auth.ts can reuse it at
  * both the pin-override site and the downstream `selectSessionAffinityConnection`
  * site with one call.
  */
@@ -267,10 +268,12 @@ export function resolveSessionAffinityTtlMs(
   options: AffinityPinOptions,
   settings: AffinityPinSettings
 ): number {
-  const override = Number(options.sessionAffinityTtlMs);
-  if (Number.isFinite(override) && override > 0) return override;
-  const configured = Number(settings.sessionAffinityTtlMs ?? settings.codexSessionAffinityTtlMs);
-  if (Number.isFinite(configured) && configured > 0) return configured;
+  const override = options.sessionAffinityTtlMs;
+  if (override != null && Number.isFinite(override) && override >= 0) return override;
+  const rawConfigured = settings.sessionAffinityTtlMs ?? settings.codexSessionAffinityTtlMs;
+  if (rawConfigured == null) return 1_800_000;
+  const configured = Number(rawConfigured);
+  if (Number.isFinite(configured) && configured >= 0) return configured;
   return 0;
 }
 

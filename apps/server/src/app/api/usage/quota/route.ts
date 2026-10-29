@@ -1,4 +1,6 @@
+import { getAllModelLockouts } from "@styxrouter/open-sse/services/accountFallback.ts";
 import { getProviderConnections } from "@/lib/localDb";
+import { getConnectionRoutingTags } from "@/domain/tagRouter";
 import {
   getLearnedLimits,
   getRateLimitStatus,
@@ -99,7 +101,10 @@ function familyForAntigravityKey(key: string): { id: string; label: string; rank
 
 function extractCachedWindows(
   provider: string,
-  quotas: Record<string, unknown> | null | undefined
+  quotas: Record<string, unknown> | null | undefined,
+  windowFetchedAt: Record<string, string> | undefined,
+  fetchedAt: string | null | undefined,
+  staleWindows: string[] | undefined
 ): QuotaWindowEntry[] {
   if (!quotas || typeof quotas !== "object" || Array.isArray(quotas)) return [];
 
@@ -110,6 +115,8 @@ function extractCachedWindows(
     const { used, total, remaining, pct } = deriveWindowPercent(q);
     const resetAt = typeof q.resetAt === "string" && q.resetAt.trim() ? q.resetAt.trim() : null;
     const unlimited = q.unlimited === true;
+    const observedAt = windowFetchedAt?.[key] ?? fetchedAt ?? null;
+    const stale = staleWindows ? staleWindows.includes(key) : Boolean(observedAt && fetchedAt && observedAt !== fetchedAt);
     const displayName =
       typeof q.displayName === "string" && q.displayName.trim() ? q.displayName.trim() : key;
 
@@ -119,7 +126,7 @@ function extractCachedWindows(
       const sigReset = resetAt ?? "";
       const sigTotal = total ?? -1;
       const sigUsed = used ?? -1;
-      const groupKey = `${fam.id}:${sigTotal}:${sigUsed}:${sigReset}`;
+      const groupKey = `${fam.id}:${sigTotal}:${sigUsed}:${sigReset}:${observedAt ?? ""}:${stale}`;
       const existing = rawEntries.find((w) => w.key === groupKey);
       if (existing) {
         if (!existing.models.includes(key)) existing.models.push(key);
@@ -135,6 +142,8 @@ function extractCachedWindows(
         percentRemaining: pct,
         resetAt,
         unlimited,
+        fetchedAt: observedAt,
+        stale,
         rank: fam.rank,
       });
     } else {
@@ -154,6 +163,8 @@ function extractCachedWindows(
         percentRemaining: pct,
         resetAt,
         unlimited,
+        fetchedAt: observedAt,
+        stale,
         rank: key === "session" ? 1 : key === "weekly" ? 2 : 5,
       });
     }
@@ -265,15 +276,18 @@ function applyCachedLimits(
   cached:
     | {
         quotas?: Record<string, unknown> | null;
-        plan?: string | null;
+        windowFetchedAt?: Record<string, string>;
+        staleWindows?: string[];
+        refreshFailed?: boolean;
+        plan?: unknown;
         fetchedAt?: string | null;
-        message?: string | null;
+        message?: unknown;
       }
     | undefined
 ): QuotaProviderEntry {
   if (!cached) return entry;
 
-  const windows = extractCachedWindows(entry.provider, cached.quotas ?? null);
+  const windows = extractCachedWindows(entry.provider, cached.quotas ?? null, cached.windowFetchedAt, cached.fetchedAt, cached.staleWindows).map(w => cached.refreshFailed ? { ...w, stale: true } : w);
   const plan = typeof cached.plan === "string" && cached.plan.trim() ? cached.plan.trim() : entry.plan;
   const fetchedAt =
     typeof cached.fetchedAt === "string" && cached.fetchedAt.trim() ? cached.fetchedAt.trim() : entry.fetchedAt;
@@ -299,7 +313,7 @@ function applyCachedLimits(
     };
   }
 
-  const pct = best.percentRemaining ?? entry.percentRemaining;
+  const pct = best.percentRemaining ?? entry.percentRemaining ?? 0;
   return {
     ...entry,
     plan,
@@ -319,11 +333,17 @@ function applyCachedLimits(
  * Query params:
  *   - provider (optional): filter by provider slug
  *   - connectionId (optional): filter to a provider connection id
+ *   - tag (optional): filter by normalized exact account tag
  *   - includeInactive (optional): "false" to exclude disabled accounts (default: include all)
  */
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
+    const tags = searchParams.getAll("tag");
+    if (tags.length > 1 || (tags.length === 1 && (!tags[0].trim() || tags[0].trim().length > 64))) {
+      return Response.json({ error: "Invalid tag filter" }, { status: 400 });
+    }
+    const tag = tags[0]?.trim().toLowerCase();
     const providerFilter = searchParams.get("provider");
     const connectionIdFilter = searchParams.get("connectionId");
     const includeInactive = searchParams.get("includeInactive") !== "false";
@@ -337,14 +357,28 @@ export async function GET(request: Request) {
     if (connectionIdFilter) {
       connections = connections.filter((conn) => conn.id === connectionIdFilter);
     }
+    if (tag !== undefined) {
+      connections = connections.filter((conn) => getConnectionRoutingTags(conn.providerSpecificData).includes(tag));
+    }
 
     const learnedLimits = getLearnedLimits();
     const limitsCache = await getSanitizedCachedProviderLimitsMap();
+    const modelLockouts = getAllModelLockouts();
     const providers = connections.map((conn) => {
       const learnedLimit = learnedLimits?.[`${conn.provider}:${conn.id}`] || null;
       const rateStatus = getRateLimitStatus(conn.provider, conn.id);
-      const entry = buildQuotaEntry(conn, learnedLimit, rateStatus);
-      return applyCachedLimits(entry, limitsCache[conn.id]);
+      const entry = applyCachedLimits(buildQuotaEntry(conn, learnedLimit, rateStatus), limitsCache[String(conn.id)]);
+      if (conn.provider !== "codebuddy-cn") return entry;
+      const observed = entry.windows.filter(w => w.used !== null && w.total !== null);
+      const creditStatus = observed.length === 0 || observed.length !== entry.windows.length || observed.some(w => (toDateMs(w.fetchedAt) ?? 0) <= 0) ? "unknown" : observed.some(w => w.stale || (w.resetAt && (toDateMs(w.resetAt) ?? 0) <= Date.now())) ? "stale" : "observed";
+      const cooldownMs = toDateMs(conn.rateLimitedUntil);
+      return {
+        ...entry,
+        creditStatus,
+        accountCooldownUntil: cooldownMs !== null && cooldownMs > Date.now() ? conn.rateLimitedUntil : null,
+        modelCooldowns: modelLockouts.filter(lock => lock.provider === conn.provider && lock.connectionId === conn.id)
+          .map(lock => ({model: lock.model, reason: lock.reason, until: new Date(lock.until).toISOString()})),
+      };
     });
 
     const response = normalizeQuotaResponse(

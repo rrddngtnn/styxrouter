@@ -62,6 +62,7 @@ function supportsNativeMaxReasoningEffort(model: unknown): boolean {
     .replace(/^(?:codex|cx)\//, "");
   return (
     CODEX_GPT_5_6_MODEL_PATTERN.test(normalizedModel) ||
+    /^gpt-6\.1-terra(?:-(?:none|low|medium|high|xhigh|max|ultra))?$/.test(normalizedModel) ||
     KIRO_GPT_5_6_MODEL_PATTERN.test(toString(model).trim().toLowerCase())
   );
 }

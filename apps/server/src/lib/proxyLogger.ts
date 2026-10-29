@@ -9,6 +9,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { getDbInstance, isCloud, isBuildPhase } from "./db/core";
 import { ensureProxyLogsColumns } from "./db/schemaColumns";
+import { redactLogUrl } from "./logUrlRedaction";
 
 const shouldPersistToDisk = !isCloud && !isBuildPhase;
 
@@ -83,11 +84,11 @@ function loadFromDb() {
         level: row.level || "direct",
         levelId: row.level_id || null,
         provider: row.provider || null,
-        targetUrl: row.target_url || null,
+        targetUrl: redactLogUrl(row.target_url || null),
         clientIp: row.public_ip || null,
         egressIp: row.egress_ip || null,
         latencyMs: row.latency_ms || 0,
-        error: row.error || null,
+        error: redactLogUrl(row.error || null),
         connectionId: row.connection_id || null,
         comboId: row.combo_id || null,
         account: row.account || null,
@@ -160,11 +161,11 @@ export function logProxyEvent(entry: ProxyLogInput) {
     level: entry.level || "direct",
     levelId: entry.levelId || null,
     provider: entry.provider || null,
-    targetUrl: entry.targetUrl || null,
+    targetUrl: redactLogUrl(entry.targetUrl || null),
     clientIp: entry.clientIp ?? entry.publicIp ?? null,
     egressIp: entry.egressIp ?? null,
     latencyMs: entry.latencyMs || 0,
-    error: entry.error || null,
+    error: redactLogUrl(entry.error || null),
     connectionId: entry.connectionId || null,
     comboId: entry.comboId || null,
     account: entry.account || null,

@@ -329,6 +329,7 @@ function normalizeServiceTierValue(value: unknown): string | undefined {
  * Update this table when Codex releases new models with different caps.
  */
 const MAX_EFFORT_BY_MODEL: Record<string, EffortLevel> = {
+  "gpt-6.1-terra": "ultra",
   "gpt-5.6-sol": "ultra",
   "gpt-5.6-terra": "ultra",
   "gpt-5.6-luna": "max",
@@ -796,6 +797,7 @@ function normalizeCodexWsHeaders(headers: Record<string, string>): Record<string
  * IMPORTANT: Includes chatgpt-account-id header for workspace binding.
  */
 export class CodexExecutor extends BaseExecutor {
+  override readonly serializesCredentialRefresh = true;
   private appServer: CodexAppServerExecutor | null = null;
 
   constructor() {
@@ -877,7 +879,8 @@ export class CodexExecutor extends BaseExecutor {
       true,
       nextInput.credentials
     )) as Record<string, unknown>;
-    transformedBody.model = getCodexUpstreamModel(transformedBody.model || nextInput.model);
+    // transformRequest already resolves aliases; do not parse the resulting ID again.
+    transformedBody.model = transformedBody.model || nextInput.model;
     delete transformedBody.stream;
     delete transformedBody.stream_options;
 
@@ -1357,7 +1360,9 @@ export class CodexExecutor extends BaseExecutor {
 
     let modelEffort: string | null = null;
     let cleanModel = typeof body.model === "string" ? body.model : model;
-    const splitModel = splitCodexReasoningSuffix(cleanModel);
+    const splitModel = cleanModel === credentials?.codexExactModel
+      ? { baseModel: cleanModel, effort: null }
+      : splitCodexReasoningSuffix(cleanModel);
     if (splitModel.effort) {
       modelEffort = splitModel.effort;
       body.model = splitModel.baseModel;

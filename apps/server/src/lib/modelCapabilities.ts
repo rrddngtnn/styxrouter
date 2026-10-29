@@ -3,6 +3,7 @@ import {
   PROVIDER_MODELS,
 } from "@styxrouter/open-sse/config/providerModels.ts";
 import { parseModel, resolveCanonicalProviderModel } from "@styxrouter/open-sse/services/model.ts";
+import { splitCodexReasoningSuffix } from "@styxrouter/open-sse/executors/codex/reasoningSuffix.ts";
 import {
   findModelSpecIdByExactOrAlias,
   getAuthoritativeContextWindow,
@@ -12,7 +13,7 @@ import {
 } from "@/shared/constants/modelSpecs";
 import { getSyncedCapability } from "@/lib/modelsDevSync";
 import { MODELS_DEV_PROVIDER_MAP } from "@/lib/modelsDevSync/transform";
-import { getModelContextOverride } from "@/lib/db/modelContextOverrides";
+import { getModelContextOverride, getModelContextOverrideRecord } from "@/lib/db/modelContextOverrides";
 import {
   getModelCapabilityOverride,
   getBooleanModelCapabilityOverrides,
@@ -268,6 +269,7 @@ const EFFORT_VARIANT_SUFFIXES = [
   "high",
   "xhigh",
   "max",
+  "ultra",
 ] as const;
 
 /**
@@ -626,6 +628,34 @@ export function getResolvedModelContextOverride(
   return getContextOverride(resolveCapabilityInput(input), snapshot);
 }
 
+/** Catalog presentation only: operator overrides, not discovered windows. */
+export function getManualCatalogContextOverride(
+  input: CapabilityInput,
+  snapshot?: ModelCapabilityResolutionSnapshot | null
+): number | null {
+  const resolved = resolveCapabilityInput(input);
+  const candidates = [resolved.model, resolved.rawModel];
+  if (resolved.provider === "codex" && resolved.model) {
+    const { baseModel, effort } = splitCodexReasoningSuffix(resolved.model);
+    // An exact registered model ID may legitimately end in an effort word.
+    const exactModel = getRegistryModel(resolved.provider, resolved.model);
+    if (effort && (!exactModel || baseModel === "gpt-6.1-terra" || baseModel.startsWith("gpt-5.6-"))) {
+      candidates.push(baseModel);
+    }
+  }
+  for (const id of new Set(candidates)) {
+    if (!id || !resolved.provider) continue;
+    const value = snapshot
+      ? snapshot.manualContextOverrides?.get(resolved.provider)?.get(id) ?? null
+      : (() => {
+          const record = getModelContextOverrideRecord(resolved.provider, id);
+          return record?.source === "manual" ? record.realContext : null;
+        })();
+    if (value !== null) return value;
+  }
+  return null;
+}
+
 function getInputTokenCapabilityOverride(resolved: {
   provider: string | null;
   model: string | null;
@@ -821,20 +851,37 @@ export function getResolvedModelCapabilities(
     resolved.model,
     resolved.rawModel
   );
-  // A persisted context-window override (operator-set or auto-discovered)
-  // reflects the real *total* window and wins over every static/synced source.
-  // `maxInputTokens` still follows its own precedence chain; only when that
-  // chain has no narrower source does it naturally fall back to this window.
+  // Persisted context metadata wins over static/synced context sources. Codex
+  // Terra discovery reports a client default rather than a proven inference limit.
+  // Other models retain the existing input-limit fallback and clamping behavior.
   const persistedContextWindow = usePersistedOverrides
     ? getContextOverride(resolved, snapshot)
     : null;
+  // Operator default is 1M for every model/provider; manual and discovery
+  // overrides still win, including alias→base fallback for effort suffixed ids.
+  const configuredTerra = resolved.provider === "codex" && resolved.model &&
+    (stripKnownEffortSuffix(resolved.model) ?? resolved.model) === "gpt-6.1-terra";
+  const baseModelId = stripKnownEffortSuffix(resolved.model) ?? resolved.model;
+  const manualAliasContext = usePersistedOverrides && resolved.provider && baseModelId && baseModelId !== resolved.model
+    ? [baseModelId].reduce<number | null>((value, id) => {
+        if (value !== null || !id) return value;
+        if (snapshot) return snapshot.manualContextOverrides?.get(resolved.provider!)?.get(id) ?? null;
+        const record = getModelContextOverrideRecord(resolved.provider!, id);
+        return record?.source === "manual" ? record.realContext : null;
+      }, null)
+    : null;
+  const discoveryAliasContext = usePersistedOverrides && baseModelId && baseModelId !== resolved.model
+    ? getContextOverride({ ...resolved, model: baseModelId, rawModel: null }, snapshot)
+    : null;
   const contextWindow =
     persistedContextWindow ??
+    manualAliasContext ??
+    discoveryAliasContext ??
     authoritativeContextWindow ??
     synced?.limit_context ??
     (typeof registryModel?.contextLength === "number" ? registryModel.contextLength : null) ??
     spec?.contextWindow ??
-    (/(^|\/)gpt[-\d]/i.test(resolved.model ?? "") ? 256_000 : 1_000_000);
+    1_000_000;
 
   const maxInputOverride = !usePersistedOverrides
     ? null
@@ -901,6 +948,12 @@ export function getResolvedModelCapabilities(
     temperature: synced?.temperature ?? null,
     contextWindow,
     maxInputTokens: (() => {
+      // The Terra context value is a Codex client default, not an input ceiling.
+      // Preserve independently configured input limits without clamping them to it.
+      if (configuredTerra) {
+        return maxInputOverride ??
+          (typeof registryModel?.maxInputTokens === "number" ? registryModel.maxInputTokens : null);
+      }
       // Input cap is input-only. An explicit `max_input_tokens` override wins;
       // otherwise fall back to the existing per-source input limits, then to the
       // total window. The effective cap can never exceed the total window
@@ -1065,13 +1118,5 @@ export function getModelContextLimit(
           snapshot
         )
       : getResolvedModelCapabilities(providerOrInput, undefined, snapshot);
-  // Feature 5004: a persisted override (operator-set or auto-discovered) wins over the
-  // static catalog / models.dev sync. `getResolvedModelCapabilities` stays override-free
-  // so the reconciler can compare the catalog value against provider-declared windows.
-  const override = getModelContextOverride(
-    resolved.provider,
-    resolved.model,
-    snapshot?.contextOverrides ?? null
-  );
-  return override ?? resolved.contextWindow;
+  return resolved.contextWindow;
 }

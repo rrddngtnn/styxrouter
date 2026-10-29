@@ -260,7 +260,7 @@ export const zaiGlmProvider = {
     if (!pollToken || !flowId) {
       return { ok: true, data: { error: "access_denied", error_description: "Missing ZCode poll token — restart the login flow" } };
     }
-    const cfg = ZAI_GLM_CONFIG;
+    const cfg = config;
     const res = await fetch(`${cfg.cliPollUrl}/${encodeURIComponent(flowId)}`, {
       headers: { Authorization: `Bearer ${pollToken}` },
     });

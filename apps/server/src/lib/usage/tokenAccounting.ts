@@ -200,7 +200,7 @@ export function getReasoningTokensOrNull(tokens: unknown): number | null {
 export function getNoCacheTokens(tokens: unknown): number | null {
   const tokenRecord = asRecord(tokens);
   const promptDetails = getPromptTokenDetails(tokenRecord);
-  if (hasAnyKey(tokenRecord, ["no_cache_tokens"]) || hasAnyKey(promptDetails, ["noCacheTokens"])) {
+  if (hasAnyKey(tokenRecord, ["no_cache_tokens", "noCacheTokens"]) || hasAnyKey(promptDetails, ["noCacheTokens"])) {
     return toFiniteNumber(
       tokenRecord.no_cache_tokens ?? promptDetails.noCacheTokens ?? tokenRecord.noCacheTokens
     );

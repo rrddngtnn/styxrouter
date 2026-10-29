@@ -62,7 +62,11 @@ function getRangeStartIso(range: string): string | null {
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 type PricingByProvider = Record<string, Record<string, Record<string, unknown>>>;
-type UsageRows = Array<Record<string, unknown>>;
+type UsageCostRow = {
+  provider?: unknown; model?: unknown; serviceTier?: unknown; service_tier?: unknown;
+  promptTokens?: unknown; completionTokens?: unknown; cacheReadTokens?: unknown;
+  cacheCreationTokens?: unknown; reasoningTokens?: unknown; totalTokens?: unknown;
+};
 type ComputeCostFromPricing = (
   pricing: Record<string, unknown> | null | undefined,
   tokens: Record<string, number | undefined> | null | undefined,
@@ -99,7 +103,8 @@ function appendWhereCondition(whereClause: string, condition: string): string {
 
 function findKeyInsensitive(obj: Record<string, any> | undefined | null, key: string): any {
   if (!obj || !key) return undefined;
-  return obj[key.toLowerCase()];
+  const normalized = key.toLowerCase();
+  return Object.hasOwn(obj, normalized) ? obj[normalized] : undefined;
 }
 
 function uniqueValues(values: Array<string | null | undefined>): string[] {
@@ -163,7 +168,7 @@ function resolveModelPricing(
 
   if (!providerPricing) {
     // providerAliasMap maps ID -> ALIAS. So if pLower is "codex", alias is "cx".
-    const alias = providerAliasMap[pLower];
+    const alias = Object.hasOwn(providerAliasMap, pLower) ? providerAliasMap[pLower] : undefined;
     if (alias) {
       providerPricing = findKeyInsensitive(pricingByProvider, alias);
     }
@@ -235,7 +240,7 @@ function resolveModelPricing(
 }
 
 function computeUsageRowCost(
-  row: Record<string, unknown>,
+  row: UsageCostRow,
   pricingByProvider: PricingByProvider,
   providerAliasMap: Record<string, string>,
   normalizeModelName: (model: string) => string,
@@ -274,7 +279,7 @@ function computeUsageRowCost(
 }
 
 function computeUsageRowStandardCost(
-  row: Record<string, unknown>,
+  row: UsageCostRow,
   pricingByProvider: PricingByProvider,
   providerAliasMap: Record<string, string>,
   normalizeModelName: (model: string) => string,
@@ -290,7 +295,7 @@ function computeUsageRowStandardCost(
 }
 
 function computeUsageSavingsTokens(
-  row: Record<string, unknown>,
+  row: UsageCostRow,
   serviceTier: string,
   getCodexFastCostMultiplier: GetCodexFastCostMultiplier
 ): number {
@@ -330,13 +335,17 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const range = searchParams.get("range") || "30d";
+    const provider = searchParams.get("provider") || null;
     const startDate = searchParams.get("startDate") || undefined;
     const endDate = searchParams.get("endDate") || undefined;
     const apiKeyIdsParam = searchParams.get("apiKeyIds") || "";
     const apiKeyIds = apiKeyIdsParam ? apiKeyIdsParam.split(",").filter(Boolean) : [];
 
     const sinceIso = startDate || getRangeStartIso(range);
-    const untilIso = endDate || null;
+    // Date-only selections represent the whole UTC day; explicit timestamps retain their precision.
+    const untilIso = endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate)
+      ? `${endDate}T23:59:59.999Z`
+      : endDate || null;
     const presetsParam = searchParams.get("presets");
 
     const apiKeys = await getApiKeys();
@@ -357,6 +366,10 @@ export async function GET(request: Request) {
 
     const conditions = [];
     const params: Record<string, string> = {};
+    if (provider) {
+      conditions.push("LOWER(provider) = LOWER(@provider)");
+      params.provider = provider;
+    }
 
     if (sinceIso) {
       conditions.push("timestamp >= @since");
@@ -393,6 +406,7 @@ export async function GET(request: Request) {
       rawCutoffDate,
       apiKeyWhere,
       apiKeyParams: apiKeyParamEntries,
+      provider,
     });
 
     // Fetch pricing data for cost calculation (no rows loaded)
@@ -400,9 +414,9 @@ export async function GET(request: Request) {
     const rawPricingByProvider = (await getPricing()) as PricingByProvider;
 
     // Pre-process pricing data to lowercase keys for O(1) lookups
-    const pricingByProvider: PricingByProvider = {};
+    const pricingByProvider: PricingByProvider = Object.create(null);
     for (const [providerKey, providerVal] of Object.entries(rawPricingByProvider || {})) {
-      const lowerProvider = {};
+      const lowerProvider = Object.create(null);
       for (const [modelKey, modelVal] of Object.entries(providerVal || {})) {
         (lowerProvider as any)[modelKey.toLowerCase()] = modelVal;
       }
@@ -412,10 +426,10 @@ export async function GET(request: Request) {
       await import("@/lib/usage/costCalculator");
     const { PROVIDER_ID_TO_ALIAS } = await import("@styxrouter/open-sse/config/providerModels");
 
-    const summaryRow = getUsageSummary(unifiedSource, unifiedParams) as Record<string, unknown>;
+    const summaryRow = getUsageSummary(unifiedSource, unifiedParams);
 
-    const dailyRows = getDailyUsage(unifiedSource, unifiedParams) as UsageRows;
-    const dailyCostRows = getDailyCostRows(unifiedSource, unifiedParams) as UsageRows;
+    const dailyRows = getDailyUsage(unifiedSource, unifiedParams);
+    const dailyCostRows = getDailyCostRows(unifiedSource, unifiedParams);
 
     const heatmapStart = new Date();
     heatmapStart.setUTCDate(heatmapStart.getUTCDate() - 364);
@@ -431,36 +445,41 @@ export async function GET(request: Request) {
     const heatmapConditions = ["timestamp >= @heatmapStart"];
     if (apiKeyWhere) heatmapConditions.push(apiKeyWhere);
     const heatmapParams: Record<string, string> = { heatmapStart: heatmapStart.toISOString() };
+    if (provider) {
+      heatmapConditions.push("LOWER(provider) = LOWER(@provider)");
+      heatmapParams.provider = provider;
+    }
     if (apiKeyIds.length > 0) {
       apiKeyIds.forEach((key, i) => {
         heatmapParams[`apiKey${i}`] = key;
       });
     }
 
-    const heatmapRows = getHeatmapRows(heatmapConditions, heatmapParams) as UsageRows;
+    const heatmapRows = getHeatmapRows(heatmapConditions, heatmapParams);
 
-    const modelRows = getModelUsageRows(unifiedSource, unifiedParams) as UsageRows;
+    const modelRows = getModelUsageRows(unifiedSource, unifiedParams);
 
-    const providerCostRows = getProviderCostRows(unifiedSource, unifiedParams) as UsageRows;
+    const providerCostRows = getProviderCostRows(unifiedSource, unifiedParams);
 
-    const providerRows = getProviderUsageRows(unifiedSource, unifiedParams) as UsageRows;
+    const providerRows = getProviderUsageRows(unifiedSource, unifiedParams);
 
     const accountCostWhereClause = whereClause
       .replace(/timestamp/g, "usage_history.timestamp")
+      .replace(/LOWER\(provider\)/g, "LOWER(usage_history.provider)")
       .replace(/api_key_/g, "usage_history.api_key_");
-    const accountCostRows = getAccountCostRows(accountCostWhereClause, params) as UsageRows;
+    const accountCostRows = getAccountCostRows(accountCostWhereClause, params);
 
-    const accountRows = getAccountUsageRows(accountCostWhereClause, params) as UsageRows;
+    const accountRows = getAccountUsageRows(accountCostWhereClause, params);
 
     const apiKeyWhereClause = appendWhereCondition(
       whereClause,
       "(api_key_id IS NOT NULL AND api_key_id != '') OR (api_key_name IS NOT NULL AND api_key_name != '')"
     );
-    const apiKeyRows = getApiKeyUsageRows(apiKeyWhereClause, params) as UsageRows;
+    const apiKeyRows = getApiKeyUsageRows(apiKeyWhereClause, params);
 
-    const serviceTierRows = getServiceTierUsageRows(unifiedSource, unifiedParams) as UsageRows;
+    const serviceTierRows = getServiceTierUsageRows(unifiedSource, unifiedParams);
 
-    const apiKeyMetadataRows = getApiKeyMetadataRows(apiKeyWhereClause, params) as UsageRows;
+    const apiKeyMetadataRows = getApiKeyMetadataRows(apiKeyWhereClause, params);
 
     const apiKeyMetadata = new Map<string, { latestName: string; aliases: Set<string> }>();
     for (const row of apiKeyMetadataRows) {
@@ -477,9 +496,9 @@ export async function GET(request: Request) {
       apiKeyMetadata.set(groupKey, existing);
     }
 
-    const weeklyRows = getWeeklyPatternRows(unifiedSource, unifiedParams) as UsageRows;
+    const weeklyRows = getWeeklyPatternRows(unifiedSource, unifiedParams);
 
-    const fallbackRow = getFallbackStats(whereClause, params) as Record<string, unknown>;
+    const fallbackRow = getFallbackStats(whereClause, params);
     const errorBreakdown = getErrorTypeBreakdown(whereClause, params);
 
     const summary = {
@@ -556,10 +575,15 @@ export async function GET(request: Request) {
       dailyCostByDate.set(date, (dailyCostByDate.get(date) || 0) + cost);
 
       // Group tokens by model for the day
-      const model = normalizeModelName(row.model as string);
+      const normalizedModel = normalizeModelName(row.model as string);
+      // `date` is reserved for the row's timestamp. Escape the prefix as well so
+      // a literal `model:date` cannot collide with the escaped model ID.
+      const model = normalizedModel === "date" || normalizedModel.startsWith("model:")
+        ? `model:${normalizedModel}`
+        : normalizedModel;
       const tokens = Number(row.promptTokens) + Number(row.completionTokens);
 
-      if (!dailyByModelMap[date]) dailyByModelMap[date] = {};
+      if (!dailyByModelMap[date]) dailyByModelMap[date] = Object.create(null);
       dailyByModelMap[date][model] = (dailyByModelMap[date][model] || 0) + tokens;
       allModels.add(model);
     }
@@ -591,10 +615,8 @@ export async function GET(request: Request) {
         normalizeModelName,
         computeCostFromPricing
       );
-      // Keyed by model name alone (not provider) — the table renders one row per
-      // model, so the same model served via multiple provider connections/accounts
-      // must be merged here rather than producing duplicate `key={m.model}` rows.
-      const key = short;
+      // Merge accounts within a provider without attributing another provider's usage to it.
+      const key = JSON.stringify([provider, short]);
       const existing = modelMap.get(key) || {
         model: short,
         provider,
@@ -859,6 +881,9 @@ export async function GET(request: Request) {
       summary,
       dailyTrend,
       activityMap,
+      // Heatmap and streak use retained raw records, not the historical rollups.
+      activityMapSource: "retained_raw_usage_history",
+      accountAndApiKeySource: "retained_raw_usage_history",
       byModel,
       byProvider,
       byApiKey,
@@ -871,6 +896,7 @@ export async function GET(request: Request) {
       modelNames,
       errorBreakdown,
       range,
+      provider,
     } as any;
 
     if (presetsParam) {
@@ -896,9 +922,10 @@ export async function GET(request: Request) {
           rawCutoffDate,
           apiKeyWhere,
           apiKeyParams: apiKeyParamEntries,
+          provider,
         });
 
-        const presetModelRows = getPresetCostModelRows(pSrc, pParams) as UsageRows;
+        const presetModelRows = getPresetCostModelRows(pSrc, pParams);
 
         let presetTotalCost = 0;
         for (const row of presetModelRows) {

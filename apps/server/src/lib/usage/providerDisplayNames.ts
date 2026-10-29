@@ -28,9 +28,10 @@ function getProviderDisplayName(
   const rawProvider = toStringValue(provider, "unknown");
   // Configured node name wins; static catalog covers built-ins (e.g. codex →
   // "OpenAI Codex") the nodes table doesn't know about; raw id is the last resort.
-  return (
-    providerDisplayNames.get(rawProvider) || getProviderById(rawProvider)?.name || rawProvider
-  );
+  const catalogProvider = getProviderById(rawProvider);
+  const catalogName = catalogProvider && typeof catalogProvider === "object" &&
+    Object.hasOwn(catalogProvider, "name") ? catalogProvider.name : undefined;
+  return providerDisplayNames.get(rawProvider) || catalogName || rawProvider;
 }
 
 async function getProviderDisplayNames(): Promise<Map<string, string>> {
@@ -54,6 +55,7 @@ async function getProviderDisplayNames(): Promise<Map<string, string>> {
 
 export interface ByProviderRow {
   provider: string;
+  providerId: string;
   requests: number;
   promptTokens: number;
   completionTokens: number;
@@ -68,12 +70,13 @@ export interface ByProviderRow {
  * id to its configured display name.
  */
 export async function buildByProviderRows(
-  providerRows: Array<Record<string, unknown>>,
+  providerRows: Array<{ provider?: unknown; requests?: unknown; promptTokens?: unknown; completionTokens?: unknown; totalTokens?: unknown; avgLatencyMs?: unknown; successfulRequests?: unknown }>,
   providerCostByProvider: Map<string, number>
 ): Promise<ByProviderRow[]> {
   const providerDisplayNames = await getProviderDisplayNames();
   return providerRows.map((row) => ({
     provider: getProviderDisplayName(row.provider, providerDisplayNames),
+    providerId: toStringValue(row.provider, "unknown"),
     requests: Number(row.requests),
     promptTokens: Number(row.promptTokens),
     completionTokens: Number(row.completionTokens),

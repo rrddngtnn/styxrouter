@@ -1,3 +1,4 @@
+import { getProviderNodeById } from "@/lib/db/providers/nodes";
 import {
   extractRequestToolIdentityMap,
   toToolNameAliasMap,
@@ -353,9 +354,9 @@ import {
   resolveConnectionTimeoutMs,
 } from "./chatCore/upstreamTimeouts.ts";
 import { getModelNormalizeToolCallId, getModelPreserveOpenAIDeveloperRole } from "@/lib/db/models";
-import { getProviderCredentials, extractSessionAffinityKey } from "@/sse/services/auth";
+import { getProviderCredentials } from "@/sse/services/auth";
 import { assertExclusiveConnectionLeaseFence } from "@/lib/db/exclusiveConnectionLeases";
-import { deleteSessionAccountAffinity } from "@/lib/db/sessionAccountAffinity";
+import { evictSessionAccountAffinityForConnection } from "@/lib/db/sessionAccountAffinity";
 import { getCacheControlSettings } from "@/lib/cacheControlSettings";
 import { guardrailRegistry } from "@/lib/guardrails";
 import {
@@ -524,6 +525,12 @@ export async function handleChatCore({
   managedLease = null,
 }) {
   let { provider, model, extendedContext } = modelInfo;
+  // UUID node identities are storage keys, not wire protocol identifiers. Keep
+  // account/policy identity unchanged and derive a separate executor identity.
+  const node = await getProviderNodeById(provider) as any;
+  const wireProvider = node?.type === "openai-compatible"
+    ? `openai-compatible-${node.apiType || "chat"}-${provider}`
+    : node?.type === "anthropic-compatible" ? `anthropic-compatible-${provider}` : provider;
   if (!skipResourcePressureGuard) {
     try {
       const pressureGuard = checkResourcePressureGuard();
@@ -741,7 +748,7 @@ export async function handleChatCore({
   } = resolveChatCoreRequestFormat({ clientRawRequest, body, provider, userAgent });
   const nativeOpenAICompatibleResponsesPassthrough =
     shouldUseNativeOpenAICompatibleResponsesPassthrough({
-      provider,
+      provider: wireProvider,
       sourceFormat,
       endpointPath,
       providerSpecificData: credentials?.providerSpecificData,
@@ -859,7 +866,7 @@ export async function handleChatCore({
   // Wire target-format resolution extracted to chatCore/targetFormat.ts (#3501); `alias` is reused
   // downstream when stripping the alias/ prefix off the upstream model id.
   const { alias, targetFormat } = resolveChatCoreTargetFormat({
-    provider,
+    provider: wireProvider,
     resolvedModel,
     apiFormat,
     sourceFormat,
@@ -2841,7 +2848,8 @@ export async function handleChatCore({
     resolveExecutorWithProxyFor(
       prov,
       log,
-      (credentials?.providerSpecificData as Record<string, unknown> | null | undefined) ?? null
+      (credentials?.providerSpecificData as Record<string, unknown> | null | undefined) ?? null,
+      prov === provider ? wireProvider : prov
     );
 
   // === Quota Share enforcement PRE-hook (B/F7) ===
@@ -3018,11 +3026,6 @@ export async function handleChatCore({
           // ── Codex 429 account-rotation state ─────────────────────────────────
           // Track excluded connection IDs for codex failover across attempts.
           const codexExcludedIds: string[] = [];
-          // Derive session affinity key once for codex failover (used to clear affinity on 429).
-          const codexSessionAffinityKey =
-            provider === "codex"
-              ? (extractSessionAffinityKey(body, clientRawRequest?.headers) ?? null)
-              : null;
 
           // ── Antigravity BYOP 422 account-rotation state ─────────────────────
           // A GCP_PROJECT_REQUIRED 422 is account-specific (that Google
@@ -3230,15 +3233,23 @@ export async function handleChatCore({
                     rateLimitedUntil: new Date(Date.now() + (retryAfterMs || 60_000)).toISOString(),
                     credentials: execCreds || credentials,
                   });
+                  if (res.response.status === 429) {
+                    const { recordRoutingTrace } = await import("../../src/sse/services/routingDecisionTrace.ts");
+                    recordRoutingTrace({ kind: "outcome", provider: "codex", account: String(failedConnectionId), reason: "routing429", cooldownMs: retryAfterMs || 60_000 });
+                  }
                   if (!codexExcludedIds.includes(String(failedConnectionId))) {
                     codexExcludedIds.push(String(failedConnectionId));
                   }
                 }
 
                 // Clear session affinity so next request won't be pinned to the failing account
-                if (codexSessionAffinityKey) {
+                if (sessionAffinityKey && failedConnectionId) {
                   try {
-                    deleteSessionAccountAffinity(codexSessionAffinityKey, "codex");
+                    evictSessionAccountAffinityForConnection(
+                      sessionAffinityKey,
+                      "codex",
+                      String(failedConnectionId)
+                    );
                   } catch {
                     // best-effort
                   }
@@ -3862,6 +3873,39 @@ export async function handleChatCore({
     delete translatedBody.stream_options;
   }
 
+  // An access-only 401 requires reauthentication. A 403 may instead mean model
+  // permissions, quota, or another policy denial; never mark it expired or
+  // permanently disable the account, and don't silently retry another account.
+  if (
+    (providerResponse.status === HTTP_STATUS.UNAUTHORIZED ||
+      providerResponse.status === HTTP_STATUS.FORBIDDEN) &&
+    credentials?.providerSpecificData?.importedToken &&
+    credentials?.authType === "oauth" &&
+    (!credentials?.refreshToken || credentials?.providerSpecificData?.autoRefreshDisabled) &&
+    (providerResponse.status === HTTP_STATUS.FORBIDDEN || !(await shouldIsolateProbeFailures()))
+  ) {
+    trackPendingRequest(model, provider, connectionId, false);
+    if (providerResponse.status === HTTP_STATUS.FORBIDDEN) {
+      return createErrorResult(
+        HTTP_STATUS.FORBIDDEN,
+        "Upstream denied access; check account permissions, model access, or quota",
+        null,
+        "IMPORTED_TOKEN_FORBIDDEN",
+        "upstream_forbidden"
+      );
+    }
+    if (onCredentialsRefreshed) {
+      await onCredentialsRefreshed({ testStatus: "expired", isActive: false });
+    }
+    return createErrorResult(
+      HTTP_STATUS.UNAUTHORIZED,
+      "Token expired; re-import or re-authenticate",
+      null,
+      "IMPORTED_TOKEN_REAUTH_REQUIRED",
+      "upstream_auth_error"
+    );
+  }
+
   // Handle 401/403 - try token refresh using executor
   // T-PROBE: probe-origin failures never attempt the refresh — a probe must
   // not consume a rotating refresh token nor persist an "expired"
@@ -3892,11 +3936,10 @@ export async function handleChatCore({
     let persistFnRan = false;
     const persistFn = onCredentialsRefreshed
       ? async (refreshResult: Record<string, unknown>) => {
-          persistFnRan = true;
-          // Mutate the shared credentials object so subsequent executor calls
-          // in this request see the new tokens. Runs INSIDE the mutex.
-          Object.assign(credentials, refreshResult);
           await onCredentialsRefreshed(refreshResult);
+          persistFnRan = true;
+          // Publish credentials only after their persistence succeeds.
+          Object.assign(credentials, refreshResult);
         }
       : undefined;
 
@@ -3925,6 +3968,7 @@ export async function handleChatCore({
     )) as null | {
       accessToken?: string;
       copilotToken?: string;
+      credentialsPersisted?: boolean;
     };
 
     if (newCredentials?.accessToken || newCredentials?.copilotToken) {
@@ -3936,7 +3980,7 @@ export async function handleChatCore({
       // mutation already happened atomically inside the mutex.
       if (!persistFnRan) {
         Object.assign(credentials, newCredentials);
-        if (onCredentialsRefreshed) {
+        if (onCredentialsRefreshed && !(provider === "codebuddy-cn" && newCredentials.credentialsPersisted === true)) {
           await onCredentialsRefreshed(newCredentials);
         }
       }

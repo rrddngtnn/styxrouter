@@ -12,9 +12,12 @@ import type { RefreshLogger } from "../shared.ts";
 export async function refreshCodebuddyCnToken(
   refreshToken: string,
   log: RefreshLogger,
-  proxyConfig: unknown = null
+  proxyConfig: unknown = null,
+  context?: import("@/lib/db/codebuddyRefreshFence").Context
 ) {
-  if (!refreshToken) return null;
+  if (!context?.db || !context.connectionId) throw new Error("CodeBuddy CN refresh context required: provide database and connection ID");
+  const { refreshWithContext } = await import("@/lib/db/codebuddyRefreshFence");
+  return refreshWithContext(context, refreshToken, async () => {
   const { CODEBUDDY_CN_CONFIG } = await import("@/lib/oauth/constants/oauth");
   const oauth = CODEBUDDY_CN_CONFIG;
   try {
@@ -36,10 +39,8 @@ export async function refreshCodebuddyCnToken(
     );
 
     if (!response.ok) {
-      const errorText = await response.text();
       log?.error?.("TOKEN_REFRESH", "Failed to refresh CodeBuddy CN token", {
         status: response.status,
-        error: errorText,
       });
       return null;
     }
@@ -48,7 +49,6 @@ export async function refreshCodebuddyCnToken(
     if (data?.code !== 0 || !data?.data?.accessToken) {
       log?.error?.("TOKEN_REFRESH", "CodeBuddy CN token refresh returned no token", {
         code: data?.code,
-        msg: data?.msg,
       });
       return null;
     }
@@ -65,7 +65,8 @@ export async function refreshCodebuddyCnToken(
       expiresIn: data.data.expiresIn,
     };
   } catch (error) {
-    log?.error?.("TOKEN_REFRESH", `Network error refreshing CodeBuddy CN token: ${error?.message}`);
+    log?.error?.("TOKEN_REFRESH", "Network error refreshing CodeBuddy CN token");
     return null;
   }
+  }, { allowImported: false });
 }

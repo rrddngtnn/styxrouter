@@ -435,6 +435,7 @@ export class TraeExecutor extends BaseExecutor {
    * the browser flow — we throw so the connection is marked unusable.
    */
   async refreshCredentials(credentials) {
+    if (credentials?.providerSpecificData?.importedToken) throw new Error("Imported credential refresh is disabled; re-authenticate the connection");
     const psd = (credentials?.providerSpecificData as JsonRecord) || {};
     const refreshToken = credentials?.refreshToken as string | undefined;
     if (!refreshToken) return null;

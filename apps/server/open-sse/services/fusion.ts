@@ -20,6 +20,7 @@
  */
 import { errorResponse, sanitizeErrorMessage } from "../utils/error.ts";
 import { extractTextContent } from "../translator/helpers/geminiHelper.ts";
+import { resolveRequestRoutingTags } from "../../src/domain/tagRouter.ts";
 import type { PerTargetAdmissionHook } from "./admission/types.ts";
 import type { ComboLogger, HandleSingleModel, ResolvedComboTarget } from "./combo/types.ts";
 
@@ -278,6 +279,15 @@ export async function handleFusionChat({
   perTargetAdmission,
 }: HandleFusionChatOptions): Promise<Response> {
   const panel = Array.isArray(models) ? models.filter(Boolean) : [];
+  if (resolveRequestRoutingTags(body).tags.length > 0) {
+    const constrained = (target: FusionModel | null | undefined) =>
+      !!target && typeof target !== "string" &&
+      (!!target.connectionId || (Array.isArray(target.allowedConnectionIds) && target.allowedConnectionIds.length > 0));
+    if (panel.some((target) => !constrained(target)) ||
+        (judgeModel?.trim() && (!constrained(judgeTarget) || judgeTarget?.modelStr !== judgeModel.trim()))) {
+      return errorResponse(404, "Fusion target is not eligible for requested tags");
+    }
+  }
   if (panel.length === 0) {
     return errorResponse(400, "Fusion combo has no models");
   }
@@ -371,7 +381,7 @@ export async function handleFusionChat({
       "FUSION",
       `Combo "${comboName ?? ""}" received a tool-bearing request — bypassing panel synthesis, routing directly to ${judge} with tools intact`
     );
-    return handleSingleModel(body, judge);
+    return dispatchFusionModel(handleSingleModel, body, hasExplicitJudge ? (judgeTarget ?? judge) : panelToDispatch[0]);
   }
 
   const t0 = Date.now();
@@ -382,7 +392,7 @@ export async function handleFusionChat({
   log.info("FUSION", `fan-out collected in ${Date.now() - t0}ms`);
 
   // 2. Collect successful answers + per-member failure reasons (issue #6454).
-  const answers: Array<{ model: string; text: string }> = [];
+  const answers: Array<{ model: string; text: string; target: FusionModel }> = [];
   const failures: Array<{ model: string; reason: string }> = [];
   for (let i = 0; i < settled.length; i++) {
     const res = settled[i];
@@ -420,7 +430,7 @@ export async function handleFusionChat({
       const json = await resp.clone().json();
       const text = extractPanelText(json);
       if (text) {
-        answers.push({ model, text });
+        answers.push({ model, text, target: panelToDispatch[i] });
         log.info("FUSION", `Panel ${model} ok (${text.length} chars)`);
       } else {
         log.warn("FUSION", `Panel ${model} returned empty content`);
@@ -453,7 +463,7 @@ export async function handleFusionChat({
     // answer directly with the lone survivor (issue #6454).
     if (!hasExplicitJudge) {
       log.info("FUSION", `Only ${answers[0].model} succeeded — answering directly (no fusion)`);
-      return handleSingleModel(body, answers[0].model);
+      return dispatchFusionModel(handleSingleModel, body, answers[0].target);
     }
     // An explicit judgeModel IS configured: honor it even with a single
     // surviving panel answer, rather than silently substituting the panel
@@ -485,7 +495,8 @@ export async function handleFusionChat({
   // 4. Judge analyzes + writes one final answer (streams to client if requested).
   const judgeBody = appendUserTurn(body, buildJudgePrompt(answers));
   log.info("FUSION", `Judging ${answers.length} answers with ${effectiveJudge}`);
-  return judgeTarget
-    ? handleSingleModel(judgeBody, judgeTarget.modelStr, judgeTarget)
-    : handleSingleModel(judgeBody, effectiveJudge);
+  const effectiveTarget = hasExplicitJudge
+    ? (judgeTarget ?? effectiveJudge)
+    : (answers.find((answer) => answer.model === effectiveJudge)?.target ?? effectiveJudge);
+  return dispatchFusionModel(handleSingleModel, judgeBody, effectiveTarget);
 }

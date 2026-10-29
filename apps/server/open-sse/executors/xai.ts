@@ -74,6 +74,9 @@ export class XaiExecutor extends BaseExecutor {
     credentials: ProviderCredentials,
     log?: ExecutorLog | null
   ): Promise<Partial<ProviderCredentials> | null> {
+    if (credentials?.providerSpecificData?.importedToken && credentials.refreshToken) {
+      throw new Error("Imported credential refresh is disabled; re-authenticate the connection");
+    }
     if (this.provider !== "xai-oauth" || !credentials.refreshToken) return null;
 
     try {
@@ -95,8 +98,8 @@ export class XaiExecutor extends BaseExecutor {
         return null;
       }
 
-      const data = await response.json();
-      if (!data.access_token) {
+      const data = asRecord(await response.json());
+      if (typeof data?.access_token !== "string" || !data.access_token) {
         log?.warn?.("TOKEN_REFRESH", "xAI OAuth refresh response omitted access_token");
         return null;
       }
@@ -104,14 +107,13 @@ export class XaiExecutor extends BaseExecutor {
       const expiresIn = Number(data.expires_in) || 21600;
       return {
         accessToken: data.access_token,
-        refreshToken: data.refresh_token || credentials.refreshToken,
+        refreshToken: typeof data.refresh_token === "string" && data.refresh_token
+          ? data.refresh_token
+          : credentials.refreshToken,
         expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
       };
-    } catch (error) {
-      log?.warn?.(
-        "TOKEN_REFRESH",
-        `xAI OAuth refresh error: ${error instanceof Error ? error.message : String(error)}`
-      );
+    } catch {
+      log?.warn?.("TOKEN_REFRESH", "xAI OAuth refresh network error");
       return null;
     }
   }

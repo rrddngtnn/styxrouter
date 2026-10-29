@@ -335,7 +335,7 @@ function logTargetPoolSize(
  */
 async function dispatchSmartPipeline(
   deps: ResolveComboTargetPipelineDeps,
-  availableModels: readonly string[]
+  availableTargets: readonly ResolvedComboTarget[]
 ): Promise<Response | null> {
   const { body, combo, strategy, config, settings, signal, log } = deps;
   if (strategy !== "auto") return null;
@@ -346,7 +346,7 @@ async function dispatchSmartPipeline(
     const pipelineRaw = await handlePipelineCombo({
       body,
       combo,
-      availableModels,
+      availableTargets,
       handleChatCore: deps.handleSingleModelWithTimeout,
       log: {
         info: log.info,
@@ -708,7 +708,7 @@ export async function resolveComboTargetPipeline(
 
   const pipelineResponse = await dispatchSmartPipeline(
     deps,
-    orderedTargets.map((target) => target.modelStr)
+    orderedTargets
   );
   if (pipelineResponse) return { earlyResponse: pipelineResponse };
 

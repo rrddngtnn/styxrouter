@@ -26,8 +26,15 @@ export async function GET(
       typeof (error as { status?: unknown })?.status === "number"
         ? (error as { status: number }).status
         : 500;
-    const message = (error as Error)?.message || "Failed to fetch usage";
-    console.error("[Usage API] Error fetching usage:", error);
+    const safeMessages = new Set([
+      "Connection not found",
+      "Usage not available for this connection",
+      "Usage refresh deferred while an exclusive lease is active",
+    ]);
+    const rawMessage = (error as Error)?.message;
+    const message = typeof rawMessage === "string" && safeMessages.has(rawMessage)
+      ? rawMessage : "Failed to fetch usage";
+    console.error("[Usage API] Error fetching usage");
     return Response.json({ error: message }, { status });
   }
 }

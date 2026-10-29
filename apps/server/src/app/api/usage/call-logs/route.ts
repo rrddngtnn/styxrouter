@@ -1,9 +1,20 @@
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
-import { getCallLogs } from "@/lib/usageDb";
+import { getCallLogsSync } from "@/lib/usage/callLogs";
+import { getDbInstance } from "@/lib/db/core";
 import { getCompletedDetails, getPendingById } from "@/lib/usage/usageHistory";
+import { redactLogUrl } from "@/lib/logUrlRedaction";
+import { sanitizeErrorForLog } from "@/lib/usage/callLogs/format";
 import { getProviderConnections } from "@/lib/db/providers";
 import { getProviderNodes } from "@/models";
-import { matchesSearch } from "@/shared/utils/turkishText";
+// Use SQLite's own LIKE implementation for memory rows: wildcard, ASCII case,
+// Unicode, and NULL semantics must agree with the persisted query.
+function createSearchMatcher() {
+  const statement = getDbInstance().prepare("SELECT ? LIKE ? AS matches");
+  return (value: unknown, query: string): boolean => {
+    if (value == null) return false;
+    return Boolean((statement.get(String(value), `%${query}%`) as { matches: number }).matches);
+  };
+}
 
 type CallLogListRowsInput = {
   logs: any[];
@@ -35,18 +46,19 @@ function rowPriority(row: any): number {
  * gap. It is idempotent for DB rows (they already satisfy the predicate) while
  * correctly excluding in-memory rows that do not match.
  */
-export function rowMatchesFilter(row: any, filter: Record<string, any>): boolean {
+export function rowMatchesFilter(row: any, filter: Record<string, any>, matchesSearch = createSearchMatcher()): boolean {
   if (!filter) return true;
 
   if (filter.status === "error") {
     if (!(Number(row?.status) >= 400 || Boolean(row?.error))) return false;
   } else if (filter.status === "ok") {
     if (!(Number(row?.status) >= 200 && Number(row?.status) < 300)) return false;
-  } else if (typeof filter.status === "number" || (typeof filter.status === "string" && !isNaN(Number(filter.status)))) {
-    if (Number(row?.status) !== Number(filter.status)) return false;
+  } else if (filter.status) {
+    const statusCode = Number.parseInt(filter.status, 10);
+    if (!Number.isNaN(statusCode) && Number(row?.status) !== statusCode) return false;
   }
 
-  if (filter.model && !matchesSearch(row?.model || "", String(filter.model))) {
+  if (filter.model && ![row?.model, row?.requestedModel].some((value) => matchesSearch(value || "", String(filter.model)))) {
     return false;
   }
   if (filter.provider && !matchesSearch(row?.provider || "", String(filter.provider))) {
@@ -55,31 +67,23 @@ export function rowMatchesFilter(row: any, filter: Record<string, any>): boolean
   if (filter.account && !matchesSearch(row?.account || "", String(filter.account))) {
     return false;
   }
-  if (filter.apiKey && !matchesSearch(row?.apiKeyName || "", String(filter.apiKey))) {
+  if (filter.apiKey && ![row?.apiKeyName, row?.apiKeyId].some((value) => matchesSearch(value || "", String(filter.apiKey)))) {
     return false;
   }
-  if (filter.combo && !matchesSearch(row?.comboName || "", String(filter.combo))) {
+  if (filter.combo && row?.comboName == null) {
     return false;
   }
   if (filter.correlationId && !matchesSearch(row?.correlationId || "", String(filter.correlationId))) {
     return false;
   }
+  if (filter.excludeTests && !/^\/(?:api\/)?v1\//i.test(row?.path || "")) return false;
   if (filter.search) {
     const term = String(filter.search);
-    const haystack = [
-      row?.model,
-      row?.provider,
-      row?.providerDisplay,
-      row?.account,
-      row?.apiKeyName,
-      row?.comboName,
-      row?.correlationId,
-      row?.error,
-      row?.path,
-    ]
-      .filter(Boolean)
-      .join(" ");
-    if (!matchesSearch(haystack, term)) return false;
+    if (![
+      row?.model, row?.requestedModel, row?.provider, row?.account,
+      row?.apiKeyName, row?.apiKeyId, row?.comboName, row?.comboStepId,
+      row?.comboExecutionKey, row?.correlationId, row?.error, row?.path, row?.status,
+    ].some((value) => matchesSearch(value, term))) return false;
   }
 
   return true;
@@ -114,7 +118,7 @@ export function buildCallLogListRows({
       id: detail.id,
       timestamp: new Date(detail.startedAt).toISOString(),
       method: "",
-      path: detail.clientEndpoint || "",
+      path: redactLogUrl(detail.clientEndpoint || ""),
       status: 0,
       model: detail.model,
       requestedModel: null,
@@ -149,7 +153,7 @@ export function buildCallLogListRows({
       id: detail.id,
       timestamp: new Date(detail.startedAt).toISOString(),
       method: "",
-      path: detail.clientEndpoint || "",
+      path: redactLogUrl(detail.clientEndpoint || ""),
       status: typeof detail.status === "number" ? detail.status : detail.error ? 502 : 200,
       model: detail.model,
       requestedModel: null,
@@ -165,7 +169,7 @@ export function buildCallLogListRows({
       apiKeyId: null,
       apiKeyName: null,
       comboName: null,
-      error: detail.error || null,
+      error: sanitizeErrorForLog(detail.error || null),
       correlationId: detail.correlationId || null,
       active: false,
       completed: true,
@@ -180,7 +184,7 @@ export function buildCallLogListRows({
     const pb = rowPriority(b);
     if (pa !== pb) return pa - pb;
     // Within same priority, newest first
-    return rowTimestampMs(b) - rowTimestampMs(a);
+    return rowTimestampMs(b) - rowTimestampMs(a) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
   });
 }
 
@@ -200,14 +204,17 @@ export async function GET(request: Request) {
     if (searchParams.get("combo")) filter.combo = searchParams.get("combo");
     if (searchParams.get("search")) filter.search = searchParams.get("search");
     if (searchParams.get("correlationId")) filter.correlationId = searchParams.get("correlationId");
-    if (searchParams.get("limit")) filter.limit = parseInt(searchParams.get("limit"));
-    if (searchParams.get("offset")) filter.offset = parseInt(searchParams.get("offset"));
+    const requestedLimit = Number(searchParams.get("limit"));
+    const limit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 500) : 200;
+    const requestedOffset = Number(searchParams.get("offset"));
+    const offset = Number.isSafeInteger(requestedOffset) && requestedOffset > 0 ? requestedOffset : 0;
     // Home Recent Requests feed sets excludeTests=1 so connection-test probe rows
     // are dropped at the SQL layer (before LIMIT), not client-side after slicing.
     if (searchParams.get("excludeTests") === "1") filter.excludeTests = true;
 
-    const [logs, connections, providerNodes] = await Promise.all([
-      getCallLogs(filter),
+    const pending = [...getPendingById().values()];
+    const completed = [...getCompletedDetails().values()];
+    const [connections, providerNodes] = await Promise.all([
       getProviderConnections(),
       getProviderNodes(),
     ]);
@@ -224,16 +231,32 @@ export async function GET(request: Request) {
       })
     );
 
-    const rows = buildCallLogListRows({
-      logs,
-      connections,
-      providerDisplayNames,
-      pendingDetails: getPendingById().values(),
-      completedDetails: getCompletedDetails().values(),
-    });
-
-    const filtered = rows.filter((r: any) => rowMatchesFilter(r, filter));
-    return Response.json(filtered);
+    const db = getDbInstance();
+    // Existence checks and the page must see the same database snapshot, even
+    // when a different process persists one of the captured memory entries.
+    const rows = db.transaction(() => {
+      const ids = [...new Set([...pending, ...completed].map((entry: any) => entry.id).filter((id): id is string => typeof id === "string" && id.length > 0))];
+      const persisted = new Set<string>();
+      // Bound SQLite parameters and avoid one indexed query per entry.
+      for (let i = 0; i < ids.length; i += 500) {
+        const chunk = ids.slice(i, i + 500);
+        const placeholders = chunk.map(() => "?").join(",");
+        for (const row of db.prepare(`SELECT id FROM call_logs WHERE id IN (${placeholders})`).all(...chunk) as { id: string }[]) persisted.add(row.id);
+      }
+      const unpersisted = (entry: any) => !persisted.has(entry.id);
+      const matchesSearch = createSearchMatcher();
+      const memory = buildCallLogListRows({
+        logs: [], connections, providerDisplayNames,
+        pendingDetails: pending.filter(unpersisted),
+        completedDetails: completed.filter(unpersisted),
+      }).filter((row) => rowMatchesFilter(row, filter, matchesSearch));
+      const memoryPage = memory.slice(offset, offset + limit);
+      const dbOffset = Math.max(0, offset - memory.length);
+      const remaining = limit - memoryPage.length;
+      const logs = remaining > 0 ? getCallLogsSync({ ...filter, limit: remaining, offset: dbOffset }) : [];
+      return [...memoryPage, ...logs];
+    })();
+    return Response.json(rows);
   } catch (error) {
     console.error("[API ERROR] /api/usage/call-logs failed:", error);
     return Response.json({ error: "Failed to fetch call logs" }, { status: 500 });

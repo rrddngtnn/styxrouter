@@ -57,9 +57,11 @@ function parseResetTime(value: unknown): string | null {
 }
 
 // Prefer the *Precise string fields (exact), fall back to the numeric ones.
-function num(precise: unknown, plain: unknown): number {
-  const n = Number(precise ?? plain);
-  return Number.isFinite(n) ? n : 0;
+function num(precise: unknown, plain: unknown): number | null {
+  const value = precise ?? plain;
+  if ((typeof value !== "number" && typeof value !== "string") || (typeof value === "string" && !value.trim())) return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 // Label a refill pack by its cycle length (Monthly is the common CodeBuddy case).
@@ -149,7 +151,7 @@ export async function getCodeBuddyCnUsage(
 
     const json: any = await response.json();
     if (json?.code !== 0) {
-      return { message: `CodeBuddy CN quota error: ${json?.msg || "unknown"}` };
+      return { message: "CodeBuddy CN quota error: upstream request failed." };
     }
 
     const data = json?.data?.Response?.Data || {};
@@ -168,26 +170,33 @@ export async function getCodeBuddyCnUsage(
       const base = refillCadence(acc);
       seenRefill[base] = (seenRefill[base] || 0) + 1;
       const name = seenRefill[base] > 1 ? `${base} ${seenRefill[base]}` : base;
+      const used = num(acc.CycleCapacityUsedPrecise, acc.CycleCapacityUsed);
+      const total = num(acc.CycleCapacitySizePrecise, acc.CycleCapacitySize);
+      if (used === null || total === null) return;
       quotas[name] = {
-        used: num(acc.CycleCapacityUsedPrecise, acc.CycleCapacityUsed),
-        total: num(acc.CycleCapacitySizePrecise, acc.CycleCapacitySize),
+        used,
+        total,
         resetAt: parseResetTime(acc.CycleEndTime),
         unlimited: false,
       };
     });
     bonuses.forEach((acc, i) => {
+      const used = num(acc.CapacityUsedPrecise, acc.CapacityUsed);
+      const total = num(acc.CapacitySizePrecise, acc.CapacitySize);
+      if (used === null || total === null) return;
       quotas[`Bonus Pack ${i + 1}`] = {
-        used: num(acc.CapacityUsedPrecise, acc.CapacityUsed),
-        total: num(acc.CapacitySizePrecise, acc.CapacitySize),
+        used,
+        total,
         resetAt: parseResetTime(acc.CycleEndTime),
         unlimited: false,
       };
     });
 
-    const basePkg = refills[0] || accountsRaw[0] || {};
-    const plan = basePkg.PackageName || basePkg.SubProductName || "CodeBuddy CN";
+    if (Object.keys(quotas).length !== accountsRaw.length) {
+      return { message: "CodeBuddy CN quota response has incomplete credit observations." };
+    }
 
-    return { plan, quotas };
+    return { plan: "CodeBuddy CN", quotas };
   } catch (error: any) {
     // Hard Rule #12: no raw err.message in any HTTP/SSE/executor response. Usage
     // handler returns a controlled string for the dashboard; do not include the

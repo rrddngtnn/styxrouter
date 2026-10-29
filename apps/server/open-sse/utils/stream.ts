@@ -798,10 +798,14 @@ export function createSSEStream(options: StreamOptions = {}) {
 
   // Cross-request tool latency: fingerprint the session from the request body
   // so Request 2 can pick up the tool-finish timestamp left by Request 1.
-  const sessionId = generateSessionId(body as Parameters<typeof generateSessionId>[0], {
+  const fingerprint = generateSessionId(body as Parameters<typeof generateSessionId>[0], {
     provider: provider ?? undefined,
     connectionId: connectionId ?? undefined,
   });
+  const keyId = (apiKeyInfo as { id?: unknown } | null)?.id;
+  const sessionId = fingerprint
+    ? `stream-v1:${JSON.stringify([typeof keyId === "string" ? keyId : null, fingerprint])}`
+    : null;
   let pendingToolFinishTime: number | null = null;
   try {
     pendingToolFinishTime = consumeToolFinishTime(sessionId);
@@ -1176,8 +1180,7 @@ export function createSSEStream(options: StreamOptions = {}) {
     }
   };
 
-  return new TransformStream(
-    {
+  const transformer: Transformer<Uint8Array, Uint8Array> & { cancel(): void } = {
       start(controller) {
         // Start idle watchdog — checks every 10s if provider has stopped sending
         if (STREAM_IDLE_TIMEOUT_MS > 0) {
@@ -2910,10 +2913,10 @@ export function createSSEStream(options: StreamOptions = {}) {
           console.log(`[STREAM] Error in flush (${model || "unknown"}):`, error.message || error);
         }
       },
-      cancel(reason) {
-        clearIdleTimer();
-      },
-    },
+      cancel() { clearIdleTimer(); },
+    };
+  return new TransformStream(
+    transformer,
     { highWaterMark: 16384 },
     { highWaterMark: 16384 }
   );

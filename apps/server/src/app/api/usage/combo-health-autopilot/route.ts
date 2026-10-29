@@ -13,11 +13,11 @@ const querySchema = z.object({
   includeHealthy: z
     .enum(["true", "false"])
     .transform((value) => value === "true")
-    .default("false"),
+    .default(false),
   includeActions: z
     .enum(["true", "false"])
     .transform((value) => value === "true")
-    .default("true"),
+    .default(true),
 });
 
 export async function GET(request: Request) {
@@ -30,8 +30,8 @@ export async function GET(request: Request) {
       range: searchParams.get("range") || undefined,
       horizon: searchParams.get("horizon") || undefined,
       comboId: searchParams.get("comboId") || undefined,
-      includeHealthy: searchParams.get("includeHealthy") || undefined,
-      includeActions: searchParams.get("includeActions") || undefined,
+      includeHealthy: searchParams.get("includeHealthy") ?? undefined,
+      includeActions: searchParams.get("includeActions") ?? undefined,
     });
 
     if (!parsed.success) {

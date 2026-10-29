@@ -129,10 +129,11 @@ export async function getGlmUsage(apiKey: string, providerSpecificData?: Record<
     throw new Error(`GLM quota API error (${res.status})`);
   }
 
-  const json = await res.json();
-  if (!json || typeof json !== "object") {
+  const responseBody = await res.json();
+  if (!responseBody || typeof responseBody !== "object") {
     throw new Error("Invalid JSON response from GLM quota API");
   }
+  const json = toRecord(responseBody);
   if (toNumber(json.code, 200) === 401) {
     throw new Error("Invalid API key");
   }

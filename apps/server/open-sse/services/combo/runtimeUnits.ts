@@ -11,6 +11,7 @@ import { resolveDelayMs } from "./comboPredicates.ts";
 import { isRuntimeUnitAtConcurrencyCap } from "./runtimeUnitCapacity.ts";
 import { isQuotaExhaustionResponse, withQuotaExhaustionClassification } from "./quotaExhaustion.ts";
 import { validateResponseQuality, releaseQualityClone } from "./validateQuality.ts";
+import { applyRequestTagRouting } from "./autoStrategy.ts";
 import type { ResponseValidationConfig } from "./responseValidation.ts";
 import type {
   ComboCollectionLike,
@@ -79,12 +80,15 @@ async function executeModelUnit(args: {
   failoverBeforeRetry: unknown;
   effectiveComboStrategy: string;
 }): Promise<Response> {
+  const [eligible] = await applyRequestTagRouting([args.unit], args.body, {});
+  if (!eligible) return errorResponse(404, `No eligible account for ${args.unit.modelStr}`);
+  const unit = { ...args.unit, ...eligible };
   if (args.isModelAvailable) {
-    const available = await args.isModelAvailable(args.unit.modelStr, args.unit);
+    const available = await args.isModelAvailable(unit.modelStr, unit);
     if (!available) return errorResponse(503, `Model ${args.unit.modelStr} is unavailable`);
   }
   return args.handleSingleModel(args.body, args.unit.modelStr, {
-    ...args.unit,
+    ...unit,
     effectiveComboStrategy: args.effectiveComboStrategy,
     failoverBeforeRetry: args.failoverBeforeRetry,
   });

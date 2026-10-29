@@ -1,23 +1,36 @@
 // Mounted behind requireAuth. Catalog membership is account-specific, not a static registry override.
 import { Hono } from "hono";
 import { isCodexDiscoveryModelExcluded } from "../src/shared/services/codexDiscoveryPolicy.ts";
-import { getProviderConnectionById, updateProviderConnection } from "../src/lib/db/providers.ts";
-import { replaceSyncedAvailableModelsForConnection } from "../src/lib/db/models.ts";
+import { getProviderConnectionById } from "../src/lib/db/providers.ts";
+import { invalidateDbCache } from "../src/lib/db/readCache.ts";
+import { getDbInstance } from "../src/lib/db/core.ts";
+import { normalizeSyncedAvailableModels } from "../src/lib/db/models/synced.ts";
+import { finishSyncedAvailableModelsWrite } from "../src/lib/db/models/syncedAvailableModelPersistence.ts";
+import { isKnownCodexCatalog, reconcileCodexContextWindowsInTransaction } from "../src/lib/contextWindowResolver.ts";
+import { randomUUID } from "node:crypto";
 import { isConnectionUnavailableToAuxiliaryActivity } from "../src/lib/exclusiveLeaseIsolation.ts";
 import { getCodexBackendIdentityHeaders, getCodexClientVersion } from "../open-sse/config/codexClient.ts";
 import { getAccessToken } from "../open-sse/services/tokenRefresh.ts";
 import { updateProviderCredentials } from "../src/sse/services/tokenRefresh.ts";
 
+// Shared by every mounted API instance in this process. A durable fencing token
+// additionally prevents an older request in another process from publishing.
+const inFlight = new Set<string>();
+
 export function createModelSyncApi(deps: { fetch?: typeof fetch } = {}) {
   const api = new Hono();
-  const inFlight = new Set<string>();
   api.post("/providers/:id/sync-models", async (c) => {
     const id = c.req.param("id");
-    if (inFlight.has(id) || await isConnectionUnavailableToAuxiliaryActivity(id)) {
-      return c.json({ error: "Connection is busy" }, 409);
-    }
+    if (inFlight.has(id)) return c.json({ error: "Connection is busy" }, 409);
     inFlight.add(id);
+    let fence: string | undefined;
     try {
+      const db = getDbInstance();
+      fence = randomUUID();
+      db.prepare("INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('codexSyncFence', ?, ?)").run(id, fence);
+      if (await isConnectionUnavailableToAuxiliaryActivity(id)) {
+        return c.json({ error: "Connection is busy" }, 409);
+      }
       const conn = await getProviderConnectionById(id) as any;
       if (!conn) return c.json({ error: "Connection not found" }, 404);
       if (conn.provider !== "codex") return c.json({ error: "Model sync is not supported for this provider" }, 422);
@@ -52,25 +65,53 @@ export function createModelSyncApi(deps: { fetch?: typeof fetch } = {}) {
           payload.models.some((m: any) => typeof m?.slug !== "string" || !m.slug.trim())) {
         return c.json({ error: "Upstream model catalog is empty or malformed" }, 502);
       }
-      const models = payload.models.map((m: any) => ({
-        id: m.slug, name: typeof m.display_name === "string" ? m.display_name : m.slug,
-        supportedThinkingEfforts: Array.isArray(m.supported_reasoning_levels)
-          ? m.supported_reasoning_levels.map((level: any) => level?.effort).filter((effort: unknown) => typeof effort === "string") : [],
-        ...(typeof m.default_reasoning_level === "string" ? { defaultThinkingEffort: m.default_reasoning_level } : {}),
-        ...(typeof m.context_window === "number" ? { inputTokenLimit: m.context_window } : {}),
-      })).filter((model: any) => !isCodexDiscoveryModelExcluded(model));
-      if (models.length === 0) return c.json({ error: "Upstream model catalog has no usable models" }, 502);
-      await replaceSyncedAvailableModelsForConnection("codex", id, models);
-      const current = await getProviderConnectionById(id) as any;
-      await updateProviderConnection(id, { providerSpecificData: {
-        ...current?.providerSpecificData, modelCatalogSyncedAt: new Date().toISOString(),
-      } });
-      return c.json({ success: true, syncedModels: new Set(models.map((m: any) => m.id)).size });
+      let published = false;
+      let count = 0;
+      let usable = true;
+      db.immediate(() => {
+        const currentFence = db.prepare("SELECT value FROM key_value WHERE namespace = 'codexSyncFence' AND key = ?").get(id) as { value: string } | undefined;
+        const active = db.prepare("SELECT is_active FROM provider_connections WHERE id = ? AND provider = 'codex'").get(id) as { is_active: number } | undefined;
+        if (currentFence?.value !== fence || active?.is_active !== 1) return;
+        const key = `codex:${id}`;
+        const row = db.prepare("SELECT value FROM key_value WHERE namespace = 'syncedAvailableModels' AND key = ?").get(key) as { value: string } | undefined;
+        let prior: ReturnType<typeof normalizeSyncedAvailableModels> = [];
+        try {
+          const parsed = JSON.parse(row?.value ?? "null");
+          if (isKnownCodexCatalog(parsed)) prior = normalizeSyncedAvailableModels(parsed, "codex");
+        } catch { /* unknown */ }
+        const previous = new Map(prior.map(m => [m.id, m]));
+        const models = payload.models.map((m: any) => ({
+          id: m.slug, name: typeof m.display_name === "string" ? m.display_name : m.slug,
+          supportedThinkingEfforts: Array.isArray(m.supported_reasoning_levels)
+            ? m.supported_reasoning_levels.map((level: any) => level?.effort).filter((effort: unknown) => typeof effort === "string") : [],
+          ...(typeof m.default_reasoning_level === "string" ? { defaultThinkingEffort: m.default_reasoning_level } : {}),
+          ...(() => {
+            const value = Number.isSafeInteger(m.context_window) && m.context_window > 0
+              ? m.context_window : previous.get(m.slug)?.inputTokenLimit;
+            return Number.isSafeInteger(value) && value! > 0 ? { inputTokenLimit: value } : {};
+          })(),
+        })).filter((model: any) => !isCodexDiscoveryModelExcluded(model));
+        if (!models.length) { usable = false; return; }
+        const normalized = normalizeSyncedAvailableModels(models, "codex");
+        count = normalized.length;
+        const ids = new Set(normalized.map(m => m.id));
+        db.prepare("INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('syncedAvailableModels', ?, ?)").run(key, JSON.stringify(normalized));
+        reconcileCodexContextWindowsInTransaction(prior.filter(m => !ids.has(m.id)).map(m => m.id));
+        db.prepare("UPDATE provider_connections SET provider_specific_data = json_set(CASE WHEN json_valid(provider_specific_data) AND json_type(provider_specific_data) = 'object' THEN provider_specific_data ELSE '{}' END, '$.modelCatalogSyncedAt', ?) WHERE id = ?").run(new Date().toISOString(), id);
+        published = true;
+      });
+      if (!usable) return c.json({ error: "Upstream model catalog has no usable models" }, 502);
+      if (!published) return c.json({ error: "Synchronization superseded or inactive" }, 409);
+      finishSyncedAvailableModelsWrite();
+      invalidateDbCache("connections");
+      return c.json({ success: true, syncedModels: count });
     } catch {
       // Never expose credentials or upstream bodies in admin errors.
       return c.json({ error: "Model catalog synchronization failed" }, 502);
     } finally {
-      inFlight.delete(id);
+      try {
+        if (fence) getDbInstance().prepare("DELETE FROM key_value WHERE namespace = 'codexSyncFence' AND key = ? AND value = ?").run(id, fence);
+      } finally { inFlight.delete(id); }
     }
   });
   return api;

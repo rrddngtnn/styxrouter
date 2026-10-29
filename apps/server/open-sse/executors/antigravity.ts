@@ -830,6 +830,7 @@ export class AntigravityExecutor extends BaseExecutor {
     credentials: AntigravityCredentials,
     log?: ExecutorLog | null
   ): Promise<AntigravityCredentials | null> {
+    if (credentials?.providerSpecificData?.importedToken) throw new Error("Imported credential refresh is disabled; re-authenticate the connection");
     if (!credentials.refreshToken) return null;
 
     try {

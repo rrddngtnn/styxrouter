@@ -1,4 +1,5 @@
 import { GithubExecutor } from "./github.ts";
+import { parseCopilotToken, parseGithubToken } from "./copilotRefreshResponses.ts";
 import type { ProviderCredentials, ExecuteInput, ExecutorLog } from "./base.ts";
 import { getModelTargetFormat } from "../config/providerModels.ts";
 
@@ -170,7 +171,8 @@ export class GheCopilotExecutor extends GithubExecutor {
       });
 
       if (!response.ok) return null;
-      const data = await response.json();
+      const data = parseCopilotToken(await response.json());
+      if (!data) return null;
       log?.info?.("TOKEN", "GHE Copilot token refreshed");
       // GHE returns a dynamic `endpoints` object; the chat/responses proxy host
       // lives at endpoints.proxy (NOT a static path on the GHE web host).
@@ -225,7 +227,8 @@ export class GheCopilotExecutor extends GithubExecutor {
       });
       
       if (!response.ok) return null;
-      const tokens = await response.json();
+      const tokens = parseGithubToken(await response.json());
+      if (!tokens) return null;
       log?.info?.("TOKEN", "GHE GitHub token refreshed");
       return {
         accessToken: tokens.access_token,

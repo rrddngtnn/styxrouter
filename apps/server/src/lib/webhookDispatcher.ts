@@ -6,7 +6,19 @@
 
 import crypto from "crypto";
 import { encrypt, decrypt } from "./db/encryption";
-import { parseAndValidateWebhookUrl } from "@/shared/network/outboundUrlGuardPolicy";
+import { decryptWebhookSecret } from "./db/webhookSecureStorage";
+import dns from "node:dns";
+import { parseAndValidatePublicUrl } from "@/shared/network/outboundUrlGuard";
+import { createPinnedFetch, resolveAllowedAddresses } from "@/shared/network/remoteImageFetch";
+
+async function postWebhook(url: string, body: string, headers: Record<string, string>, signal: AbortSignal): Promise<Response> {
+  const target = parseAndValidatePublicUrl(url);
+  const addresses = await resolveAllowedAddresses(target, "public-only", (host) => dns.promises.lookup(host, { all: true }), signal);
+  const { address, family } = addresses[0];
+  const response = await createPinnedFetch(address, family)(target.toString(), { method: "POST", headers, body, signal, redirect: "manual" });
+  await response.body?.cancel();
+  return response;
+}
 import type { WebhookEvent } from "./webhooks/eventDescriptions";
 
 export type { WebhookEvent };
@@ -42,16 +54,11 @@ async function deliverRaw(
 ): Promise<{ success: boolean; status: number; latencyMs: number; error?: string }> {
   const start = Date.now();
   try {
-    parseAndValidateWebhookUrl(url);
+    parseAndValidatePublicUrl(url);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10_000);
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "User-Agent": "StyxRouter-Webhook/1.0" },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
+      const res = await postWebhook(url, JSON.stringify(body), { "Content-Type": "application/json", "User-Agent": "StyxRouter-Webhook/1.0" }, controller.signal);
       return { success: res.ok, status: res.status, latencyMs: Date.now() - start };
     } finally {
       // Always clear the abort timer — on a non-timeout fetch error the previous code skipped
@@ -63,7 +70,7 @@ async function deliverRaw(
       success: false,
       status: 0,
       latencyMs: Date.now() - start,
-      error: error.message || "Network error",
+      error: "Webhook delivery failed",
     };
   }
 }
@@ -75,9 +82,9 @@ export async function deliverWebhook(
   maxRetries = 3
 ): Promise<{ success: boolean; status: number; error?: string }> {
   try {
-    parseAndValidateWebhookUrl(url);
+    parseAndValidatePublicUrl(url);
   } catch (error: any) {
-    return { success: false, status: 0, error: error.message || "Blocked outbound URL" };
+    return { success: false, status: 0, error: "Blocked outbound URL" };
   }
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = {
@@ -98,12 +105,7 @@ export async function deliverWebhook(
 
       let res: Response;
       try {
-        res = await fetch(url, {
-          method: "POST",
-          headers,
-          body,
-          signal: controller.signal,
-        });
+        res = await postWebhook(url, body, headers, controller.signal);
       } finally {
         // Clear the abort timer on every path — a non-timeout fetch error previously skipped
         // clearTimeout, leaking a dangling 10s timer + AbortController per failed attempt.
@@ -119,13 +121,24 @@ export async function deliverWebhook(
       }
     } catch (error: any) {
       if (attempt === maxRetries) {
-        return { success: false, status: 0, error: error.message || "Network error" };
+        return { success: false, status: 0, error: "Webhook delivery failed" };
       }
       await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 1000));
     }
   }
 
   return { success: false, status: 0, error: "Max retries exceeded" };
+}
+
+/** Decrypt only at the delivery boundary; invalid encrypted keys must never become unsigned requests. */
+export async function deliverStoredWebhook(url: string, payload: WebhookPayload, storedSecret: string | null, maxRetries = 3): Promise<{ success: boolean; status: number; error?: string }> {
+  let secret: string | null;
+  try {
+    secret = decryptWebhookSecret(storedSecret);
+  } catch {
+    return { success: false, status: 0, error: "Webhook secret unavailable" };
+  }
+  return deliverWebhook(url, payload, secret, maxRetries);
 }
 
 /**
@@ -190,7 +203,7 @@ export async function dispatchEvent(event: WebhookEvent, data: Record<string, an
             result = await deliverRaw(apiUrl, tgPayload as unknown as Record<string, unknown>);
           }
         } else {
-          result = await deliverWebhook(wh.url, payload, wh.secret);
+          result = await deliverStoredWebhook(wh.url, payload, wh.secret);
         }
       } catch (err: any) {
         result = { success: false, status: 0, error: err.message || "Dispatch error" };

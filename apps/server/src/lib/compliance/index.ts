@@ -245,7 +245,10 @@ function buildAuditLogQuery(filter: AuditLogFilter = {}): AuditLogQuery {
 
   addLikeFilter("action", filter.action);
   addLikeFilter("actor", filter.actor);
-  addLikeFilter("target", filter.target);
+  if (filter.target !== undefined) {
+    conditions.push("target = ?");
+    params.push(filter.target);
+  }
   addLikeFilter("resource_type", filter.resourceType);
   addLikeFilter("status", filter.status);
   addLikeFilter("request_id", filter.requestId);

@@ -1,6 +1,7 @@
 import { getPendingById } from "@/lib/usage/usageHistory";
 import { getChatLogMaxDepth } from "@/lib/logEnv";
 import { sanitizeErrorMessage } from "./error.ts";
+import { isSensitiveLogKey, redactLogUrl } from "@/lib/logUrlRedaction";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -86,22 +87,7 @@ function maskSensitiveHeaders(headers: HeaderInput): Record<string, unknown> {
 
   for (const key of Object.keys(masked)) {
     const lowerKey = key.toLowerCase();
-    // Whitelist x-ratelimit- headers from redaction
-    if (lowerKey.startsWith("x-ratelimit-")) {
-      continue;
-    }
-    if (lowerKey === "x-styx-lease-owner") {
-      masked[key] = "[REDACTED]";
-      continue;
-    }
-    if (!sensitiveKeys.some((candidate) => lowerKey.includes(candidate))) {
-      continue;
-    }
-
-    const value = masked[key];
-    if (typeof value === "string" && value.length > 20) {
-      masked[key] = `${value.slice(0, 10)}...${value.slice(-5)}`;
-    } else if (value) {
+    if (isSensitiveLogKey(key) || sensitiveKeys.some((candidate) => lowerKey.includes(candidate))) {
       masked[key] = "[REDACTED]";
     }
   }
@@ -229,13 +215,17 @@ function appendBoundedChunk(
   }
 
   const remaining = maxBytes - bytes.value;
-  if (chunk.length <= remaining) {
+  const chunkBytes = Buffer.byteLength(chunk, "utf8");
+  if (chunkBytes <= remaining) {
     chunks.push(chunk);
-    bytes.value += chunk.length;
+    bytes.value += chunkBytes;
     return;
   }
 
-  chunks.push(chunk.slice(0, remaining));
+  // Decode only complete UTF-8 code points within the remaining budget.
+  const prefix = Buffer.from(chunk.slice(0, remaining), "utf8").subarray(0, remaining);
+  const decoded = new TextDecoder("utf-8", { fatal: false }).decode(prefix, { stream: true });
+  chunks.push(decoded);
   if (chunks.length < maxItems) {
     chunks.push(`[stream chunk log truncated after ${maxBytes} bytes]`);
   }
@@ -388,7 +378,7 @@ export async function createRequestLogger(
     logClientRawRequest(endpoint, body, headers = {}) {
       payloads.clientRawRequest = {
         timestamp: new Date().toISOString(),
-        endpoint,
+        endpoint: redactLogUrl(endpoint),
         headers: maskSensitiveHeaders(headers),
         body: cloneBoundedForLog(body),
       };
@@ -408,7 +398,7 @@ export async function createRequestLogger(
     logTargetRequest(url, headers, body) {
       payloads.providerRequest = {
         timestamp: new Date().toISOString(),
-        url,
+        url: redactLogUrl(url),
         headers: maskSensitiveHeaders(headers),
         body: cloneBoundedForLog(body),
       };

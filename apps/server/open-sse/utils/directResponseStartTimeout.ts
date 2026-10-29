@@ -1,6 +1,7 @@
 type DirectFetchOptions = RequestInit & { dispatcher?: unknown };
+type DirectFetchInput = Parameters<typeof fetch>[0];
 type DirectFetch = (
-  input: RequestInfo | URL,
+  input: DirectFetchInput,
   options: DirectFetchOptions
 ) => Promise<Response>;
 
@@ -54,7 +55,7 @@ function mergeAbortSignals(
 }
 
 export async function directFetchWithBoundedResponseStart(
-  input: RequestInfo | URL,
+  input: DirectFetchInput,
   options: DirectFetchOptions,
   fetchImpl: DirectFetch,
   timeoutMs: number

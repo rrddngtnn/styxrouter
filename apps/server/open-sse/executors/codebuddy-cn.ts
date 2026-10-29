@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import { DefaultExecutor } from "./default.ts";
+import { FETCH_BODY_TIMEOUT_MS } from "../config/constants.ts";
+import { createAbortError, createBodyTimeoutError, readStreamChunkWithTimeout } from "../handlers/chatCore/upstreamTimeouts.ts";
 import type { ExecuteInput, ExecutorExecuteResult, ProviderCredentials } from "./base.ts";
 
 const SENSITIVE_CONTENT_REJECTION =
@@ -89,6 +91,70 @@ function compactToolDescriptions(body: unknown): unknown | null {
   return tools ? { ...request, tools } : null;
 }
 
+async function normalizeFrequencyLimit(result: ExecutorExecuteResult, signal?: AbortSignal | null): Promise<ExecutorExecuteResult> {
+  const response = responseFromResult(result);
+  if (response.status !== 200 || !/\bapplication\/(?:[\w.+-]*\+)?json\b/i.test(response.headers.get("content-type") ?? "")) return result;
+  const reader = response.body?.getReader();
+  if (!reader) return result;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const deadline = FETCH_BODY_TIMEOUT_MS > 0 ? Date.now() + FETCH_BODY_TIMEOUT_MS : 0;
+  const replaceResponse = (body: BodyInit) => {
+    const replacement = new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+    return result instanceof Response ? replacement : { ...result, response: replacement };
+  };
+  const passthrough = () => {
+    let index = 0;
+    return replaceResponse(new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        if (index < chunks.length) { controller.enqueue(chunks[index++]); return; }
+        try {
+          const next = await reader.read();
+          if (next.done) controller.close(); else controller.enqueue(next.value);
+        } catch (error) { controller.error(error); }
+      },
+      cancel(reason) { return reader.cancel(reason); },
+    }));
+  };
+  let abortListener: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    if (!signal) return;
+    abortListener = () => reject(createAbortError(signal));
+    if (signal.aborted) abortListener();
+    else signal.addEventListener("abort", abortListener, { once: true });
+  });
+  try {
+    while (true) {
+      const remaining = deadline ? deadline - Date.now() : 0;
+      if (deadline && remaining <= 0) throw createBodyTimeoutError(FETCH_BODY_TIMEOUT_MS);
+      const { done, value } = await Promise.race([readStreamChunkWithTimeout(reader, remaining), aborted]);
+      if (done) break;
+      size += value!.byteLength;
+      chunks.push(value!);
+      if (size > 65536) return passthrough();
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const data = JSON.parse(new TextDecoder().decode(bytes));
+    if (!data || typeof data !== "object" || Array.isArray(data) || data.code === 6000 || data.code === "6000") return replaceResponse(bytes);
+    const message = [data.msg, data.message, data.error?.message].find((value) => typeof value === "string") ?? "";
+    if (data.code !== 6004 && data.code !== "6004" && !/超出频率限制|frequency limit|限额/i.test(message)) return replaceResponse(bytes);
+    const headers = new Headers(response.headers);
+    // The body has changed; representation metadata and credentials must not survive.
+    for (const name of ["content-length", "content-encoding", "content-range", "etag", "digest", "content-md5", "authorization", "proxy-authorization", "set-cookie"]) headers.delete(name);
+    headers.set("content-type", "application/json");
+    const normalized = new Response(JSON.stringify({ error: { message: "CodeBuddy frequency limit", type: "rate_limit_error" } }), { status: 429, headers });
+    return result instanceof Response ? normalized : { ...result, response: normalized };
+  } catch (error) {
+    if (error instanceof SyntaxError) return passthrough();
+    void reader.cancel(error).catch(() => {});
+    throw error;
+  } finally {
+    if (signal && abortListener) signal.removeEventListener("abort", abortListener);
+  }
+}
+
 async function isSensitiveContentRejection(response: Response): Promise<boolean> {
   if (response.status !== 400) return false;
   const responseText = await response
@@ -127,7 +193,7 @@ export class CodeBuddyCnExecutor extends DefaultExecutor {
   }
 
   async execute(input: ExecuteInput): Promise<ExecutorExecuteResult> {
-    const result = await super.execute(input);
+    const result = await normalizeFrequencyLimit(await super.execute({ ...input, skipUpstreamRetry: true }), input.signal);
     if (!(await isSensitiveContentRejection(responseFromResult(result)))) {
       return result;
     }
@@ -139,11 +205,12 @@ export class CodeBuddyCnExecutor extends DefaultExecutor {
       "CODEBUDDY_CN",
       "Upstream rejected an oversized tool request as sensitive content; retrying with compact tool descriptions"
     );
-    return super.execute({
+    return normalizeFrequencyLimit(await super.execute({
       ...input,
+      skipUpstreamRetry: true,
       body: compactBody,
       credentials: credentialsFromResult(result, input.credentials),
-    });
+    }), input.signal);
   }
 
   transformRequest(
@@ -195,7 +262,7 @@ export class CodeBuddyCnExecutor extends DefaultExecutor {
     // Handle messages array with role: "system"
     if (Array.isArray(out.messages)) {
       let hasSystem = false;
-      out.messages = (out.messages as Array<Record<string, unknown>>).map((message) => {
+      const messages = (out.messages as Array<Record<string, unknown>>).map((message) => {
         if (!message || message.role !== "system") return message;
         hasSystem = true;
         const text = flatten(message.content);
@@ -208,9 +275,9 @@ export class CodeBuddyCnExecutor extends DefaultExecutor {
         return message;
       });
 
-      if (!hasSystem && ratmanSoul) {
-        out.messages = [{ role: "system", content: ratmanSoul }, ...out.messages];
-      }
+      out.messages = !hasSystem && ratmanSoul
+        ? [{ role: "system", content: ratmanSoul }, ...messages]
+        : messages;
     }
 
     // --- Strip oversized tool descriptions (>64KB) ---

@@ -282,6 +282,7 @@ import {
 } from "./combo/quotaExhaustionCutoff.ts";
 import { expandTargetsByFingerprints } from "./combo/fingerprintExpansion.ts";
 import { resolveComboTargetPipeline } from "./combo/targetResolution.ts";
+import { resolveRequestRoutingTags } from "../../src/domain/tagRouter.ts";
 import {
   isQuotaExhaustionResponse,
   recordQuotaExhaustionClassification,
@@ -813,17 +814,27 @@ async function handleComboChatInner({
 
   // Chaos mode (parallel multi-model dispatch): detection + dispatch live in
   // chaosEngine.ts (dispatchChaosFromCombo), returning null when not chaos-enabled.
+  const chaosEnabled = !!(cfg.chaos && typeof cfg.chaos === "object" && (cfg.chaos as Record<string, unknown>).enabled);
+  const taggedChaos = chaosEnabled && resolveRequestRoutingTags(body).tags.length > 0;
+  const chaosTargets = chaosEnabled ? resolveComboTargets(
+    combo, allCombos, clampComboDepth(config.maxComboDepth), hiddenModelsByProvider
+  ) : [];
+  const eligibleChaosTargets = taggedChaos ? await applyRequestTagRouting(chaosTargets, body, log) : chaosTargets;
+  if (taggedChaos && eligibleChaosTargets.length === 0) {
+    return errorResponse(404, "Chaos combo has no eligible targets");
+  }
   const chaosDispatch = dispatchChaosFromCombo({
     cfg,
-    comboModels: resolveComboTargets(
-      combo,
-      allCombos,
-      clampComboDepth(config.maxComboDepth),
-      hiddenModelsByProvider
-    ).map((target) => target.modelStr),
+    comboModels: eligibleChaosTargets.map((target) => target.modelStr),
     comboName: combo.name,
     body,
-    handleSingleModel: handleSingleModelWithTimeout,
+    handleSingleModel: taggedChaos
+      ? (requestBody, model, target) => {
+          const eligible = eligibleChaosTargets.find((candidate) => candidate.modelStr === model);
+          if (!eligible) return Promise.resolve(errorResponse(404, "Chaos target is not eligible"));
+          return handleSingleModelWithTimeout(requestBody, model, { ...eligible, ...target });
+        }
+      : handleSingleModelWithTimeout,
     log,
     perTargetAdmission,
   });
@@ -2017,6 +2028,12 @@ async function handleComboChatInner({
           const isTokenLimitBreach =
             result.status === 429 && isTokenLimitBreachErrorBody(errorBody);
           const isLocalQueueCapacity = isLocalQueueCapacityErrorBody(errorBody);
+
+          if (typeof errorBody?.error === "object" && errorBody.error !== null &&
+              (errorBody.error.code === "IMPORTED_TOKEN_REAUTH_REQUIRED" ||
+              errorBody.error.code === "IMPORTED_TOKEN_FORBIDDEN")) {
+            return { ok: false, response: result };
+          }
 
           // Fix #1681: Status 499 means client disconnected — stop combo loop immediately.
           // There is no point trying fallback models when nobody is listening.
@@ -3517,6 +3534,12 @@ async function handleRoundRobinCombo({
             }
           } catch {
             /* Clone failed */
+          }
+
+          if (typeof errorBody?.error === "object" && errorBody.error !== null &&
+              (errorBody.error.code === "IMPORTED_TOKEN_REAUTH_REQUIRED" ||
+              errorBody.error.code === "IMPORTED_TOKEN_FORBIDDEN")) {
+            return result;
           }
 
           if (result.status === 499) {

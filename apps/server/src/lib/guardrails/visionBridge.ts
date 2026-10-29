@@ -17,6 +17,7 @@ import {
   composeVisionPrompt,
   replaceImageParts,
   ensureBase64ImagesForClaudeWire,
+  GuardedVisionImageFetchError,
 } from "./visionBridgeHelpers";
 import { fetch as undiciFetch } from "undici";
 import {
@@ -354,11 +355,18 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
             // (MiniMax 403 2013); resolve them to base64 before rerouting so
             // the rerouted request can actually be processed upstream. Use
             // undici fetch to bypass the runtime's hooked global fetch.
-            const rerouteBody = await ensureBase64ImagesForClaudeWire(
-              body as Parameters<typeof ensureBase64ImagesForClaudeWire>[0],
-              bestModel,
-              undiciFetch as unknown as typeof fetch
-            );
+            let rerouteBody: Awaited<ReturnType<typeof ensureBase64ImagesForClaudeWire>>;
+            try {
+              rerouteBody = await ensureBase64ImagesForClaudeWire(
+                body as Parameters<typeof ensureBase64ImagesForClaudeWire>[0],
+                bestModel,
+                undiciFetch as unknown as typeof fetch
+              );
+            } catch {
+              // The registry otherwise fails open on exceptions, forwarding the
+              // original URL despite the guarded fetch failing.
+              return { block: true, message: "Vision bridge could not safely fetch the remote image" };
+            }
             const modifiedBody = {
               ...(rerouteBody as Record<string, unknown>),
               model: bestModel,
@@ -449,6 +457,10 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
         return `[Image ${i + 1}]: ${capped}`;
       })
     );
+
+    if (results.some((result) => result.status === "rejected" && result.reason instanceof GuardedVisionImageFetchError)) {
+      return { block: true, message: "Vision bridge could not safely fetch the remote image" };
+    }
 
     // Collect descriptions maintaining original order. A failed describe yields
     // `null` so the original image is preserved downstream (#4012) — replacing it

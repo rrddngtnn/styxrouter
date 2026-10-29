@@ -72,7 +72,14 @@ export const kimiCoding = {
       throw new Error(`Device code request failed: ${error}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as {
+      device_code?: string;
+      user_code?: string;
+      verification_uri?: string;
+      verification_uri_complete?: string;
+      expires_in?: number;
+      interval?: number;
+    } | null;
     if (!data?.device_code) throw new Error("Device authorization response missing device_code");
     if (!data?.user_code) throw new Error("Device authorization response missing user_code");
     if (!data?.verification_uri_complete) {

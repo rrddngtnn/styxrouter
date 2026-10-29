@@ -113,12 +113,13 @@ export function normalizeVideoTranscript(
   durationSeconds: number
 ): VideoTranscriptCue[] {
   if (value === undefined || value === null) return [];
-  const rawCues = Array.isArray(value)
+  const candidate = Array.isArray(value)
     ? value
-    : value && typeof value === "object" && Array.isArray((value as Record<string, unknown>).cues)
+    : value && typeof value === "object"
       ? (value as Record<string, unknown>).cues
       : null;
-  if (!rawCues) throw new Error("Invalid video transcript: expected a cues array");
+  if (!Array.isArray(candidate)) throw new Error("Invalid video transcript: expected a cues array");
+  const rawCues: unknown[] = candidate;
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
     throw new Error("Invalid video transcript duration");
   }
@@ -152,6 +153,7 @@ export function normalizeVideoTranscript(
     if (
       !Number.isFinite(startSeconds) ||
       !Number.isFinite(endSeconds) ||
+      typeof confidence !== "number" ||
       !Number.isFinite(confidence) ||
       confidence < 0 ||
       confidence > 1 ||

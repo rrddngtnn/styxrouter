@@ -1,9 +1,11 @@
 import { getAllSyncedAvailableModels } from "./db/models";
+import { getDbInstance } from "./db/core";
+import { normalizeSyncedAvailableModels } from "./db/models/synced";
 import { getResolvedModelCapabilities } from "./modelCapabilities";
 import {
   getModelContextOverrideRecord,
   setModelContextOverride,
-  removeModelContextOverride,
+  removeAutoModelContextOverride,
 } from "./db/modelContextOverrides";
 
 /**
@@ -86,26 +88,89 @@ function toDiscoveredWindows(
   return out;
 }
 
+export function isKnownCodexCatalog(parsed: unknown): parsed is Array<{ id: string }> {
+  return Array.isArray(parsed) && parsed.length > 0 && parsed.every(
+    (m: unknown) => !!m && typeof m === "object" && typeof (m as { id?: unknown }).id === "string" && !!(m as { id: string }).id.trim()
+  );
+}
+
+// Caller holds a write transaction. Removal candidates come only from a successful
+// catalog replacement, never from missing/invalid catalogs or an empty aggregate.
+export function reconcileCodexContextWindowsInTransaction(removedIds: Iterable<string> = []): ReconcileResult {
+  const db = getDbInstance();
+  const rows = db.prepare(
+    "SELECT kv.value FROM provider_connections pc LEFT JOIN key_value kv " +
+    "ON kv.namespace = 'syncedAvailableModels' AND kv.key = 'codex:' || pc.id " +
+    "WHERE pc.provider = 'codex' AND pc.is_active = 1"
+  ).all() as Array<{ value: string | null }>;
+  const windows = new Map<string, number>();
+  const advertised = new Set<string>();
+  let unknownCatalog = false;
+  for (const row of rows) {
+    let models;
+    try {
+      const parsed = JSON.parse(row.value ?? "null");
+      if (!isKnownCodexCatalog(parsed)) {
+        unknownCatalog = true; continue;
+      }
+      models = normalizeSyncedAvailableModels(parsed, "codex");
+    } catch { unknownCatalog = true; continue; }
+    for (const model of models) {
+      advertised.add(model.id);
+      const value = model.inputTokenLimit;
+      if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) continue;
+      windows.set(model.id, Math.min(windows.get(model.id) ?? value, value));
+    }
+  }
+  const result = reconcileContextWindows(
+    Array.from(windows, ([modelId, window]) => ({ provider: "codex", modelId, window })), reconcileDeps
+  );
+  const pendingRow = db.prepare("SELECT value FROM key_value WHERE namespace = 'codexContextRemovals' AND key = 'pending'").get() as { value: string } | undefined;
+  let pending: string[] = [];
+  try { const parsed = JSON.parse(pendingRow?.value ?? "[]"); if (Array.isArray(parsed)) pending = parsed.filter((id): id is string => typeof id === "string"); } catch { /* preserve unknown state */ }
+  const candidates = new Set([...pending, ...removedIds]);
+  if (rows.length && !unknownCatalog) {
+    for (const id of candidates) {
+      if (advertised.has(id)) continue;
+      if (removeAutoModelContextOverride("codex", id)) result.removed++;
+      candidates.delete(id);
+    }
+  }
+  if (candidates.size) {
+    db.prepare("INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('codexContextRemovals', 'pending', ?)").run(JSON.stringify([...candidates]));
+  } else {
+    db.prepare("DELETE FROM key_value WHERE namespace = 'codexContextRemovals' AND key = 'pending'").run();
+  }
+  return result;
+}
+
+function reconcileCodexContextWindows(): ReconcileResult {
+  let result!: ReconcileResult;
+  getDbInstance().immediate(() => { result = reconcileCodexContextWindowsInTransaction(); });
+  return result;
+}
+
+const reconcileDeps: ReconcileDeps = {
+  getCatalogWindow: (provider, modelId) =>
+    getResolvedModelCapabilities({ provider, model: modelId }, { persistedOverrides: false }).contextWindow,
+  getExistingSource: (provider, modelId) => getModelContextOverrideRecord(provider, modelId)?.source ?? null,
+  writeAuto: (provider, modelId, window) => { setModelContextOverride(provider, modelId, window, "auto:discovery"); },
+  removeOverride: (provider, modelId) => { removeAutoModelContextOverride(provider, modelId); },
+};
+
 /** Run the reconcile against the live DB (discovery → overrides). */
-export async function runContextWindowReconcile(): Promise<ReconcileResult> {
+export async function runContextWindowReconcile(onlyProvider?: "codex"): Promise<ReconcileResult> {
+  if (onlyProvider === "codex") return reconcileCodexContextWindows();
   const byProvider = await getAllSyncedAvailableModels();
-  const discovered = toDiscoveredWindows(byProvider);
-  return reconcileContextWindows(discovered, {
-    // Compare against the override-free catalog view. A persisted override must
-    // never feed back into the comparison that (re)writes it, or the reconciler
-    // oscillates (write → equal → remove → differ → write ...).
-    getCatalogWindow: (provider, modelId) =>
-      getResolvedModelCapabilities({ provider, model: modelId }, { persistedOverrides: false })
-        .contextWindow,
-    getExistingSource: (provider, modelId) =>
-      getModelContextOverrideRecord(provider, modelId)?.source ?? null,
-    writeAuto: (provider, modelId, window) => {
-      setModelContextOverride(provider, modelId, window, "auto:discovery");
-    },
-    removeOverride: (provider, modelId) => {
-      removeModelContextOverride(provider, modelId);
-    },
-  });
+  delete byProvider.codex;
+  const other = reconcileContextWindows(toDiscoveredWindows(byProvider), reconcileDeps);
+  const codex = reconcileCodexContextWindows();
+  return {
+    scanned: other.scanned + codex.scanned,
+    written: other.written + codex.written,
+    removed: other.removed + codex.removed,
+    skippedManual: other.skippedManual + codex.skippedManual,
+  };
 }
 
 // --- Periodic job (mirrors modelsDevSync.startPeriodicSync) ---

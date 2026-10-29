@@ -296,7 +296,7 @@ export function getExecutor(provider) {
   const REGISTRY_PROVIDERS = new Set([
     ...Object.keys(REGISTRY),
   ]);
-  const isDynamicCompatible = /^openai-compatible-chat-[a-z0-9-]+$/.test(provider);
+  const isDynamicCompatible = /^(?:openai-compatible-(?:chat|responses)|anthropic-compatible)-[a-z0-9-]+$/.test(provider);
   if (!REGISTRY_PROVIDERS.has(provider) && !isDynamicCompatible) {
     const err = new Error(`unsupported_provider: "${provider}" is not a registered chat provider`);
     (err as Error & { status?: number }).status = 400;

@@ -4,6 +4,7 @@ import {
   type AntigravityClientProfile,
 } from "@/shared/constants/antigravityClientProfile";
 import { getAntigravityContentHeaders, ANTIGRAVITY_HUB_VERSION } from "./antigravityHeaders.ts";
+import { getAntigravityVersionPin } from "@/lib/db/antigravityVersionPin";
 import type { AntigravityCredentialsLike } from "./antigravityIdentity.ts";
 import {
   resolveAntigravityCliVersion,
@@ -45,11 +46,12 @@ export function getAntigravityClientProfile(
   return normalizeAntigravityClientProfile(fromProviderData);
 }
 
-export function resolveAntigravityClientVersion(
+export async function resolveAntigravityClientVersion(
   profile: AntigravityClientProfile
 ): Promise<string> {
   if (profile === "hub") return Promise.resolve(ANTIGRAVITY_HUB_VERSION);
-  return profile === "cli" ? resolveAntigravityCliVersion() : resolveAntigravityIdeVersion();
+  const version = await (profile === "cli" ? resolveAntigravityCliVersion() : resolveAntigravityIdeVersion());
+  return getAntigravityVersionPin(profile) ?? version;
 }
 
 export function removeHeaderCaseInsensitive(headers: Record<string, string>, name: string): void {

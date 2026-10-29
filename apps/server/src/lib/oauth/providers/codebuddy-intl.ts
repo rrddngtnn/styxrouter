@@ -32,6 +32,16 @@ interface CodeBuddyPollResult {
   data: Record<string, unknown> | CodeBuddyTokens;
 }
 
+interface CodeBuddyStateResponse {
+  code: number;
+  data?: { state: string; authUrl: string };
+}
+
+interface CodeBuddyTokenResponse {
+  code: number;
+  data?: Record<string, unknown> & { accessToken?: string; refreshToken?: string; expiresIn?: number };
+}
+
 export const codebuddyIntl = {
   config: CODEBUDDY_INTL_CONFIG,
   flowType: "device_code" as const,
@@ -56,7 +66,7 @@ export const codebuddyIntl = {
       const err = await response.text();
       throw new Error(`CodeBuddy Intl device code request failed (${response.status}): ${err}`);
     }
-    const result = await response.json();
+    const result = (await response.json()) as CodeBuddyStateResponse;
     if (result.code !== 0 || !result.data) {
       throw new Error(`CodeBuddy Intl device code unexpected response: ${JSON.stringify(result)}`);
     }
@@ -88,7 +98,7 @@ export const codebuddyIntl = {
       },
     });
     if (!response.ok) return { ok: false, data: { error: "request_failed" } };
-    const result = await response.json();
+    const result = (await response.json()) as CodeBuddyTokenResponse;
     if (result.code === 11217) return { ok: false, data: { error: "authorization_pending" } };
     if (result.code === 0 && result.data?.accessToken) {
       return {

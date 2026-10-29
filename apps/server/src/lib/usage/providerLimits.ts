@@ -6,9 +6,8 @@ import {
 import { getSettings, resolveProxyForConnection, updateSettings } from "@/lib/db/settings";
 import {
   getAllProviderLimitsCache,
-  getProviderLimitsCache,
-  setProviderLimitsCache,
-  setProviderLimitsCacheBatch,
+  getProviderLimitsCacheSnapshot,
+  updateProviderLimitsCache,
   type ProviderLimitsCacheEntry,
 } from "@/lib/db/providerLimits";
 import { syncToCloud } from "@/lib/cloudSync";
@@ -23,7 +22,7 @@ import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLease
 import { clearRecoveredProviderState } from "@/sse/services/auth";
 import { getMachineId } from "@/shared/utils/machine";
 import { USAGE_SUPPORTED_PROVIDERS } from "@/shared/constants/providers";
-import { mergeProviderLimitsCacheEntry, toProviderLimitsCacheEntry } from "./providerLimitsCache";
+import { isProviderLimitsErrorOnly, mergeConcurrentProviderLimitsCacheEntry, toProviderLimitsCacheEntry, sanitizeCodeBuddyCache } from "./providerLimitsCache";
 import { getExecutor } from "@styxrouter/open-sse/executors/index.ts";
 import { getUsageForProvider } from "@styxrouter/open-sse/services/usage.ts";
 import { cooldownUntilMs } from "@styxrouter/open-sse/services/accountFallback.ts";
@@ -249,6 +248,14 @@ export async function refreshAndUpdateCredentials(
   connection: ProviderConnectionLike,
   opts: { allowRotatingRefresh?: boolean; force?: boolean } = {}
 ) {
+  if (connection.providerSpecificData?.importedToken && connection.refreshToken &&
+      (opts.force || (connection.tokenExpiresAt || connection.expiresAt) &&
+        Date.parse(String(connection.tokenExpiresAt || connection.expiresAt)) <= Date.now())) {
+    throw withStatus(new Error("Imported credential refresh is disabled; re-authenticate the connection"), 401);
+  }
+  if (connection.providerSpecificData?.importedToken && connection.refreshToken) {
+    return { connection, refreshed: false };
+  }
   if (!shouldAttemptRotatingRefresh(connection.provider, opts.allowRotatingRefresh)) {
     return { connection, refreshed: false };
   }
@@ -272,11 +279,13 @@ export async function refreshAndUpdateCredentials(
     return { connection, refreshed: false };
   }
 
-  // Serialize the actual token mint per rotation group so two sibling accounts
-  // never hit Auth0 concurrently (passthrough for non-rotating providers).
-  const refreshResult = (await serializeRefresh(connection.provider, () =>
-    executor.refreshCredentials(credentials, console)
-  )) as
+  // These executors delegate to getAccessToken, which already serializes the
+  // same rotation group. Wrapping them again deadlocks the non-reentrant lane.
+  const delegatesSerialization = executor.serializesCredentialRefresh;
+  const refresh = () => executor.refreshCredentials(credentials, console);
+  const refreshResult = (await (delegatesSerialization
+    ? refresh()
+    : serializeRefresh(connection.provider, refresh))) as
     | (JsonRecord & {
         accessToken?: string;
         refreshToken?: string;
@@ -328,7 +337,9 @@ export async function refreshAndUpdateCredentials(
     };
   }
 
-  await updateProviderConnection(connection.id, updateData);
+  if (!(connection.provider === "codebuddy-cn" && refreshResult.credentialsPersisted === true)) {
+    await updateProviderConnection(connection.id, updateData);
+  }
 
   return {
     connection: {
@@ -806,19 +817,13 @@ export async function getSanitizedCachedProviderLimitsMap(): Promise<
   Record<string, ProviderLimitsCacheEntry>
 > {
   const caches = getAllProviderLimitsCache();
-  // Sanitization only rewrites Antigravity/agy quota keys; every other provider's cache
-  // entry is returned untouched (see sanitizeProviderLimitsCacheForConnection). The
-  // dashboard polls this on an auto-refresh interval, so avoid the unconditional
-  // `SELECT * FROM provider_connections` + per-row credential decryption that the
-  // previous implementation paid on every poll: skip the scan entirely when nothing is
-  // cached, and otherwise fetch ONLY the Antigravity/agy connections. For any other
-  // provider, byId.get(id) is undefined and the entry is returned verbatim — identical
-  // output to scanning every active connection, but without decrypting unrelated keys.
-  // (LEDGER-2 / #3821-review)
+  // Only Antigravity quota keys and CodeBuddy CN cached messages need sanitization.
+  // Skip connection lookups entirely when there are no cached entries.
   const connectionIds = Object.keys(caches);
   if (connectionIds.length === 0) return {};
 
   const sanitizableConnections = [
+    ...((await getProviderConnections({ provider: "codebuddy-cn" })) as unknown as ProviderConnectionLike[]),
     ...((await getProviderConnections({
       isActive: true,
       provider: "antigravity",
@@ -836,8 +841,9 @@ export async function getSanitizedCachedProviderLimitsMap(): Promise<
   const byId = new Map(sanitizableConnections.map((conn) => [conn.id, conn]));
   const sanitized: Record<string, ProviderLimitsCacheEntry> = {};
   for (const [connectionId, entry] of Object.entries(caches)) {
-    sanitized[connectionId] =
-      sanitizeProviderLimitsCacheForConnection(byId.get(connectionId), entry) || entry;
+    const conn = byId.get(connectionId);
+    const safeEntry = conn?.provider === "codebuddy-cn" ? sanitizeCodeBuddyCache(entry) : entry;
+    sanitized[connectionId] = sanitizeProviderLimitsCacheForConnection(conn, safeEntry) || safeEntry;
   }
   return sanitized;
 }
@@ -1011,6 +1017,10 @@ async function fetchLiveProviderLimitsWithOptions(
   };
 }
 
+// Multiple intervening mutations may contain a per-window ABA even if another
+// window differs. A single row revision cannot identify which window changed.
+const mayContainWindowAba = (current: number, initial: number) => current - initial > 1;
+
 export async function fetchAndPersistProviderLimits(
   connectionId: string,
   source: SyncSource = "manual",
@@ -1020,36 +1030,50 @@ export async function fetchAndPersistProviderLimits(
   usage: JsonRecord;
   cache: ProviderLimitsCacheEntry;
 }> {
-  const { connection, usage } = await fetchLiveProviderLimitsWithOptions(connectionId, {
-    forceRefresh: source === "manual",
-    allowRotatingRefresh: opts.allowRotatingRefresh,
-  });
+  const initialSnapshot = getProviderLimitsCacheSnapshot(connectionId);
+  const initialCache = initialSnapshot.entry;
+  let live: Awaited<ReturnType<typeof fetchLiveProviderLimitsWithOptions>>;
+  try {
+    live = await fetchLiveProviderLimitsWithOptions(connectionId, {
+      forceRefresh: source === "manual",
+      allowRotatingRefresh: opts.allowRotatingRefresh,
+    });
+  } catch (error) {
+    const connection = await getProviderConnectionById(connectionId);
+    const safeError = connection?.provider === "codebuddy-cn" ? withStatus(new Error("CodeBuddy CN quota refresh failed."), typeof (error as { status?: unknown })?.status === "number" ? (error as { status: number }).status : 500) : error;
+    updateProviderLimitsCache(connectionId, (previous, revision) => previous && revision === initialSnapshot.revision
+      ? { ...previous, message: (safeError as Error)?.message || "Failed to refresh provider limits", refreshFailed: true }
+      : previous);
+    throw safeError;
+  }
+  const { connection, usage } = live;
   const newCache = toProviderLimitsCacheEntry(usage, source);
-  const previous = getProviderLimitsCache(connectionId);
-  const cache = mergeProviderLimitsCacheEntry(connection.provider, newCache, previous);
+  const persistedCache = updateProviderLimitsCache(connectionId, (previous, revision) =>
+    mayContainWindowAba(revision, initialSnapshot.revision) || (revision !== initialSnapshot.revision && JSON.stringify(previous) === JSON.stringify(initialCache))
+      ? previous : mergeConcurrentProviderLimitsCacheEntry(connection.provider, newCache, previous, initialCache)
+  ) ?? newCache;
+  const cache = connection.provider === "codebuddy-cn" ? sanitizeCodeBuddyCache(persistedCache) : persistedCache;
 
-  // Don't persist error-only entries (429 etc.) — would wipe prior good cache.
-  // Serve the prior entry instead; only successful fetches update the cache.
-  if (cache === previous && newCache.message) {
+  // Error-only responses retain the prior observation and mark it stale.
+  if (isProviderLimitsErrorOnly(connection.provider, newCache) && cache.refreshFailed) {
     const staleUsage: JsonRecord = {
       ...usage,
-      quotas: previous.quotas,
-      plan: previous.plan ?? usage.plan ?? null,
-      bankedResetCredits: previous.bankedResetCredits,
-      billing: previous.billing,
+      quotas: cache.quotas,
+      plan: cache.plan ?? usage.plan ?? null,
+      bankedResetCredits: cache.bankedResetCredits,
+      billing: cache.billing,
       message: null,
       _stale: true,
-      _staleSince: previous.fetchedAt,
+      _staleSince: cache.fetchedAt,
       _staleReason: newCache.message,
     };
-    return { connection, usage: staleUsage, cache: previous };
+    return { connection, usage: staleUsage, cache };
   }
 
   const mergedUsage: JsonRecord = {
     ...usage,
     ...(cache.billing ? { billing: cache.billing } : {}),
   };
-  setProviderLimitsCache(connectionId, cache);
   return { connection, usage: mergedUsage, cache };
 }
 
@@ -1079,23 +1103,17 @@ export async function syncAllProviderLimits(
   )
     .filter(({ connection, blocked }) => isSupportedUsageConnection(connection) && !blocked)
     .map(({ connection }) => connection);
-  const cacheEntries: Array<{ connectionId: string; entry: ProviderLimitsCacheEntry }> = [];
   const caches: Record<string, ProviderLimitsCacheEntry> = {};
   const errors: Record<string, string> = {};
 
   const recordResult = (
     connectionId: string,
-    result: PromiseSettledResult<{ connectionId: string; cache: ProviderLimitsCacheEntry }>
+    result: PromiseSettledResult<{ connectionId: string; cache: ProviderLimitsCacheEntry; error?: string }>
   ) => {
     if (result.status === "fulfilled") {
-      const { cache } = result.value;
-      const previous = getProviderLimitsCache(connectionId);
-      if (cache === previous) {
-        caches[connectionId] = cache;
-        return;
-      }
-      cacheEntries.push({ connectionId, entry: cache });
+      const { cache, error } = result.value;
       caches[connectionId] = cache;
+      if (error) errors[connectionId] = error;
       return;
     }
     const reason = result.reason as { message?: string } | undefined;
@@ -1103,16 +1121,27 @@ export async function syncAllProviderLimits(
   };
 
   const fetchOne = async (connection: ProviderConnectionLike) => {
-    const existingCache = getProviderLimitsCache(connection.id);
+    const initialSnapshot = getProviderLimitsCacheSnapshot(connection.id);
+    const existingCache = initialSnapshot.entry;
     const forceRefresh =
       source === "manual" ||
       shouldRefreshProviderLimitsCache(connection, existingCache || undefined);
-    const { usage } = await fetchLiveProviderLimitsWithOptions(connection.id, {
-      forceRefresh,
-    });
+    let usage: JsonRecord;
+    try {
+      ({ usage } = await fetchLiveProviderLimitsWithOptions(connection.id, { forceRefresh }));
+    } catch (error) {
+      const safeError = connection.provider === "codebuddy-cn" ? withStatus(new Error("CodeBuddy CN quota refresh failed."), 500) : error;
+      updateProviderLimitsCache(connection.id, (previous, revision) => previous && revision === initialSnapshot.revision
+        ? { ...previous, message: (safeError as Error)?.message || "Failed to refresh provider limits", refreshFailed: true }
+        : previous);
+      throw safeError;
+    }
     const nextCache = toProviderLimitsCacheEntry(usage, source);
-    const cache = mergeProviderLimitsCacheEntry(connection.provider, nextCache, existingCache);
-    return { connectionId: connection.id, cache };
+    const cache = updateProviderLimitsCache(connection.id, (previous, revision) =>
+      mayContainWindowAba(revision, initialSnapshot.revision) || (revision !== initialSnapshot.revision && JSON.stringify(previous) === JSON.stringify(existingCache))
+        ? previous : mergeConcurrentProviderLimitsCacheEntry(connection.provider, nextCache, previous, existingCache)
+    ) ?? nextCache;
+    return { connectionId: connection.id, cache, ...(nextCache.message ? { error: nextCache.message } : {}) };
   };
 
   // OAuth connections are processed STRICTLY SEQUENTIALLY (chunk size 1) with a
@@ -1126,7 +1155,7 @@ export async function syncAllProviderLimits(
 
   const recordChunk = (
     chunk: ProviderConnectionLike[],
-    results: PromiseSettledResult<{ connectionId: string; cache: ProviderLimitsCacheEntry }>[]
+    results: PromiseSettledResult<{ connectionId: string; cache: ProviderLimitsCacheEntry; error?: string }>[]
   ) => {
     results.forEach((result, index) => {
       const connectionId = chunk[index]?.id;
@@ -1137,18 +1166,14 @@ export async function syncAllProviderLimits(
   await syncInChunksWithSpacing(otherConnections, concurrency, spacingMs, fetchOne, recordChunk);
   await syncInChunksWithSpacing(oauthConnections, 1, spacingMs, fetchOne, recordChunk);
 
-  if (cacheEntries.length > 0) {
-    setProviderLimitsCacheBatch(cacheEntries);
-  }
-
   if (source === "scheduled") {
     await setLastProviderLimitsAutoSyncTime(new Date().toISOString());
   }
 
   return {
     total: connections.length,
-    succeeded: cacheEntries.length,
-    failed: connections.length - cacheEntries.length,
+    succeeded: connections.length - Object.keys(errors).length,
+    failed: Object.keys(errors).length,
     caches,
     errors,
   };

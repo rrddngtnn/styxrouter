@@ -1,3 +1,4 @@
+import { recordRoutingTrace } from "../../src/sse/services/routingDecisionTrace.ts";
 import { HTTP_STATUS, FETCH_TIMEOUT_MS } from "../config/constants.ts";
 import { getRegistryEntry } from "../config/providerRegistry.ts";
 import {
@@ -175,6 +176,8 @@ export type ProviderCredentials = {
   maxConcurrent?: number | null;
   providerSpecificData?: JsonRecord;
   requestEndpointPath?: string;
+  /** Internal, request-scoped exact Codex catalog ID; never a persisted setting. */
+  codexExactModel?: string;
 };
 
 export type ExecutorLog = {
@@ -315,6 +318,8 @@ export type ExecutorExecuteResult =
     };
 
 export class BaseExecutor {
+  // True only when refreshCredentials takes the global rotation lane itself.
+  readonly serializesCredentialRefresh: boolean = false;
   provider: string;
   config: ProviderConfig;
 
@@ -493,9 +498,25 @@ export class BaseExecutor {
       ...(alternate?.headers || {}),
     };
 
+    const providerId = this.config?.id || this.provider;
+    // Collapse differently cased CN identity headers before fetch combines them.
+    // Later config/alternate entries retain their normal precedence.
+    if (providerId === "codebuddy-cn") {
+      for (const name of ["User-Agent", "X-IDE-Type", "X-IDE-Name"]) {
+        const matches = Object.keys(headers).filter((key) => key.toLowerCase() === name.toLowerCase());
+        if (matches.length) {
+          const alternateMatches = Object.keys(alternate?.headers || {}).filter((key) => key.toLowerCase() === name.toLowerCase());
+          const value = alternateMatches.length
+            ? alternate!.headers![alternateMatches[alternateMatches.length - 1]]
+            : headers[matches[matches.length - 1]];
+          for (const key of matches) delete headers[key];
+          headers[name] = value;
+        }
+      }
+    }
+
     // Allow per-provider User-Agent override via environment variable.
     // Example: CLAUDE_USER_AGENT="my-agent/2.0" overrides the default for the Claude provider.
-    const providerId = this.config?.id || this.provider;
     if (providerId) {
       const envKey = `${providerId.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_USER_AGENT`;
       const envUA = process.env[envKey]?.trim();
@@ -534,10 +555,12 @@ export class BaseExecutor {
       headers["X-B3-TraceId"] = trace;
       headers["X-B3-SpanId"] = span;
       headers["X-B3-Sampled"] = "1";
-      // IDE-UA for CodeBuddy official-client fingerprint
-      setUserAgentHeader(headers, "IDE/2.108.1 CodeBuddy/2.108.1");
-      headers["X-IDE-Type"] = "IDE";
-      headers["X-IDE-Name"] = "IDE";
+      // Keep the international client's existing IDE identity; CN uses its registry's CLI identity.
+      if (providerId === "codebuddy-intl") {
+        setUserAgentHeader(headers, "IDE/2.108.1 CodeBuddy/2.108.1");
+        headers["X-IDE-Type"] = "IDE";
+        headers["X-IDE-Name"] = "IDE";
+      }
       // CodeBuddy official-client channel verification: the server rejects
       // (code 11128 "request illegal") unless these dispatch headers also
       // appear. They mirror what the IDE plugin sends on every call.
@@ -658,6 +681,7 @@ export class BaseExecutor {
   }
 
   needsRefresh(credentials?: ProviderCredentials | null) {
+    if (credentials?.providerSpecificData?.importedToken && (!credentials.refreshToken || credentials.providerSpecificData?.autoRefreshDisabled)) return false;
     if (!credentials?.expiresAt) return false;
     const expiresAtMs = new Date(credentials.expiresAt).getTime();
     // Use the provider-specific lead time (REFRESH_LEAD_MS) so rotating-token
@@ -778,12 +802,12 @@ export class BaseExecutor {
         let proactivePersistRan = false;
         const proactiveOnPersist = onCredentialsRefreshed
           ? async (refreshResult: Record<string, unknown>) => {
+              await onCredentialsRefreshed(refreshResult as Partial<ProviderCredentials>);
               proactivePersistRan = true;
               activeCredentials = {
                 ...credentials,
                 ...(refreshResult as Partial<ProviderCredentials>),
               };
-              await onCredentialsRefreshed(refreshResult as Partial<ProviderCredentials>);
             }
           : null;
 
@@ -946,6 +970,12 @@ export class BaseExecutor {
       try {
         // Timeout only covers response start; stream stalls are handled downstream.
         const fetchStartTimeoutMs = this.getTimeoutMs();
+        // This callback runs only when fetch resolves with actual HTTP headers.
+        const onFetchResponse = (response: Response) => {
+          if (typeof credentials?.connectionId !== "string") return;
+          recordRoutingTrace({ kind: "outcome", provider: this.provider, account: credentials.connectionId,
+            reason: response.status >= 400 ? "upstreamHttpError" : "upstreamHttpHeaders", status: response.status });
+        };
         const fetchWithStartTimeout = async (requestUrl: string, requestOptions: RequestInit) => {
           // GHSA-4f49: guard here (not only next to the first buildUrl) so retries
           // and fallback URLs are validated too, before any bytes leave the host.
@@ -972,7 +1002,9 @@ export class BaseExecutor {
             : requestOptions;
 
           try {
-            return await fetch(requestUrl, optionsWithSignal);
+            const response = await fetch(requestUrl, optionsWithSignal);
+            onFetchResponse(response);
+            return response;
           } finally {
             if (timeoutId) clearTimeout(timeoutId);
           }

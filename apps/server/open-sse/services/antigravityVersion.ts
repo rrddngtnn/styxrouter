@@ -1,7 +1,8 @@
 const ANTIGRAVITY_IDE_RELEASE_FEED_URL =
   "https://antigravity-auto-updater-974169037036.us-central1.run.app/releases";
+// Match the darwin/arm64 identity emitted by antigravityHeaders.ts, not the host platform.
 const ANTIGRAVITY_CLI_RELEASE_URL =
-  "https://api.github.com/repos/google-antigravity/antigravity-cli/releases/latest";
+  "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/darwin_arm64.json";
 
 export const ANTIGRAVITY_VERSION_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 export const ANTIGRAVITY_VERSION_FETCH_TIMEOUT_MS = 5_000;
@@ -15,14 +16,15 @@ type VersionCache = {
 
 type ProductVersionState = {
   cache: VersionCache | null;
-  inFlight: Promise<string> | null;
+  observed: VersionCache | null;
+  inFlight: Promise<string | null> | null;
 };
 
 type FetchLike = typeof fetch;
 type VersionParser = (payload: unknown) => string | null;
 
-const ideState: ProductVersionState = { cache: null, inFlight: null };
-const cliState: ProductVersionState = { cache: null, inFlight: null };
+const ideState: ProductVersionState = { cache: null, observed: null, inFlight: null };
+const cliState: ProductVersionState = { cache: null, observed: null, inFlight: null };
 
 function normalizeVersion(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -61,13 +63,36 @@ async function fetchJsonWithTimeout(fetchImpl: FetchLike, url: string): Promise<
         "User-Agent": "StyxRouter-AntigravityVersion/1.0",
       },
       signal: controller.signal,
+      redirect: "error",
     });
 
     if (!response.ok) {
       throw new Error(`Version source ${url} returned ${response.status}`);
     }
 
-    return response.json();
+    if (url !== ANTIGRAVITY_CLI_RELEASE_URL) return await response.json();
+    const maxBytes = 16 * 1024;
+    const length = response.headers.get("content-length");
+    if (length && Number(length) > maxBytes) throw new Error("Manifest too large");
+    if (!response.body) throw new Error("Empty manifest");
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > maxBytes) throw new Error("Manifest too large");
+        chunks.push(value);
+      }
+    } finally {
+      reader.cancel().catch(() => {});
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return JSON.parse(new TextDecoder().decode(bytes));
   } finally {
     clearTimeout(timeoutId);
   }
@@ -79,9 +104,10 @@ function parseIdeReleaseFeed(payload: unknown): string | null {
 }
 
 function parseCliRelease(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") return null;
-  const release = payload as { name?: unknown; tag_name?: unknown };
-  return normalizeVersion(release.tag_name ?? release.name);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const { version } = payload as { version?: unknown };
+  return typeof version === "string" && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)
+    ? version : null;
 }
 
 async function resolveProductVersion(
@@ -89,18 +115,15 @@ async function resolveProductVersion(
   fallbackVersion: string,
   sourceUrl: string,
   parsePayload: VersionParser,
-  fetchImpl: FetchLike
+  fetchImpl: FetchLike,
+  force = false
 ): Promise<string> {
   const now = Date.now();
-  if (state.cache && now - state.cache.fetchedAt < ANTIGRAVITY_VERSION_CACHE_TTL_MS) {
+  if (!force && state.cache && now - state.cache.fetchedAt < ANTIGRAVITY_VERSION_CACHE_TTL_MS) {
     return pickNewestVersion(state.cache.version, fallbackVersion) ?? fallbackVersion;
   }
 
-  if (state.inFlight) {
-    return state.inFlight;
-  }
-
-  state.inFlight = (async () => {
+  if (!state.inFlight) state.inFlight = (async () => {
     let resolved: string | null = null;
     try {
       resolved = parsePayload(await fetchJsonWithTimeout(fetchImpl, sourceUrl));
@@ -112,18 +135,22 @@ async function resolveProductVersion(
       pickNewestVersion(resolved, state.cache?.version, fallbackVersion) ?? fallbackVersion;
 
     if (resolved) {
+      state.observed = { fetchedAt: Date.now(), version: resolved };
       state.cache = {
         fetchedAt: Date.now(),
         version,
       };
     }
-    return version;
+    return resolved ? version : null;
   })();
 
+  const flight = state.inFlight;
   try {
-    return await state.inFlight;
+    const version = await flight;
+    if (!version && force) throw new Error("Version source unavailable");
+    return version ?? pickNewestVersion(state.cache?.version, fallbackVersion) ?? fallbackVersion;
   } finally {
-    state.inFlight = null;
+    if (state.inFlight === flight) state.inFlight = null;
   }
 }
 
@@ -135,23 +162,25 @@ function seedVersionCache(state: ProductVersionState, version: string, fetchedAt
   state.cache = { fetchedAt, version: normalized };
 }
 
-export function resolveAntigravityIdeVersion(fetchImpl: FetchLike = fetch): Promise<string> {
+export function resolveAntigravityIdeVersion(fetchImpl: FetchLike = fetch, force = false): Promise<string> {
   return resolveProductVersion(
     ideState,
     ANTIGRAVITY_IDE_FALLBACK_VERSION,
     ANTIGRAVITY_IDE_RELEASE_FEED_URL,
     parseIdeReleaseFeed,
-    fetchImpl
+    fetchImpl,
+    force
   );
 }
 
-export function resolveAntigravityCliVersion(fetchImpl: FetchLike = fetch): Promise<string> {
+export function resolveAntigravityCliVersion(fetchImpl: FetchLike = fetch, force = false): Promise<string> {
   return resolveProductVersion(
     cliState,
     ANTIGRAVITY_CLI_FALLBACK_VERSION,
     ANTIGRAVITY_CLI_RELEASE_URL,
     parseCliRelease,
-    fetchImpl
+    fetchImpl,
+    force
   );
 }
 
@@ -161,6 +190,12 @@ export function getCachedAntigravityIdeVersion(): string {
 
 export function getCachedAntigravityCliVersion(): string {
   return cliState.cache?.version ?? ANTIGRAVITY_CLI_FALLBACK_VERSION;
+}
+
+/** Last successful upstream observation in this process, independent of retained cache. */
+export function getAntigravityVersionObservation(product: "ide" | "cli"): { observedVersion: string | null; observedAt: number | null } {
+  const observed = (product === "ide" ? ideState : cliState).observed;
+  return { observedVersion: observed?.version ?? null, observedAt: observed?.fetchedAt ?? null };
 }
 
 export function seedAntigravityIdeVersionCache(version: string, fetchedAt = Date.now()): void {
@@ -173,7 +208,9 @@ export function seedAntigravityCliVersionCache(version: string, fetchedAt = Date
 
 export function clearAntigravityVersionCaches(): void {
   ideState.cache = null;
+  ideState.observed = null;
   ideState.inFlight = null;
   cliState.cache = null;
+  cliState.observed = null;
   cliState.inFlight = null;
 }

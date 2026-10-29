@@ -215,6 +215,7 @@ export class GrokCliExecutor extends BaseExecutor {
     credentials: ProviderCredentials,
     log?: ExecutorLog | null
   ): Promise<Partial<ProviderCredentials> | null> {
+    if (credentials?.providerSpecificData?.importedToken) throw new Error("Imported credential refresh is disabled; re-authenticate the connection");
     if (!credentials?.refreshToken) {
       log?.warn?.("TOKEN_REFRESH", "Grok Build: no refresh token available");
       return null;

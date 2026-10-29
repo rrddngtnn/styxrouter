@@ -4,6 +4,7 @@
 import { PROVIDERS, OAUTH_ENDPOINTS } from "../../../config/constants.ts";
 import { runWithProxyContext } from "../../../utils/proxyFetch.ts";
 import { buildFormParams } from "../shared.ts";
+import { parseSafeRefreshResponse } from "../importSafeResponse.ts";
 
 /**
  * Specialized refresh for Codex (OpenAI) OAuth tokens.
@@ -12,6 +13,10 @@ import { buildFormParams } from "../shared.ts";
  * consumed or is invalid, so callers can stop retrying and request re-authentication.
  */
 export async function refreshCodexToken(refreshToken, log, proxyConfig: unknown = null) {
+  // Explicit operator-wide freeze: old imported rows lack trustworthy provenance.
+  if (process.env.STYX_BLOCK_CODEX_REFRESH === "1") {
+    throw new Error("Codex refresh is disabled by operator; re-authenticate or remove the refresh freeze");
+  }
   try {
     const response = await runWithProxyContext(proxyConfig, () =>
       fetch(OAUTH_ENDPOINTS.openai.token, {
@@ -75,7 +80,7 @@ export async function refreshCodexToken(refreshToken, log, proxyConfig: unknown 
       // refresh token will never succeed; surface re-auth instead of looping.
       // 429 / 5xx remain transient and fall through to the retryable branch.
       if (response.status === 401) {
-        const code = errorCode || "unauthorized";
+        const code = "unauthorized";
         log?.error?.(
           "TOKEN_REFRESH",
           "Codex OAuth token endpoint returned 401. Re-authentication required.",
@@ -89,26 +94,22 @@ export async function refreshCodexToken(refreshToken, log, proxyConfig: unknown 
 
       log?.error?.("TOKEN_REFRESH", "Failed to refresh Codex token", {
         status: response.status,
-        error: errorText,
       });
       return null;
     }
 
-    const tokens = await response.json();
+    const tokens = parseSafeRefreshResponse(await response.json(), refreshToken);
+    if (!tokens) return null;
 
     log?.info?.("TOKEN_REFRESH", "Successfully refreshed Codex token", {
-      hasNewAccessToken: !!tokens.access_token,
-      hasNewRefreshToken: !!tokens.refresh_token,
-      expiresIn: tokens.expires_in,
+      hasNewAccessToken: true,
+      hasNewRefreshToken: tokens.refreshToken !== refreshToken,
+      expiresIn: tokens.expiresIn,
     });
 
-    return {
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token || refreshToken,
-      expiresIn: tokens.expires_in,
-    };
-  } catch (error) {
-    log?.error?.("TOKEN_REFRESH", `Network error refreshing Codex token: ${error.message}`);
+    return tokens;
+  } catch {
+    log?.error?.("TOKEN_REFRESH", "Network error refreshing Codex token");
     return null;
   }
 }

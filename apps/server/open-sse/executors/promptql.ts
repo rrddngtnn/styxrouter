@@ -29,6 +29,7 @@ import {
 } from "../services/promptqlModels.ts";
 import {
   normalizePromptQlToken,
+  looksLikeUuid,
   extractProjectIdFromToken,
   isPlaygroundPromptQlToken,
   isDdnProjectPromptQlToken,
@@ -223,6 +224,10 @@ function readStr(v: unknown): string {
   return t.length ? t : "";
 }
 
+class PromptQlHttpError extends Error {
+  constructor(readonly status: number) { super("PromptQL upstream HTTP error"); }
+}
+
 async function gql<T = unknown>(
   endpoint: string,
   token: string,
@@ -244,8 +249,9 @@ async function gql<T = unknown>(
     body: JSON.stringify({ query, variables, operationName }),
     signal: signal ?? undefined,
   });
+  if (!res.ok) throw new PromptQlHttpError(res.status);
   const text = await res.text();
-  let json: { data?: T; errors?: Array<{ message?: string }> };
+  let json: { data?: T; errors?: Array<{ message?: string; extensions?: { code?: string } }> };
   try {
     json = JSON.parse(text) as typeof json;
   } catch {
@@ -255,6 +261,9 @@ async function gql<T = unknown>(
     throw new Error(`GraphQL HTTP ${res.status}: ${text.slice(0, 400)}`);
   }
   if (json.errors?.length) {
+    if (json.errors.some((e) => /^(invalid[-_]jwt|unauthenticated|unauthorized)$/i.test(e.extensions?.code || "") || /\b(?:unauthorized|unauthenticated|invalid jwt)\b/i.test(e.message || ""))) {
+      throw new PromptQlHttpError(401);
+    }
     throw new Error(json.errors.map((e) => e.message || "error").join("; "));
   }
   return json.data as T;
@@ -458,6 +467,12 @@ export class PromptQlExecutor extends BaseExecutor {
     const { model, body, stream: wantStream, credentials, signal } = input;
     const requestBody = (body || {}) as PromptQlRequestBody;
     let { token, projectId, cookie, timezone } = resolvePromptQlCredentials(credentials);
+    const imported = credentials?.providerSpecificData?.importedToken === true;
+    if (imported) {
+      const explicit = credentials?.providerSpecificData?.projectId;
+      projectId = typeof explicit === "string" && explicit === explicit.trim() && looksLikeUuid(explicit) ? explicit : "";
+      cookie = "";
+    }
 
     if (!token) {
       return makeErrorResult(
@@ -469,12 +484,12 @@ export class PromptQlExecutor extends BaseExecutor {
     }
 
     // Best-effort refresh when JWT is near expiry and session cookie is present.
-    if (isJwtExpired(token) && cookie && projectId) {
+    if (!imported && cookie && projectId && isJwtExpired(token)) {
       const refreshed = await tryRefreshPromptQlToken({ projectId, cookie, signal });
       if (refreshed) token = refreshed;
     }
 
-    if (!projectId) {
+    if (!projectId && !imported) {
       projectId = extractProjectIdFromToken(token);
     }
     if (!projectId) {
@@ -488,7 +503,7 @@ export class PromptQlExecutor extends BaseExecutor {
 
     // DDN/lux tokens authenticate credits (data.pro.ql.app) but playground GraphQL
     // rejects them ("Authentication hook unauthorized"). Fail early with a clear fix.
-    if (!isPlaygroundPromptQlToken(token) && isDdnProjectPromptQlToken(token)) {
+    if (!imported && !isPlaygroundPromptQlToken(token) && isDdnProjectPromptQlToken(token)) {
       return makeErrorResult(
         401,
         "This JWT is a DDN/project token (works for Limits/credits only). For chat, open prompt.ql.app → F12 → Network → filter graphql on data.prompt.ql.app → copy Authorization Bearer JWT (iss=enrich-token, claims under https://promptql.hasura.io). Paste that JWT (without the Bearer prefix).",
@@ -551,7 +566,8 @@ export class PromptQlExecutor extends BaseExecutor {
               signal
             );
             start = data.start_thread;
-          } catch {
+          } catch (error) {
+            if (error instanceof PromptQlHttpError && (error.status === 401 || error.status === 403)) throw error;
             const data = await gql<StartData>(
               PLAYGROUND_GQL,
               token,
@@ -687,9 +703,10 @@ export class PromptQlExecutor extends BaseExecutor {
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const status =
-        /JWT|expired|unauthorized|401/i.test(msg) ? 401 : /timeout/i.test(msg) ? 504 : 502;
-      return makeErrorResult(status, `PromptQL: ${msg}`, body, PLAYGROUND_GQL);
+      const status = err instanceof PromptQlHttpError && (err.status === 401 || err.status === 403)
+        ? err.status : /JWT|expired|unauthorized|401/i.test(msg) ? 401 : /timeout/i.test(msg) ? 504 : 502;
+      // Upstream bodies and transport exceptions may contain bearer credentials.
+      return makeErrorResult(status, "PromptQL upstream request failed", body, PLAYGROUND_GQL);
     }
   }
 }

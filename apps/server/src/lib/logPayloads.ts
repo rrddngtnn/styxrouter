@@ -1,4 +1,5 @@
 import { sanitizePII } from "./piiSanitizer";
+import { isSensitiveLogKey, redactLogUrl } from "./logUrlRedaction";
 
 const SENSITIVE_KEYS = new Set([
   "api_key",
@@ -47,7 +48,7 @@ function encryptedReasoningOmissionMarker(length?: number): string {
 
 // Matches a JSON string field in captured SSE text. Alternatives inside the value are disjoint,
 // keeping the scan linear even for large encrypted blobs.
-const SERIALIZED_ENCRYPTED_REASONING_RE = /(\"encrypted_content\"\s*:\s*\")((?:\\.|[^\"\\])*)\"/g;
+const SERIALIZED_ENCRYPTED_REASONING_RE = /(\"encrypted_content\"\s*:\s*\")((?:\\.|[^\"\\])*)(?:\"|\\?$)/g;
 const STREAM_CHUNK_TIMESTAMP_RE = /^\[\d{2}:\d{2}:\d{2}\.\d{3}\] /;
 
 export function omitEncryptedReasoningFromLogChunks(chunks: string[]): string[] {
@@ -119,16 +120,21 @@ export function omitEncryptedReasoningForLog(payload: unknown): unknown {
 }
 
 export function redactPayload(payload: unknown): unknown {
+  if (typeof payload === "string" && /https?:\/\//i.test(payload)) return redactLogUrl(payload);
   if (!payload || typeof payload !== "object") return payload;
   if (isOpaqueBinary(payload)) return describeOpaqueBinary(payload);
   if (Array.isArray(payload)) return payload.map(redactPayload);
 
   const redacted: JsonRecord = {};
   for (const [key, value] of Object.entries(payload)) {
-    if (SENSITIVE_KEYS.has(key)) {
+    if (SENSITIVE_KEYS.has(key) || isSensitiveLogKey(key)) {
       redacted[key] = "[REDACTED]";
+    } else if (typeof value === "string" && /^(?:url|endpoint|path)$/i.test(key)) {
+      redacted[key] = redactLogUrl(value);
     } else if (typeof value === "string" && value.startsWith("Bearer ")) {
       redacted[key] = "Bearer [REDACTED]";
+    } else if (typeof value === "string" && /https?:\/\//i.test(value)) {
+      redacted[key] = redactLogUrl(value);
     } else if (typeof value === "object" && value !== null) {
       redacted[key] = redactPayload(value);
     } else {

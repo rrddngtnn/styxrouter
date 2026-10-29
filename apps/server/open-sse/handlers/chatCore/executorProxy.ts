@@ -89,7 +89,8 @@ function resolveCliproxyapiExecutor(
 export async function resolveExecutorWithProxy(
   prov: string,
   log?: LoggerLike,
-  providerSpecificData?: Record<string, unknown> | null
+  providerSpecificData?: Record<string, unknown> | null,
+  executorProvider: string = prov
 ) {
   // Per-connection routing override (#6339): the resolved connection can opt itself
   // into the CLIProxyAPI passthrough executor via providerSpecificData.cliproxyapiMode
@@ -119,7 +120,7 @@ export async function resolveExecutorWithProxy(
   }
 
   const cfg = await getUpstreamProxyConfigCached(prov);
-  if (!cfg.enabled || cfg.mode === "native") return getExecutor(prov);
+  if (!cfg.enabled || cfg.mode === "native") return getExecutor(executorProvider);
 
   if (cfg.mode === "cliproxyapi") {
     log?.info?.("UPSTREAM_PROXY", `${prov} routed through CLIProxyAPI (passthrough)`);
@@ -138,7 +139,7 @@ export async function resolveExecutorWithProxy(
   // backend on specific failures. The backend defaults to CLIProxyAPI so every
   // pre-existing fallback config behaves exactly as before; fallbackBackend
   // === "dario" opts the retry leg over to Dario instead.
-  const nativeExec = getExecutor(prov);
+  const nativeExec = getExecutor(executorProvider);
   const fallbackBackend: FallbackBackend = cfg.fallbackBackend;
   const { fallbackCodes, dedicatedApiKey } = await loadCliproxyapiSettings();
 

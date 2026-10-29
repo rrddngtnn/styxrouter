@@ -44,6 +44,8 @@ import {
   rrCounters,
 } from "./rrState.ts";
 import { executeRuntimeUnitCombo } from "./runtimeUnits.ts";
+import { applyRequestTagRouting } from "./autoStrategy.ts";
+import { resolveRequestRoutingTags } from "../../../src/domain/tagRouter.ts";
 import {
   releaseQualityClone,
   releaseRejectedQualityResponse,
@@ -307,6 +309,11 @@ export async function tryPinnedModelDispatch(args: {
     clampComboDepth(config.maxComboDepth),
     hiddenModelsByProvider
   );
+  const tagged = resolveRequestRoutingTags(body).tags.length > 0;
+  const eligiblePinnedTargets = tagged
+    ? await applyRequestTagRouting(comboTargets.filter((target) => target.modelStr === pinnedModel), body, log)
+    : [];
+  if (tagged && eligiblePinnedTargets.length === 0) return null;
   const pinInCombo = !haveFullCombos || comboTargets.some((t) => t.modelStr === pinnedModel);
   // Honor the pin only if it is still a combo target AND its provider is not
   // DURABLY down. Without the health gate a pin keeps routing a session to a
@@ -326,7 +333,7 @@ export async function tryPinnedModelDispatch(args: {
       // a session pin bypasses the main loop, so without this the template would
       // go literal from the second in-session request on. Target context comes
       // from the pinned model's resolved combo target when available.
-      const pinnedTarget = comboTargets.find((t) => t.modelStr === pinnedModel);
+      const pinnedTarget = tagged ? eligiblePinnedTargets[0] : comboTargets.find((t) => t.modelStr === pinnedModel);
       const pinnedBody = expandComboSystemPromptIfPresent(body, combo, {
         modelId: pinnedModel,
         providerId:
@@ -338,6 +345,7 @@ export async function tryPinnedModelDispatch(args: {
         fingerprint: pinnedTarget ? (resolveTargetFingerprint(pinnedTarget) ?? "") : "",
       });
       pinnedResult = await handleSingleModelWithTimeout(pinnedBody, pinnedModel, {
+        ...(tagged ? pinnedTarget : {}),
         modelPinned: true,
       } as SingleModelTarget);
     } catch (pinErr) {
@@ -455,12 +463,12 @@ export async function tryFusionDispatch(args: {
   // "confirmed vision" voice. Apply the same exclusion here so the fusion panel
   // only fans an image request out to targets with confirmed vision support.
   const fusionRequirements = judgeFusionRequirements;
-  const resolvedFusionTargets = fusionRequirements.requiresVision
+  const visionFusionTargets = fusionRequirements.requiresVision
     ? allResolvedFusionTargets.filter(
         (target) => !isVisionIncompatibleTarget(target, fusionRequirements)
       )
     : allResolvedFusionTargets;
-  if (fusionRequirements.requiresVision && resolvedFusionTargets.length === 0) {
+  if (fusionRequirements.requiresVision && visionFusionTargets.length === 0) {
     log.warn(
       "COMBO",
       `Combo "${combo.name}" fusion panel has no target with confirmed vision support for this image request — every candidate was excluded (#3378)`
@@ -481,6 +489,16 @@ export async function tryFusionDispatch(args: {
       },
       { code: "capability_mismatch", type: "invalid_request_error" }
     );
+  }
+  const tagged = resolveRequestRoutingTags(args.body).tags.length > 0;
+  const resolvedFusionTargets = await applyRequestTagRouting(visionFusionTargets, args.body, log);
+  const judgeTarget = tagged && judgeModel
+    ? resolvedFusionTargets.find((target) => target.modelStr === judgeModel)
+    : undefined;
+  if (tagged && (resolvedFusionTargets.length === 0 || (judgeModel && !judgeTarget))) {
+    return errorResponseWithComboDiagnostics(404, `Fusion ${combo.name} has no eligible target`, {
+      poolSize: visionFusionTargets.length, attempted: 0, excluded: [], attemptOrder: [], terminalReason: "no_executable_targets",
+    }, { code: "model_not_found", type: "invalid_request_error" });
   }
   // extractFusionPanelSpec only understands model strings / combo refs, so the
   // resolved targets have to be flattened before it runs. Keep them indexed so
@@ -523,6 +541,7 @@ export async function tryFusionDispatch(args: {
     comboName: combo.name,
     perTargetAdmission: args.perTargetAdmission,
     judgeModel,
+    judgeTarget,
     tuning: fusionTuning,
   });
 }
@@ -555,12 +574,19 @@ export async function tryPipelineDispatch(args: {
     hiddenModelsByProvider,
   } = args;
   if (strategy !== "pipeline") return null;
-  const pipelineSteps: PipelineStep[] = resolveComboTargets(
+  const pipelineTargets = resolveComboTargets(
     combo,
     allCombos,
     clampComboDepth(config.maxComboDepth),
     hiddenModelsByProvider
-  ).map((target) => ({ target, prompt: target.prompt }));
+  );
+  const eligibleTargets = await applyRequestTagRouting(pipelineTargets, body, log);
+  if (eligibleTargets.length !== pipelineTargets.length) {
+    return errorResponseWithComboDiagnostics(404, `Pipeline ${combo.name} has no eligible target for one or more steps`, {
+      poolSize: pipelineTargets.length, attempted: 0, excluded: [], attemptOrder: [], terminalReason: "no_executable_targets",
+    }, { code: "model_not_found", type: "invalid_request_error" });
+  }
+  const pipelineSteps: PipelineStep[] = eligibleTargets.map((target) => ({ target, prompt: target.prompt }));
   return handlePipelineChat({
     body,
     steps: pipelineSteps,

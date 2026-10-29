@@ -22,6 +22,7 @@ import {
 } from "./tokenAccounting";
 import { isNoLog } from "../compliance/noLog";
 import { protectPayloadForLog, parseStoredPayload } from "../logPayloads";
+import { redactLogUrl } from "../logUrlRedaction";
 import { pickDisplayValue } from "@/shared/utils/maskEmail";
 import {
   CALL_LOGS_DIR,
@@ -367,7 +368,7 @@ function mapSummaryRow(row: CallLogSummaryRow) {
     id: row.id,
     timestamp: row.timestamp,
     method: row.method,
-    path: row.path,
+    path: redactLogUrl(row.path),
     status: toNumber(row.status),
     model: row.model,
     requestedModel: applyNodePrefix(row.requested_model, provider, nodePrefix),
@@ -393,7 +394,7 @@ function mapSummaryRow(row: CallLogSummaryRow) {
     comboName: row.combo_name,
     comboStepId: row.combo_step_id,
     comboExecutionKey: row.combo_execution_key,
-    error: row.error_summary,
+    error: sanitizeErrorForLog(row.error_summary),
     detailState,
     artifactRelPath: row.artifact_relpath,
     artifactSizeBytes: row.artifact_size_bytes,
@@ -470,7 +471,7 @@ async function saveCallLogOperation(entry: any): Promise<void> {
       id: typeof entry.id === "string" && entry.id.length > 0 ? entry.id : generateLogId(),
       timestamp: typeof entry.timestamp === "string" ? entry.timestamp : new Date().toISOString(),
       method: entry.method || "POST",
-      path: entry.path || "/v1/chat/completions",
+      path: redactLogUrl(entry.path || "/v1/chat/completions") as string,
       status: entry.status || 0,
       errorType,
       model: entry.model || "-",
@@ -653,6 +654,12 @@ function pushLikeFilter(
 }
 
 export async function getCallLogs(filter: any = {}) {
+  return getCallLogsSync(filter);
+}
+
+// Synchronous variant permits callers to combine this read with other reads in
+// one SQLite snapshot without keeping a transaction open across an await.
+export function getCallLogsSync(filter: any = {}) {
   const db = getDbInstance();
   let sql = `
     SELECT cl.*,
@@ -736,7 +743,7 @@ export async function getCallLogs(filter: any = {}) {
 
   const limit = Number.isInteger(filter.limit) && filter.limit > 0 ? filter.limit : 200;
   const offset = Number.isInteger(filter.offset) && filter.offset > 0 ? filter.offset : 0;
-  sql += ` ORDER BY cl.timestamp DESC LIMIT @__limit OFFSET @__offset`;
+  sql += ` ORDER BY cl.timestamp DESC, cl.id DESC LIMIT @__limit OFFSET @__offset`;
   params.__limit = limit;
   params.__offset = offset;
 
@@ -770,10 +777,10 @@ export async function getCallLogById(id: string) {
       return {
         ...entry,
         detailState: "ready" as const,
-        requestBody: artifactResult.artifact.requestBody ?? null,
-        responseBody: artifactResult.artifact.responseBody ?? null,
-        error: artifactResult.artifact.error ?? entry.error,
-        pipelinePayloads: artifactResult.artifact.pipeline ?? buildLegacyPipelinePayloads(id),
+        requestBody: protectPayloadForLog(artifactResult.artifact.requestBody),
+        responseBody: protectPayloadForLog(artifactResult.artifact.responseBody),
+        error: sanitizeErrorForLog(artifactResult.artifact.error ?? entry.error),
+        pipelinePayloads: protectPipelinePayloads(artifactResult.artifact.pipeline ?? buildLegacyPipelinePayloads(id)),
         hasPipelineDetails: Boolean(artifactResult.artifact.pipeline) || entry.hasPipelineDetails,
         active: false,
       };
@@ -796,7 +803,9 @@ export async function getCallLogById(id: string) {
         ...entry,
         detailState,
         artifactRelPath,
-        ...legacyInline,
+        requestBody: protectPayloadForLog(legacyInline.requestBody),
+        responseBody: protectPayloadForLog(legacyInline.responseBody),
+        error: sanitizeErrorForLog(legacyInline.error),
         pipelinePayloads: legacyPipeline,
         hasPipelineDetails: Boolean(legacyPipeline) || entry.hasPipelineDetails,
         active: false,
@@ -811,9 +820,9 @@ export async function getCallLogById(id: string) {
       ...entry,
       detailState,
       artifactRelPath,
-      requestBody: legacyDisk.requestBody ?? null,
-      responseBody: legacyDisk.responseBody ?? null,
-      error: legacyDisk.error ?? entry.error,
+      requestBody: protectPayloadForLog(legacyDisk.requestBody),
+      responseBody: protectPayloadForLog(legacyDisk.responseBody),
+      error: sanitizeErrorForLog(legacyDisk.error ?? entry.error),
       pipelinePayloads: legacyPipeline,
       hasPipelineDetails: Boolean(legacyPipeline) || entry.hasPipelineDetails,
       active: false,

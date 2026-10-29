@@ -24,10 +24,7 @@
  * session; the upstream returns the same response either way.
  */
 import { BaseExecutor, type ExecuteInput } from "./base.ts";
-import {
-  makeExecutorErrorResult as makeErrorResult,
-  sanitizeErrorMessage,
-} from "../utils/error.ts";
+import { makeExecutorErrorResult as makeErrorResult } from "../utils/error.ts";
 import { extractKimiAccessToken } from "@/lib/providers/webCookieAuth";
 import { exchangeKimiRefreshToken } from "@/lib/kimi/tokenRefresh";
 import {
@@ -322,7 +319,11 @@ export class KimiWebExecutor extends BaseExecutor {
     const bodyObj = (body || {}) as Record<string, unknown>;
 
     const rawCredential = String(credentials?.accessToken || credentials?.apiKey || "").trim();
-    let accessToken = extractKimiAccessToken(rawCredential);
+    // Imports have already been validated as bearer tokens; reparsing them as
+    // legacy cookie input can silently change opaque values containing '='.
+    let accessToken = credentials?.providerSpecificData?.importedToken
+      ? rawCredential
+      : extractKimiAccessToken(rawCredential);
     if (!accessToken) {
       return makeErrorResult(
         400,
@@ -400,13 +401,13 @@ export class KimiWebExecutor extends BaseExecutor {
     } catch (err) {
       return makeErrorResult(
         502,
-        `Kimi fetch failed: ${err instanceof Error ? err.message : "unknown"}`,
+        "Kimi fetch failed",
         body,
         CHAT_URL
       );
     }
 
-    if (upstream.status === 401) {
+    if (upstream.status === 401 && !credentials?.providerSpecificData?.importedToken) {
       const refreshToken =
         credentials?.refreshToken || credentials?.providerSpecificData?.refreshToken;
       if (refreshToken && typeof refreshToken === "string") {
@@ -427,10 +428,9 @@ export class KimiWebExecutor extends BaseExecutor {
     }
 
     if (!upstream.ok) {
-      const errText = await upstream.text().catch(() => "");
       return makeErrorResult(
         upstream.status,
-        `Kimi error: ${sanitizeErrorMessage(errText)}`,
+        `Kimi error: upstream HTTP ${upstream.status}`,
         body,
         CHAT_URL
       );
@@ -527,7 +527,7 @@ export class KimiWebExecutor extends BaseExecutor {
               }
             } else {
               try {
-                controller.error(err);
+                controller.error(new Error("Kimi Connect stream failed"));
               } catch {
                 /* controller already closed */
               }
@@ -545,7 +545,7 @@ export class KimiWebExecutor extends BaseExecutor {
           },
         }),
         url: CHAT_URL,
-        headers: reqHeaders,
+        headers: { ...reqHeaders, Authorization: "[REDACTED]" },
         transformedBody: JSON.parse(reqBody),
       };
     }
@@ -596,7 +596,7 @@ export class KimiWebExecutor extends BaseExecutor {
     } catch (error) {
       return makeErrorResult(
         502,
-        `Kimi Connect protocol error: ${error instanceof Error ? error.message : "unknown"}`,
+        "Kimi Connect protocol error",
         body,
         CHAT_URL
       );
@@ -616,7 +616,7 @@ export class KimiWebExecutor extends BaseExecutor {
         headers: { "Content-Type": "application/json" },
       }),
       url: CHAT_URL,
-      headers: reqHeaders,
+      headers: { ...reqHeaders, Authorization: "[REDACTED]" },
       transformedBody: JSON.parse(reqBody),
     };
   }
