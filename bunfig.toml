@@ -1,0 +1,2 @@
+[test]
+preload = ["./apps/server/tests/helpers/require-isolated-runner.ts"]
