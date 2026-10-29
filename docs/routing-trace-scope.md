@@ -1,0 +1,3 @@
+# Routing trace scope disclosure
+
+The authenticated routing trace response includes `scope`: `storage` is `process-local`, `retention` is `volatile`, `maxEvents` is the actual per-process event cap, and `instanceId` is a random process-lifetime identifier. Repeated reads in the same process return the same identifier; a fresh process generates a new identifier. It contains no host, account, request, or credential information. Consumers must not interpret an empty response as evidence that another worker saw no events. This disclosure does not provide cross-worker aggregation, durability, comprehensive trace coverage, or deployment acceptance. Existing coverage metadata and no-store behavior remain unchanged.

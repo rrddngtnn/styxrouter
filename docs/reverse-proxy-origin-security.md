@@ -1,0 +1,9 @@
+# Reverse proxy origin checks
+
+By default, session-authenticated management API writes compare an Origin header's host and port with HTTP `Host`; they do not compare schemes. Requests without Origin are allowed for compatibility. This is not a complete CSRF defense: use HTTPS, appropriate cookie settings, and restrict backend access. No public host is inferred from configuration for this check.
+
+For a scheme-aware check, optionally set `STYX_TRUSTED_PUBLIC_ORIGIN=https://router.example` in the server environment. Supply exactly one canonical HTTPS origin, including any non-default port, with no trailing slash, path, credentials, wildcard, query or fragment. The value must match the browser's serialized Origin (lowercase host and no explicit default port). An invalid or empty configured value denies session-authenticated management writes, including requests without Origin. With a valid value, an Origin-bearing write must match it exactly, regardless of the backend Host. Requests without Origin remain allowed for non-browser clients. This does not add CSRF protection to public auth endpoints or API-key routes.
+
+With this setting, direct HTTP loopback browser writes are rejected unless their Origin matches the configured HTTPS origin. A loopback peer may be a reverse proxy, so neither Host nor the absence of forwarding headers establishes that a request is local. Restrict backend access.
+
+Neither mode trusts `X-Forwarded-Host` or `X-Forwarded-Proto` for the check. Default Caddy HTTP `reverse_proxy` preserves incoming Host and works in compatibility mode. If a proxy rewrites Host, preserve public Host or explicitly configure the trusted origin. Caddy should be the public entry point and the backend firewalled from untrusted networks. See [Caddy reverse_proxy defaults](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#defaults).
