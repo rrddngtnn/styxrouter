@@ -122,8 +122,8 @@ function isWithinSchedule(schedule: AccessSchedule): boolean {
       hour12: false,
     }).format(now);
   } catch {
-    // Invalid timezone — fail open (don't block)
-    return true;
+    // A malformed timezone must not disable an enabled access schedule.
+    return false;
   }
 
   // Intl may return "24:xx" instead of "00:xx" — normalize
@@ -139,7 +139,7 @@ function isWithinSchedule(schedule: AccessSchedule): boolean {
       weekday: "short",
     }).format(now);
   } catch {
-    return true;
+    return false;
   }
 
   const dayMap: Record<string, number> = {
@@ -153,19 +153,23 @@ function isWithinSchedule(schedule: AccessSchedule): boolean {
   };
   const localDay = dayMap[localDayStr] ?? now.getDay();
 
-  if (!schedule.days.includes(localDay)) return false;
-
+  // Stored or imported schedules can bypass the API schema; invalid clock
+  // values must not be interpreted as a wider overnight access window.
+  const validTime = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  if (!validTime.test(schedule.from) || !validTime.test(schedule.until)) return false;
   const [fromHour, fromMin] = schedule.from.split(":").map(Number);
   const [untilHour, untilMin] = schedule.until.split(":").map(Number);
   const fromMinutes = fromHour * 60 + fromMin;
   const untilMinutes = untilHour * 60 + untilMin;
 
-  // Overnight window (e.g. 22:00 → 06:00)
+  // Overnight windows belong to their starting day, including after midnight.
   if (untilMinutes < fromMinutes) {
-    return localMinutes >= fromMinutes || localMinutes < untilMinutes;
+    if (localMinutes >= fromMinutes) return schedule.days.includes(localDay);
+    if (localMinutes < untilMinutes) return schedule.days.includes((localDay + 6) % 7);
+    return false;
   }
 
-  return localMinutes >= fromMinutes && localMinutes < untilMinutes;
+  return schedule.days.includes(localDay) && localMinutes >= fromMinutes && localMinutes < untilMinutes;
 }
 
 // Legacy in-memory request counter has been replaced by Redis-backed multi-window rate limiter
@@ -419,12 +423,8 @@ export async function resolvePlaygroundTestKey(request: Request): Promise<string
   const keyId = request.headers.get(PLAYGROUND_KEY_ID_HEADER);
   if (!keyId) return null;
   if (!(await isDashboardSessionAuthenticated(request))) return null;
-  try {
-    const row = await getApiKeyById(keyId);
-    return typeof row?.key === "string" ? row.key : null;
-  } catch {
-    return null;
-  }
+  const row = await getApiKeyById(keyId);
+  return typeof row?.key === "string" ? row.key : null;
 }
 
 type PolicyContext = {
@@ -442,8 +442,11 @@ function validateKeyStatus(context: PolicyContext): Response | null {
   if (apiKeyInfo.isBanned === true) {
     return errorResponse(HTTP_STATUS.FORBIDDEN, "This API key is banned due to policy violations");
   }
-  if (apiKeyInfo.expiresAt && Date.now() > new Date(apiKeyInfo.expiresAt).getTime()) {
-    return errorResponse(HTTP_STATUS.FORBIDDEN, "This API key has expired");
+  if (apiKeyInfo.expiresAt) {
+    const expiresMs = Date.parse(apiKeyInfo.expiresAt);
+    if (!Number.isFinite(expiresMs) || expiresMs <= Date.now()) {
+      return errorResponse(HTTP_STATUS.FORBIDDEN, "This API key has expired");
+    }
   }
   return null;
 }
@@ -672,10 +675,15 @@ export async function enforceApiKeyPolicy(
   // accepted but extractApiKey() gates out; otherwise an authenticated dashboard
   // playground may test a specific key's policy by id (resolved server-side,
   // secret never sent).
-  const apiKey =
-    extractApiKey(request) ||
-    extractUngatedClientApiKey(request) ||
-    (await resolvePlaygroundTestKey(request));
+  let apiKey: string | null;
+  try {
+    apiKey = extractApiKey(request) || extractUngatedClientApiKey(request) ||
+      (await resolvePlaygroundTestKey(request));
+  } catch (error) {
+    log.error("API_POLICY", "Failed to resolve playground API key. Request blocked.", { error });
+    return { apiKey: null, apiKeyInfo: null,
+      rejection: errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "API key policy unavailable") };
+  }
 
   // No API key = local/session mode, skip policy checks
   if (!apiKey) {
@@ -689,10 +697,13 @@ export async function enforceApiKeyPolicy(
   } catch (error) {
     // Fail-closed: if policy backend fails, reject the request
     log.error("API_POLICY", "Failed to fetch API key metadata. Request blocked.", { error });
+    const invalidSchedule = error instanceof Error && error.message === "Invalid API key access schedule";
     return {
       apiKey,
       apiKeyInfo: null,
-      rejection: errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "API key policy unavailable"),
+      rejection: invalidSchedule
+        ? errorResponse(HTTP_STATUS.FORBIDDEN, "Invalid API key access schedule")
+        : errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "API key policy unavailable"),
     };
   }
 

@@ -75,6 +75,14 @@ export function isCloudMetadataHost(hostname: string): boolean {
   const host = normalizeHost(hostname);
   if (!host) return false;
   if (isCloudMetadataIpv4(host)) return true;
+  if (ipVersion(host) === 6) {
+    const first = parseInt(host.split(":", 1)[0] || "0", 16);
+    if ((first & 0xffc0) === 0xfe80) return true; // fe80::/10
+    try {
+      const canonical = normalizeHost(new URL(`http://[${host}]/`).hostname);
+      if (CLOUD_METADATA_HOSTNAMES.has(canonical)) return true;
+    } catch { /* Scoped literals are not valid URL hosts. */ }
+  }
   // An IPv4-mapped IPv6 literal routes to the embedded IPv4 address, so the same
   // verdict has to apply to it — otherwise this block is spelling-sensitive.
   const mapped = mappedIpv4Host(host);
@@ -114,7 +122,7 @@ export function parseOutboundUrl(input: string | URL) {
 export function parseAndValidatePublicUrl(input: string | URL) {
   const url = parseOutboundUrl(input);
 
-  if (isPrivateHost(url.hostname)) {
+  if (isPrivateHost(url.hostname) || isCloudMetadataHost(url.hostname)) {
     throw new OutboundUrlGuardError(PROVIDER_URL_BLOCKED_MESSAGE, {
       code: "OUTBOUND_URL_GUARD_BLOCKED",
       url: url.toString(),

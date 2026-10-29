@@ -98,13 +98,14 @@ export function hasEligibleConnectionForModel(
 export function isModelAdvertisedByConnection(
   modelId: unknown,
   advertisedModelIds: ReadonlySet<string> | null | undefined,
-  provider?: string
+  provider?: string,
+  codexExact = false
 ): boolean {
   if (!advertisedModelIds || advertisedModelIds.size === 0) return true;
   if (typeof modelId !== "string" || modelId.trim().length === 0) return true;
 
   return getModelMatchCandidates(modelId).some((candidate) =>
     advertisedModelIds.has(candidate) ||
-    (provider === "codex" && advertisedModelIds.has(splitCodexReasoningSuffix(candidate).baseModel))
+    (provider === "codex" && !codexExact && advertisedModelIds.has(splitCodexReasoningSuffix(candidate).baseModel))
   );
 }

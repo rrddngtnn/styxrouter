@@ -14,6 +14,7 @@ export const PoolCreateSchema = z
     connectionId: z.string().min(1),
     connectionIds: z.array(z.string().min(1)).min(1).optional(),
     name: z.string().min(1).max(120),
+    exclusive: z.boolean().optional(),
     allocations: z.array(PoolAllocationSchema).default([]),
     groupId: z.string().optional(),
   })

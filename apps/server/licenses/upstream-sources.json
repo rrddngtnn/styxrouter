@@ -1,0 +1,68 @@
+[
+  {
+    "file": "9router-MIT.txt",
+    "url": "https://raw.githubusercontent.com/decolua/9router/3a978a631ad65529c06e48ce495092d5bba29f46/LICENSE",
+    "bytes": 1086,
+    "sha256": "2e51fac8d7c32794775e690e2f6af5ebe846cf7ddf6fdd8877d3e03b9656d92c"
+  },
+  {
+    "file": "gpt4free-GPL-3.0.txt",
+    "url": "https://raw.githubusercontent.com/xtekky/gpt4free/e3127d4a261a85abb9cdcf8d7821e7bf0097ae44/LICENSE",
+    "bytes": 35148,
+    "sha256": "8b1ba204bb69a0ade2bfcf65ef294a920f6bb361b317dba43c7ef29d96332b9b"
+  },
+  {
+    "file": "gcf-typescript-historical-MIT.txt",
+    "url": "https://raw.githubusercontent.com/blackwell-systems/gcf-typescript/a5ee0d400de441e8098eea083168fd25100a41b4/LICENSE",
+    "bytes": 1072,
+    "sha256": "d858adf709da21efbe44c48083242ac42e617d94f266a9f87c8741b69f6a3c3c"
+  },
+  {
+    "file": "free-claude-code-historical-MIT.txt",
+    "url": "https://raw.githubusercontent.com/Alishahryar1/free-claude-code/e79b430cc27b63c690b5d782b045c213b9a873c5/LICENSE",
+    "bytes": 1068,
+    "sha256": "87b3c9ceef5c9fbea81798c8abfd36b25f4da1a5280af07222852f552f936572"
+  },
+  {
+    "file": "free-claude-code-current-AGPL-3.0-only.txt",
+    "url": "https://raw.githubusercontent.com/Alishahryar1/free-claude-code/56ee72ea5722cb81de9b1905627897b5e77581ce/LICENSE",
+    "bytes": 34108,
+    "sha256": "5614e7a7ef172ad17d2f6530fb92cab0a1510c7ddb19106bd2f3ecaa8126e71c"
+  },
+  {
+    "file": "g4f-crypt.py",
+    "url": "https://raw.githubusercontent.com/xtekky/gpt4free/e3127d4a261a85abb9cdcf8d7821e7bf0097ae44/g4f/Provider/needs_auth/mini_max/crypt.py",
+    "bytes": 3767,
+    "sha256": "e96991e3f8b9d60ff870fdd0208c3ef689d985e0505379b8cb6689ec54d673e3"
+  },
+  {
+    "file": "g4f-HailuoAI.py",
+    "url": "https://raw.githubusercontent.com/xtekky/gpt4free/e3127d4a261a85abb9cdcf8d7821e7bf0097ae44/g4f/Provider/needs_auth/mini_max/HailuoAI.py",
+    "bytes": 4819,
+    "sha256": "c8cbe5cd4216ce64b6ffa3d37426b50320d663e0e6dd60d64d013333b8e1796e"
+  },
+  {
+    "file": "free-claude-stream-recovery.py",
+    "url": "https://raw.githubusercontent.com/Alishahryar1/free-claude-code/e79b430cc27b63c690b5d782b045c213b9a873c5/core/anthropic/stream_recovery.py",
+    "bytes": 10975,
+    "sha256": "c08cc03b0a78817039ba67b46e91b9ecda16ec16b21451e11f18300054f1ac38"
+  },
+  {
+    "file": "gcf-generic.ts",
+    "url": "https://raw.githubusercontent.com/blackwell-systems/gcf-typescript/a5ee0d400de441e8098eea083168fd25100a41b4/src/generic.ts",
+    "bytes": 20513,
+    "sha256": "68161e0007a8bad559ab74c933c2eb05ed91d6f3cee88d7c5401fcf27970c2c7"
+  },
+  {
+    "file": "gcf-decode_generic.ts",
+    "url": "https://raw.githubusercontent.com/blackwell-systems/gcf-typescript/a5ee0d400de441e8098eea083168fd25100a41b4/src/decode_generic.ts",
+    "bytes": 28134,
+    "sha256": "c28d7967b8b02580d3b84e0f9cb1ca901bb842590da07d09a3e018dc668af4fc"
+  },
+  {
+    "file": "gcf-scalar.ts",
+    "url": "https://raw.githubusercontent.com/blackwell-systems/gcf-typescript/a5ee0d400de441e8098eea083168fd25100a41b4/src/scalar.ts",
+    "bytes": 8839,
+    "sha256": "6593f595e02775fa7e3f509f6f1ed65b63a1416bb6779f9af4587b39aed47542"
+  }
+]

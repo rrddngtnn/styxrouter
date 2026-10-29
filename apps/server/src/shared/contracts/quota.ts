@@ -10,6 +10,8 @@ export interface QuotaWindowEntry {
   percentRemaining: number | null;
   resetAt: string | null;
   unlimited: boolean;
+  fetchedAt?: string | null;
+  stale?: boolean;
 }
 
 export interface QuotaProviderEntry {
@@ -25,9 +27,14 @@ export interface QuotaProviderEntry {
   windows: QuotaWindowEntry[];
   quotaUsed: number;
   quotaTotal: number | null;
-  percentRemaining: number;
+  percentRemaining: number | null;
   resetAt: string | null;
   tokenStatus: QuotaTokenStatus;
+  /** CBCN credit observations are independent of routing cooldowns. */
+  creditStatus?: "unknown" | "stale" | "observed";
+  accountCooldownUntil?: string | null;
+  /** Process-local model lockouts; other server processes may have different state. */
+  modelCooldowns?: Array<{ model: string; reason: string; until: string }>;
 }
 
 export interface QuotaResponseMeta {
@@ -91,6 +98,8 @@ function sanitizeQuotaWindow(input: unknown): QuotaWindowEntry | null {
     percentRemaining,
     resetAt,
     unlimited: src.unlimited === true,
+    ...(typeof src.fetchedAt === "string" ? { fetchedAt: src.fetchedAt } : {}),
+    ...(typeof src.stale === "boolean" ? { stale: src.stale } : {}),
   };
 }
 
@@ -127,7 +136,8 @@ export function sanitizeQuotaProvider(input: unknown): QuotaProviderEntry {
       percentRemainingRaw = 100;
     }
   }
-  const percentRemaining = clamp(percentRemainingRaw, 0, 100);
+  const percentRemaining = provider === "codebuddy-cn" && source.creditStatus === "unknown"
+    ? null : clamp(percentRemainingRaw, 0, 100);
 
   const resetAt =
     typeof source.resetAt === "string" && source.resetAt.trim() ? source.resetAt : null;
@@ -148,6 +158,16 @@ export function sanitizeQuotaProvider(input: unknown): QuotaProviderEntry {
     percentRemaining,
     resetAt,
     tokenStatus: normalizeTokenStatus(source.tokenStatus),
+    ...(provider === "codebuddy-cn" && (source.creditStatus === "unknown" || source.creditStatus === "stale" || source.creditStatus === "observed") ? {
+      creditStatus: source.creditStatus,
+      accountCooldownUntil: typeof source.accountCooldownUntil === "string" && Number.isFinite(Date.parse(source.accountCooldownUntil)) ? source.accountCooldownUntil : null,
+      modelCooldowns: Array.isArray(source.modelCooldowns) ? source.modelCooldowns.flatMap((item: unknown) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const lock = item as Record<string, unknown>;
+        return typeof lock.model === "string" && lock.model && typeof lock.reason === "string" && typeof lock.until === "string" && Number.isFinite(Date.parse(lock.until))
+          ? [{ model: lock.model, reason: lock.reason, until: lock.until }] : [];
+      }) : [],
+    } : {}),
   };
 }
 

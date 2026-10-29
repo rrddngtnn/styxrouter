@@ -1,13 +1,25 @@
 import { isIP } from "node:net";
 import dns from "node:dns";
-import { Agent, fetch as undiciFetch } from "undici";
+import http from "node:http";
+import https from "node:https";
+import { Readable } from "node:stream";
+import { createGunzip, createInflate, createBrotliDecompress } from "node:zlib";
 import {
   type OutboundUrlGuardMode,
+  isCloudMetadataHost,
   isPrivateHost,
   parseAndValidatePublicUrl,
+  parseAndValidateNonMetadataUrl,
   parseOutboundUrl,
 } from "@/shared/network/outboundUrlGuard";
 import { getProviderOutboundGuard } from "@/shared/network/outboundUrlGuardPolicy";
+import { resolveProxyForRequest } from "../../../open-sse/utils/proxyFetch";
+
+function requireDirectPinnedTransport(url: URL) {
+  if (resolveProxyForRequest(url.toString()).source !== "direct") {
+    throw new Error("Guarded remote media fetch cannot enforce DNS pinning through a configured proxy");
+  }
+}
 
 const DEFAULT_MAX_REMOTE_IMAGE_BYTES = 20 * 1024 * 1024;
 const DEFAULT_MAX_REDIRECTS = 3;
@@ -25,10 +37,13 @@ export type RemoteImageLookup = (
 export interface RemoteImageFetchOptions {
   /** Require HTTPS for the initial URL and every redirect hop. Default false for compatibility. */
   enforceHttps?: boolean;
+  /** Trusted custom transport; responsible for enforcing its own connection policy. */
   fetchImpl?: typeof fetch;
-  /** Pin the network connection to a DNS answer that passed validation. */
+  /** Legacy option: guarded production transports always pin DNS. */
   pinDns?: boolean;
   guard?: OutboundUrlGuardMode;
+  /** Non-sensitive request headers, applied to every validated redirect hop. */
+  headers?: RequestInit["headers"];
   maxBytes?: number;
   maxRedirects?: number;
   signal?: AbortSignal;
@@ -51,7 +66,9 @@ export type RemoteMediaFetchOptions = RemoteImageFetchOptions;
 export type RemoteMediaFetchResult = RemoteImageFetchResult;
 
 function validateRemoteImageUrl(input: string | URL, guard: OutboundUrlGuardMode) {
-  return guard === "public-only" ? parseAndValidatePublicUrl(input) : parseOutboundUrl(input);
+  return guard === "public-only" ? parseAndValidatePublicUrl(input)
+    : guard === "block-metadata" ? parseAndValidateNonMetadataUrl(input)
+    : parseOutboundUrl(input);
 }
 
 function requireHttps(url: URL, enabled: boolean): URL {
@@ -63,14 +80,14 @@ function requireHttps(url: URL, enabled: boolean): URL {
 
 const defaultLookup: RemoteImageLookup = (hostname) => dns.promises.lookup(hostname, { all: true });
 
-/** Resolve every answer, reject the host if any answer is private, then return
- * the validated addresses so the caller can bind the connection to one of them. */
-async function assertHostnameResolvesPublic(
+/** Resolve and validate all answers before binding the transport to one of them. */
+export async function resolveAllowedAddresses(
   url: URL,
   guard: OutboundUrlGuardMode,
-  lookup: RemoteImageLookup
+  lookup: RemoteImageLookup,
+  signal: AbortSignal
 ): Promise<Array<{ address: string; family: number }>> {
-  if (guard !== "public-only") return [];
+  if (guard === "none") return [];
   const hostname = url.hostname;
   const bare =
     hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
@@ -78,16 +95,30 @@ async function assertHostnameResolvesPublic(
   if (isIP(bare)) return [{ address: bare, family: isIP(bare) }];
   let resolved: Array<{ address: string; family: number }>;
   try {
-    resolved = await lookup(bare);
-  } catch {
+    signal.throwIfAborted();
+    resolved = await new Promise((resolve, reject) => {
+      const abort = () => { signal.removeEventListener("abort", abort); reject(signal.reason); };
+      signal.addEventListener("abort", abort, { once: true });
+      Promise.resolve().then(() => lookup(bare)).then(resolve, reject)
+        .finally(() => signal.removeEventListener("abort", abort));
+      if (signal.aborted) abort();
+    });
+  } catch (error) {
+    if (signal.aborted) throw signal.reason;
     throw new Error("Remote image host could not be resolved (blocked)");
   }
   if (!resolved.length) {
     throw new Error("Remote image host could not be resolved (blocked)");
   }
-  for (const { address } of resolved) {
-    if (isPrivateHost(address)) {
-      throw new Error("Remote image host resolves to a blocked private address (DNS rebinding)");
+  for (const { address, family } of resolved) {
+    const version = isIP(address);
+    if (!version || version !== family) {
+      throw new Error("Remote image host resolved to an invalid address (blocked)");
+    }
+    // URL canonicalization makes equivalent expanded IPv6 spellings comparable.
+    const canonical = version === 6 ? new URL(`http://[${address}]/`).hostname : address;
+    if (guard === "public-only" ? isPrivateHost(canonical) : isCloudMetadataHost(canonical)) {
+      throw new Error("Remote image host resolves to a blocked address (DNS rebinding)");
     }
   }
   return resolved;
@@ -98,22 +129,24 @@ async function assertHostnameResolvesPublic(
  * testing: this is the mechanism that closes the DNS-rebinding TOCTOU gap
  * (GHSA-cmhj-wh2f-9cgx) — a second, real DNS lookup at connect time could
  * otherwise return a different (possibly private) address than the one
- * `assertHostnameResolvesPublic` validated.
+ * `resolveAllowedAddresses` validated. The original URL remains intact for
+ * Host and TLS certificate/SNI validation.
  */
 export function createPinnedFetch(address: string, family: number): typeof fetch {
-  const dispatcher = new Agent({
-    connect: {
+  return ((input, init) => new Promise<Response>((resolve, reject) => {
+    const url = new URL(String(input));
+    requireDirectPinnedTransport(url);
+    const request = (url.protocol === "https:" ? https : http).request(url, {
+      method: init?.method ?? "GET",
+      headers: Object.fromEntries(new Headers(init?.headers).entries()),
+      signal: init?.signal ?? undefined,
       // Node's `net.connect`/`tls.connect` invoke a custom `lookup` in one of
       // two incompatible shapes depending on `options.all`: modern Node
       // (autoSelectFamily / Happy Eyeballs, on by default since Node 18)
       // calls `lookup(hostname, { all: true, ... }, callback)` and requires
       // `callback(err, addresses[])` — an array of `{ address, family }`.
       // Only when `all` is falsy does it accept the single-address form
-      // `callback(err, address, family)`. Handling only the single-address
-      // form here (as an earlier draft did) throws `ERR_INVALID_IP_ADDRESS`
-      // for every real request once autoSelectFamily kicks in, silently
-      // breaking every pinned fetch — verified by
-      // `tests/unit/remote-image-fetch-pin-dns-connection.test.ts`.
+      // `callback(err, address, family)`.
       lookup: (_hostname, options, callback) => {
         if (options && typeof options === "object" && "all" in options && options.all) {
           callback(null, [{ address, family }]);
@@ -121,18 +154,45 @@ export function createPinnedFetch(address: string, family: number): typeof fetch
         }
         callback(null, address, family);
       },
-    },
-  });
-  return (async (input, init) => {
-    try {
-      return (await undiciFetch(input as string | URL, {
-        ...(init as Parameters<typeof undiciFetch>[1]),
-        dispatcher,
-      })) as unknown as Response;
-    } finally {
-      await dispatcher.close();
+      agent: false,
+    }, (response) => {
+      let decoder: ReturnType<typeof createGunzip> | null = null;
+      try {
+        const headers = new Headers();
+        for (let i = 0; i < response.rawHeaders.length; i += 2) {
+          headers.append(response.rawHeaders[i], response.rawHeaders[i + 1]);
+        }
+        const status = response.statusCode ?? 500;
+        if ([204, 205, 304].includes(status)) {
+          const result = new Response(null, { status, headers });
+          response.resume();
+          resolve(result);
+        } else {
+          const encoding = headers.get("content-encoding")?.toLowerCase().trim();
+          decoder = encoding === "gzip" || encoding === "x-gzip" ? createGunzip()
+            : encoding === "deflate" ? createInflate()
+            : encoding === "br" ? createBrotliDecompress() : null;
+          if (decoder) {
+            const stream = decoder;
+            response.on("error", (error) => stream.destroy(error));
+            stream.on("close", () => response.destroy());
+            response.pipe(stream);
+          }
+          resolve(new Response(Readable.toWeb(decoder ?? response) as ReadableStream, { status, headers }));
+        }
+      } catch (error) {
+        decoder?.destroy();
+        response.destroy();
+        reject(error);
+      }
+    });
+    request.on("error", reject);
+    if (init?.body != null && typeof init.body !== "string") {
+      request.destroy(new Error("Pinned transport supports only string request bodies"));
+      return;
     }
-  }) as typeof fetch;
+    request.end(init?.body ?? undefined);
+  })) as typeof fetch;
 }
 function combineSignals(signal: AbortSignal | undefined, timeoutMs: number) {
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
@@ -144,6 +204,7 @@ async function readResponseBuffer(response: Response, maxBytes: number) {
   const contentLengthHeader = response.headers.get("content-length");
   const contentLength = contentLengthHeader ? Number.parseInt(contentLengthHeader, 10) : null;
   if (contentLength !== null && Number.isFinite(contentLength) && contentLength > maxBytes) {
+    await response.body?.cancel();
     throw new Error(`Remote image exceeds ${maxBytes} byte limit`);
   }
 
@@ -184,10 +245,7 @@ export async function fetchRemoteMedia(
   options: RemoteMediaFetchOptions = {}
 ): Promise<RemoteMediaFetchResult> {
   const injectedFetch = options.fetchImpl;
-  // Default off: production callers that need connection pinning opt in. This keeps
-  // globalThis.fetch mockable for image-generation tests and preserves the previous
-  // DNS pre-check behavior for non-embedding callers.
-  const pinDns = options.pinDns === true;
+
   const guard = options.guard ?? getProviderOutboundGuard();
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_REMOTE_IMAGE_BYTES;
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
@@ -199,22 +257,33 @@ export async function fetchRemoteMedia(
     options.enforceHttps === true
   );
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount++) {
-    // DNS-rebinding guard: validate every hop's hostname against its resolved
-    // IPs before issuing the request (GHSA-cmhj-wh2f-9cgx).
-    const addresses = await assertHostnameResolvesPublic(currentUrl, guard, lookup);
-    const fetchImpl =
-      injectedFetch ??
-      (pinDns && addresses.length
-        ? createPinnedFetch(addresses[0].address, addresses[0].family)
-        : fetch);
-    const response = await fetchImpl(currentUrl.toString(), {
-      method: "GET",
-      redirect: "manual",
-      signal,
-    });
+    // Validate and pin each hop; injected transports are trusted to enforce their own policy.
+    if (guard !== "none" && !injectedFetch) requireDirectPinnedTransport(currentUrl);
+    const addresses = await resolveAllowedAddresses(currentUrl, guard, lookup, signal);
+    const init = { method: "GET", redirect: "manual" as const, signal, headers: options.headers };
+    let response: Response;
+    if (injectedFetch || !addresses.length) {
+      response = await (injectedFetch ?? fetch)(currentUrl.toString(), init);
+    } else {
+      let lastError: unknown;
+      let result: Response | undefined;
+      for (const { address, family } of addresses) {
+        signal.throwIfAborted();
+        try {
+          result = await createPinnedFetch(address, family)(currentUrl.toString(), init);
+          break;
+        } catch (error) {
+          if (signal.aborted) throw signal.reason;
+          lastError = error;
+        }
+      }
+      if (!result) throw lastError;
+      response = result;
+    }
 
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
+      await response.body?.cancel();
       if (!location) {
         throw new Error(`Remote image redirect missing Location header (${response.status})`);
       }
@@ -229,6 +298,7 @@ export async function fetchRemoteMedia(
     }
 
     if (!response.ok) {
+      await response.body?.cancel();
       throw new Error(`Remote image fetch error ${response.status}`);
     }
 

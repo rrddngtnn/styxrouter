@@ -12,6 +12,8 @@
 //   2. No `@/`-aliased import: `./outboundUrlGuard.ts` re-exports from here and is loaded by the
 //      packaged CLI (`styx setup-opencode`), where no tsconfig resolves the alias (#7682).
 
+import * as ipaddr from "ipaddr.js";
+
 // Vendored from Node's own `lib/internal/net.js` so `ipVersion` stays verdict-for-verdict
 // identical to `isIP` — a NARROWER match would silently reclassify a private address as public
 // and open the very egress the guard exists to close. `tests/unit/private-host-ip-parity-11122`
@@ -78,25 +80,21 @@ export function isPrivateHost(hostname: string) {
     return true;
   }
 
-  if (ipVersion(normalized) === 4) {
-    const octets = normalized.split(".").map((segment) => parseInt(segment, 10));
-    const [a, b] = octets;
-
-    if (a === 0 || a === 10 || a === 127) return true;
-    if (a === 169 && b === 254) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 100 && b >= 64 && b <= 127) return true;
-    return false;
-  }
-
-  if (ipVersion(normalized) === 6) {
-    return (
-      normalized === "::1" ||
-      normalized.startsWith("fc") ||
-      normalized.startsWith("fd") ||
-      normalized.startsWith("fe80:")
-    );
+  if (ipVersion(normalized)) {
+    // ipaddr.js documents range() as classifying special-use networks. Treat every
+    // special range as non-public (including mapped and transition addresses);
+    // only ordinary unicast is eligible for the public-only egress policy.
+    try {
+      const address = ipaddr.parse(normalized);
+      if (address.kind() === "ipv6") {
+        // Only the globally allocated 2000::/3 space is eligible. The library's
+        // special ranges additionally exclude documentation and protocol blocks.
+        if (!address.match(ipaddr.IPv6.parse("2000::"), 3)) return true;
+      }
+      return address.range() !== "unicast";
+    } catch {
+      return true;
+    }
   }
 
   return false;

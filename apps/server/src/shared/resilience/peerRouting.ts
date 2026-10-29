@@ -81,7 +81,15 @@ export function inspectPeerRequest(
   const instanceId = getInstanceId(env);
   if (!instanceId) return null;
 
-  const trace = parsePeerTrace(readHeader(headers, STYX_PEER_TRACE_HEADER));
+  const header = readHeader(headers, STYX_PEER_TRACE_HEADER);
+  // An oversized trace must fail closed rather than silently resetting the hop budget.
+  if (header && header.length > MAX_TRACE_HEADER_LENGTH) {
+    return {
+      code: "peer_hop_limit_exceeded",
+      message: "StyxRouter peer routing hop limit exceeded",
+    };
+  }
+  const trace = parsePeerTrace(header);
   if (trace.includes(instanceId)) {
     return {
       code: "peer_loop_detected",
