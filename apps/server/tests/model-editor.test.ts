@@ -9,9 +9,9 @@ const overrides = await import("../src/lib/db/modelCapabilityOverrides.ts");
 const { getResolvedModelCapabilities, createModelCapabilityResolutionSnapshot } = await import("../src/lib/modelCapabilities.ts");
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-test("unknown model context defaults to 1M and unknown GPT context to 256K", () => {
+test("unknown model context defaults to 1M for every provider, including GPT ids", () => {
   expect(getResolvedModelCapabilities({ provider: "codex", model: "unlisted-model-editor" }).contextWindow).toBe(1000000);
-  expect(getResolvedModelCapabilities({ provider: "codex", model: "gpt-unlisted-model-editor" }).contextWindow).toBe(256000);
+  expect(getResolvedModelCapabilities({ provider: "codex", model: "gpt-unlisted-model-editor" }).contextWindow).toBe(1000000);
 });
 
 test("local editor rejects spoofed and forwarded transport and validates before persistence", async () => {

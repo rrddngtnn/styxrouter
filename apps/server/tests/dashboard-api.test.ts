@@ -1,3 +1,4 @@
+import { startTestServer } from "./helpers/start-test-server";
 /**
  * Dashboard data endpoints (usage, analytics, quota) are served by the Hono host behind the management session.
  * Boots a REAL server on a throwaway DATA_DIR; an empty install must answer with empty data, not errors.
@@ -9,10 +10,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
-const PORT = 21198;
-const BASE = `http://127.0.0.1:${PORT}`;
+let BASE = "";
 const PASSWORD = "dashboard-api-password";
-const BUN = `${process.env.HOME}/.bun/bin/bun`;
+const BUN = process.execPath;
 
 let proc: ReturnType<typeof spawn> | null = null;
 let dataDir = "";
@@ -38,20 +38,18 @@ const call = (method: string, path: string, body?: unknown, session = true) =>
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "styx-dash-"));
-  proc = spawn(BUN, ["server/styx.ts"], {
+  ({ proc, base: BASE } = await startTestServer(BUN, {
     cwd: ROOT,
     env: {
       ...process.env,
-      PORT: String(PORT),
+
       DATA_DIR: dataDir,
       STYX_TEST_MODE: "1",
       JWT_SECRET: "dashboard-api-jwt-secret-0123456789abcdef0",
       API_KEY_SECRET: "dashboard-api-api-key-secret-0123456789a",
       INITIAL_PASSWORD: PASSWORD,
     },
-    stdout: "ignore",
-    stderr: "ignore",
-  });
+  }));
   await waitReady();
   const login = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
@@ -90,6 +88,18 @@ describe("dashboard data", () => {
   test("analytics is upstream's full report (summary, daily trend, breakdowns), not just totals", async () => {
     const j: any = await (await call("GET", "/api/usage/analytics?range=7d")).json();
     for (const k of ["summary", "dailyTrend", "byModel", "byProvider", "byAccount", "byApiKey", "errorBreakdown"]) expect(j).toHaveProperty(k);
+  });
+
+  test("provider-scoped analytics retains management authentication and returns a report", async () => {
+    const path = "/api/usage/analytics?range=all&provider=alpha";
+    expect((await call("GET", path, undefined, false)).status).toBe(401);
+    const response = await call("GET", path);
+    expect(response.status).toBe(200);
+    const data: any = await response.json();
+    expect(data.summary.totalRequests).toBe(0);
+    expect(data.byAccount).toEqual([]);
+    expect(data.byApiKey).toEqual([]);
+    expect(data.errorBreakdown).toEqual([]);
   });
 
   test("a route that is not on the allow-list is not served", async () => {

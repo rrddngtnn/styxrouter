@@ -1,3 +1,4 @@
+import { startTestServer } from "./helpers/start-test-server";
 /**
  * Provider cards: "healthy" means at least one account of that provider passed its last check, "enabled" means it has
  * accounts at all. Boots a REAL server on a throwaway DATA_DIR with accounts inserted straight into the database.
@@ -9,10 +10,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
-const PORT = 21201;
-const BASE = `http://127.0.0.1:${PORT}`;
+let BASE = "";
 const PASSWORD = "provider-health-password";
-const BUN = `${process.env.HOME}/.bun/bin/bun`;
+const BUN = process.execPath;
 
 let proc: ReturnType<typeof spawn> | null = null;
 let dataDir = "";
@@ -20,7 +20,7 @@ let cookie = "";
 
 const env = () => ({
   ...process.env,
-  PORT: String(PORT),
+
   DATA_DIR: dataDir,
   STYX_TEST_MODE: "1",
   JWT_SECRET: "provider-health-jwt-secret-0123456789abcdef0",
@@ -42,7 +42,7 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "styx-prov-"));
   const made = spawnSync(BUN, ["-e", seed], { cwd: ROOT, env: env(), encoding: "utf8" });
   if (made.status !== 0) throw new Error("seeding failed: " + (made.stderr || made.stdout).slice(0, 300));
-  proc = spawn(BUN, ["server/styx.ts"], { cwd: ROOT, env: env(), stdout: "ignore", stderr: "ignore" });
+  ({ proc, base: BASE } = await startTestServer(BUN, { cwd: ROOT, env: env() }));
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
     try {

@@ -1,3 +1,4 @@
+import { startTestServer } from "./helpers/start-test-server";
 /**
  * /v1 surface: besides /v1/chat/completions, Anthropic clients (POST /v1/messages) and Codex-style
  * clients (POST /v1/responses) are routed through the same key gate and the same dispatcher.
@@ -11,9 +12,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
-const PORT = 21192;
-const BASE = `http://127.0.0.1:${PORT}`;
-const BUN = `${process.env.HOME}/.bun/bin/bun`;
+let BASE = "";
+const BUN = process.execPath;
 
 let proc: ReturnType<typeof spawn> | null = null;
 let dataDir = "";
@@ -21,7 +21,7 @@ let apiKey = "";
 
 const env = () => ({
   ...process.env,
-  PORT: String(PORT),
+
   DATA_DIR: dataDir,
   STYX_TEST_MODE: "1",
   JWT_SECRET: "v1-surface-jwt-secret-0123456789abcdef0123456789",
@@ -55,7 +55,7 @@ beforeAll(async () => {
     { cwd: ROOT, env: env(), encoding: "utf8" }
   );
   apiKey = (made.stdout || "").trim().split("\n").pop() || "";
-  proc = spawn(BUN, ["server/styx.ts"], { cwd: ROOT, env: env(), stdout: "ignore", stderr: "ignore" });
+  ({ proc, base: BASE } = await startTestServer(BUN, { cwd: ROOT, env: env() }));
   await waitReady();
 });
 

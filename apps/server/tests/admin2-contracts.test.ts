@@ -1,3 +1,5 @@
+import { startTestServer } from "./helpers/start-test-server";
+import { stopTestProcess } from "./helpers/stop-test-process";
 /**
  * Admin CRUD batch 2 contracts: provider nodes CRUD, audit-log reader, bulk
  * account import, account key rotation. Session-gated like every /api write.
@@ -9,10 +11,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
-const PORT = 21196;
-const BASE = `http://127.0.0.1:${PORT}`;
+let BASE = "";
 const PASSWORD = "admin2-contracts-password";
-const BUN = `${process.env.HOME}/.bun/bin/bun`;
+const BUN = process.execPath;
 
 let proc: ReturnType<typeof spawn> | null = null;
 let dataDir = "";
@@ -22,7 +23,7 @@ async function waitReady() {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
     try {
-      if ((await fetch(`${BASE}/api/health`)).ok) return;
+      if ((await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(2000) })).ok) return;
     } catch {}
     await new Promise((r) => setTimeout(r, 500));
   }
@@ -31,33 +32,34 @@ async function waitReady() {
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "styx-admin2-"));
-  proc = spawn(BUN, ["server/styx.ts"], {
+  ({ proc, base: BASE } = await startTestServer(BUN, {
     cwd: ROOT,
     env: {
       ...process.env,
-      PORT: String(PORT),
+
       DATA_DIR: dataDir,
       STYX_TEST_MODE: "1",
       JWT_SECRET: "admin2-contracts-jwt-secret-0123456789abcd",
       API_KEY_SECRET: "admin2-contracts-api-key-secret-0123456",
       INITIAL_PASSWORD: PASSWORD,
     },
-    stdout: "ignore",
-    stderr: "ignore",
-  });
+  }));
   await waitReady();
   const login = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ password: PASSWORD }),
+    signal: AbortSignal.timeout(10000),
   });
+  if (!login.ok) throw new Error(`Test login failed: ${login.status}`);
   cookie = (login.headers.get("set-cookie") ?? "").split(";")[0];
-});
+  if (!cookie) throw new Error("Test login did not return a session cookie");
+}, 110000);
 
-afterAll(() => {
-  proc?.kill("SIGKILL");
+afterAll(async () => {
+  await stopTestProcess(proc);
   if (dataDir) rmSync(dataDir, { recursive: true, force: true });
-});
+}, 10000);
 
 const call = (method: string, path: string, body?: unknown, session = true) =>
   fetch(`${BASE}${path}`, {

@@ -1,3 +1,4 @@
+import { startTestServer } from "./helpers/start-test-server";
 /**
  * OAuth account onboarding endpoints (/api/oauth/...) are served by the Hono host, behind the management session.
  * Boots a REAL server on a throwaway DATA_DIR; nothing here talks to a vendor (authorize only builds a URL).
@@ -9,10 +10,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
-const PORT = 21197;
-const BASE = `http://127.0.0.1:${PORT}`;
+let BASE = "";
 const PASSWORD = "oauth-surface-password";
-const BUN = `${process.env.HOME}/.bun/bin/bun`;
+const BUN = process.execPath;
 
 let proc: ReturnType<typeof spawn> | null = null;
 let dataDir = "";
@@ -38,20 +38,18 @@ const call = (method: string, path: string, body?: unknown, session = true) =>
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "styx-oauth-"));
-  proc = spawn(BUN, ["server/styx.ts"], {
+  ({ proc, base: BASE } = await startTestServer(BUN, {
     cwd: ROOT,
     env: {
       ...process.env,
-      PORT: String(PORT),
+
       DATA_DIR: dataDir,
       STYX_TEST_MODE: "1",
       JWT_SECRET: "oauth-surface-jwt-secret-0123456789abcdef01",
       API_KEY_SECRET: "oauth-surface-api-key-secret-0123456789ab",
       INITIAL_PASSWORD: PASSWORD,
     },
-    stdout: "ignore",
-    stderr: "ignore",
-  });
+  }));
   await waitReady();
   const login = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",

@@ -1,0 +1,16 @@
+import dns from "node:dns";
+import { runtimeRequire } from "../../src/lib/db/adapters/runtimeRequire";
+import { createBunSqliteAdapter, type BunSqliteDatabaseLike } from "../../src/lib/db/adapters/bunSqliteAdapter";
+import { createWebhookProvisioningApi } from "../../server/webhookProvisioning";
+import { writeFileSync } from "node:fs";
+const { Database } = runtimeRequire("bun:sqlite") as { Database: new (path: string) => BunSqliteDatabaseLike };
+const path = process.argv[2];
+const sqlite = new Database(path);
+sqlite.exec("PRAGMA busy_timeout=10000");
+const db = createBunSqliteAdapter(sqlite, path);
+dns.promises.lookup = (async () => [{ address: "8.8.8.8", family: 4 }]) as any;
+const api = createWebhookProvisioningApi(db, url => new URL(url));
+declare const Bun: { serve(options: { hostname: string; port: number; fetch: typeof api.fetch }): { port: number; stop(closeActiveConnections: boolean): void } };
+const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: api.fetch });
+writeFileSync(process.argv[3], String(server.port));
+process.on("SIGTERM", () => { server.stop(true); db.close(); process.exit(0); });

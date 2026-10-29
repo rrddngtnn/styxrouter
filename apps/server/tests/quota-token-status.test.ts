@@ -1,18 +1,21 @@
+import { startTestServer } from "./helpers/start-test-server";
 /**
  * Quota page login column. An OAuth account whose short-lived access token has run out is NOT expired when it holds a
  * refresh token: the token is renewed on first use. Only an account that cannot renew, or that failed its check, is.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { spawn, spawnSync } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 const ROOT = join(import.meta.dir, "..");
-const PORT = 21202;
-const BASE = `http://127.0.0.1:${PORT}`;
+let BASE = "";
 const PASSWORD = "quota-status-password";
-const BUN = `${process.env.HOME}/.bun/bin/bun`;
+const BUN = process.execPath;
 
 let proc: ReturnType<typeof spawn> | null = null;
 let dataDir = "";
@@ -20,7 +23,6 @@ let cookie = "";
 
 const env = () => ({
   ...process.env,
-  PORT: String(PORT),
   DATA_DIR: dataDir,
   STYX_TEST_MODE: "1",
   JWT_SECRET: "quota-status-jwt-secret-0123456789abcdef01",
@@ -72,28 +74,34 @@ void off;
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "styx-quota-"));
-  const made = spawnSync(BUN, ["-e", seed], { cwd: ROOT, env: env(), encoding: "utf8" });
-  if (made.status !== 0) throw new Error("seeding failed: " + (made.stderr || made.stdout).slice(0, 300));
-  proc = spawn(BUN, ["server/styx.ts"], { cwd: ROOT, env: env(), stdout: "ignore", stderr: "ignore" });
-  const deadline = Date.now() + 30000;
-  while (Date.now() < deadline) {
-    try {
-      if ((await fetch(`${BASE}/api/health`)).ok) break;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 500));
+  try {
+    await execFileAsync(BUN, ["-e", seed], { cwd: ROOT, env: env(), timeout: 30000, killSignal: "SIGKILL" });
+  } catch (error) {
+    throw new Error(`seeding failed: ${String(error)}`, { cause: error });
   }
+  ({ proc, base: BASE } = await startTestServer(BUN, { cwd: ROOT, env: env() }));
+  // startTestServer waits for the child to bind its own ephemeral port.
+  const health = await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(10000) });
+  if (!health.ok) throw new Error(`Test server health check failed: ${health.status}`);
   const login = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ password: PASSWORD }),
+    signal: AbortSignal.timeout(10000),
   });
+  if (!login.ok) throw new Error(`Test server login failed: ${login.status}`);
   cookie = (login.headers.get("set-cookie") ?? "").split(";")[0];
-});
+  if (!cookie) throw new Error("Test server login did not set a cookie");
+}, 90000);
 
-afterAll(() => {
-  proc?.kill("SIGKILL");
+afterAll(async () => {
+  if (proc && proc.exitCode === null && proc.signalCode === null) {
+    const exited = new Promise<void>((resolve) => proc!.once("exit", () => resolve()));
+    proc.kill("SIGKILL");
+    await exited;
+  }
   if (dataDir) rmSync(dataDir, { recursive: true, force: true });
-});
+}, 10000);
 
 describe("/api/usage/quota tokenStatus", () => {
   test("separates renewable, stuck, failed and fresh accounts", async () => {

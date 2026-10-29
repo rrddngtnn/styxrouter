@@ -1,3 +1,4 @@
+import { startTestServer } from "./helpers/start-test-server";
 /**
  * Database backups: a manual "back up now", a listing, and pruning of the scheduled ones only. Files the operator made
  * by other means (or earlier tools) are never touched by the pruning.
@@ -9,10 +10,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
-const PORT = 21199;
-const BASE = `http://127.0.0.1:${PORT}`;
+let BASE = "";
 const PASSWORD = "backups-password-123";
-const BUN = `${process.env.HOME}/.bun/bin/bun`;
+const BUN = process.execPath;
 
 describe("pruneScheduled / listBackups (pure file logic)", () => {
   const dir = mkdtempSync(join(tmpdir(), "styx-bk-unit-"));
@@ -56,11 +56,11 @@ describe("/api/backups", () => {
 
   beforeAll(async () => {
     dataDir = mkdtempSync(join(tmpdir(), "styx-bk-"));
-    proc = spawn(BUN, ["server/styx.ts"], {
+    ({ proc, base: BASE } = await startTestServer(BUN, {
       cwd: ROOT,
       env: {
         ...process.env,
-        PORT: String(PORT),
+
         DATA_DIR: dataDir,
         STYX_TEST_MODE: "1",
         STYX_BACKUP_MIN_FREE_MB: "0", // the test tmpfs is small; the guard itself is not what is under test
@@ -68,9 +68,7 @@ describe("/api/backups", () => {
         API_KEY_SECRET: "backups-api-key-secret-0123456789abcdef0",
         INITIAL_PASSWORD: PASSWORD,
       },
-      stdout: "ignore",
-      stderr: "ignore",
-    });
+    }));
     const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
       try {

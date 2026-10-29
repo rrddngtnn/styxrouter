@@ -1,3 +1,4 @@
+import { startTestServer } from "./helpers/start-test-server";
 /**
  * Auth contract: the Hono host must enforce authentication itself.
  *
@@ -17,11 +18,10 @@ import { join } from "node:path";
 import { SignJWT } from "jose";
 
 const ROOT = join(import.meta.dir, "..");
-const PORT = 21198;
-const BASE = `http://127.0.0.1:${PORT}`;
+let BASE = "";
 const SECRET = "test-jwt-secret-0123456789abcdef0123456789abcdef";
 const PASSWORD = "correct horse battery staple";
-const BUN = `${process.env.HOME}/.bun/bin/bun`;
+const BUN = process.execPath;
 
 let proc: ReturnType<typeof spawn> | null = null;
 let dataDir = "";
@@ -30,7 +30,7 @@ let cookie = "";
 
 const env = () => ({
   ...process.env,
-  PORT: String(PORT),
+
   DATA_DIR: dataDir,
   JWT_SECRET: SECRET,
   API_KEY_SECRET: "test-api-key-secret-0123456789abcdef",
@@ -68,7 +68,7 @@ beforeAll(async () => {
     { cwd: ROOT, env: env(), encoding: "utf8" }
   );
   apiKey = (made.stdout || "").trim().split("\n").pop() || "";
-  proc = spawn(BUN, ["server/styx.ts"], { cwd: ROOT, env: env(), stdout: "ignore", stderr: "ignore" });
+  ({ proc, base: BASE } = await startTestServer(BUN, { cwd: ROOT, env: env() }));
   await waitReady();
   const login = await call("/api/auth/login", json({ password: PASSWORD }));
   cookie = (login.headers.get("set-cookie") || "").split(";")[0];
@@ -90,6 +90,8 @@ describe("management API needs a session", () => {
     ["POST", "/api/oauth/glm/init"],
     ["GET", "/api/oauth/glm/poll?state=x"],
     ["POST", "/api/admin/migrate-from-styx"],
+    ["POST", "/api/versions/zcode/refresh"],
+    ["POST", "/api/versions/antigravity/refresh"],
     ["PATCH", "/api/model-metadata/x"],
   ];
   for (const [method, path] of closed) {
@@ -157,6 +159,11 @@ describe("settings", () => {
 });
 
 describe("CSRF", () => {
+  for (const path of ["/api/versions/zcode/refresh", "/api/versions/antigravity/refresh"]) {
+    test(`${path} rejects a foreign origin`, async () => {
+      expect((await call(path, asSession({ method: "POST", headers: { origin: "https://evil.example" } }))).status).toBe(403);
+    });
+  }
   test("a cookie-authenticated write from a foreign Origin is 403", async () => {
     const r = await call("/api/oauth/glm/init", asSession({ method: "POST", headers: { origin: "https://evil.example" } }));
     expect(r.status).toBe(403);
@@ -218,10 +225,9 @@ describe.skipIf(!panelBuilt)("panel routes", () => {
 
 describe("fails closed without a secret", () => {
   test("login is refused when JWT_SECRET is unset", async () => {
-    const port = PORT + 1;
-    const p = spawn(BUN, ["server/styx.ts"], {
+    const { proc: p, base } = await startTestServer(BUN, {
       cwd: ROOT,
-      env: { ...env(), PORT: String(port), JWT_SECRET: "" },
+      env: { ...env(), JWT_SECRET: "" },
       stdout: "ignore",
       stderr: "ignore",
     });
@@ -229,13 +235,13 @@ describe("fails closed without a secret", () => {
       const deadline = Date.now() + 30000;
       while (Date.now() < deadline) {
         try {
-          if ((await fetch(`http://127.0.0.1:${port}/api/health`)).ok) break;
+          if ((await fetch(`${base}/api/health`)).ok) break;
         } catch {}
         await new Promise((r) => setTimeout(r, 500));
       }
-      const login = await fetch(`http://127.0.0.1:${port}/api/auth/login`, json({ password: PASSWORD }));
+      const login = await fetch(`${base}/api/auth/login`, json({ password: PASSWORD }));
       expect(login.status).toBe(503);
-      expect((await fetch(`http://127.0.0.1:${port}/api/providers`)).status).toBe(401);
+      expect((await fetch(`${base}/api/providers`)).status).toBe(401);
     } finally {
       p.kill("SIGKILL");
     }

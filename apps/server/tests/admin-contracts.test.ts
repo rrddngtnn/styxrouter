@@ -1,3 +1,4 @@
+import { startTestServer } from "./helpers/start-test-server";
 /**
  * Admin write contract: API keys and combos have real server-side create / update / delete,
  * all behind the session (auth itself is covered by auth-contracts.test.ts).
@@ -10,10 +11,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
-const PORT = 21196;
-const BASE = `http://127.0.0.1:${PORT}`;
+let BASE = "";
 const PASSWORD = "admin-contracts-password";
-const BUN = `${process.env.HOME}/.bun/bin/bun`;
+const BUN = process.execPath;
 
 let proc: ReturnType<typeof spawn> | null = null;
 let dataDir = "";
@@ -40,20 +40,18 @@ const models = (key: string) => fetch(`${BASE}/v1/models`, { headers: { authoriz
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "styx-admin-"));
-  proc = spawn(BUN, ["server/styx.ts"], {
+  ({ proc, base: BASE } = await startTestServer(BUN, {
     cwd: ROOT,
     env: {
       ...process.env,
-      PORT: String(PORT),
+
       DATA_DIR: dataDir,
       STYX_TEST_MODE: "1",
       JWT_SECRET: "admin-contracts-jwt-secret-0123456789abcdef",
       API_KEY_SECRET: "admin-contracts-api-key-secret-0123456789",
       INITIAL_PASSWORD: PASSWORD,
     },
-    stdout: "ignore",
-    stderr: "ignore",
-  });
+  }));
   await waitReady();
   const login = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",

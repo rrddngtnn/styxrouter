@@ -1,3 +1,4 @@
+import { startTestServer } from "./helpers/start-test-server";
 /**
  * RED-phase contract tests for the panel API surface.
  *
@@ -25,8 +26,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
-const PORT = 21199;
-const BASE = `http://127.0.0.1:${PORT}`;
+let BASE = "";
 
 let proc: ReturnType<typeof spawn> | null = null;
 let dataDir = "";
@@ -46,19 +46,17 @@ async function waitReady(deadlineMs = 30000): Promise<void> {
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "styx-test-"));
-  proc = spawn(`${process.env.HOME}/.bun/bin/bun`, ["server/styx.ts"], {
+  ({ proc, base: BASE } = await startTestServer(process.execPath, {
     cwd: ROOT,
     env: {
       ...process.env,
-      PORT: String(PORT),
+
       DATA_DIR: dataDir,
       STYX_TEST_MODE: "1",
       JWT_SECRET: "panel-contracts-jwt-secret-0123456789abcdef",
       INITIAL_PASSWORD: "panel-contracts-password",
     },
-    stdout: "ignore",
-    stderr: "ignore",
-  });
+  }));
   await waitReady();
   // The API is closed without a session: log in once and send the cookie on every call.
   const login = await fetch(`${BASE}/api/auth/login`, {

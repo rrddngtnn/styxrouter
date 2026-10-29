@@ -1,20 +1,23 @@
+import { startTestServer } from "./helpers/start-test-server";
+import { stopTestProcess } from "./helpers/stop-test-process";
 /**
  * Admin account/settings contract: connected accounts can be listed (no secrets), edited,
  * released from cooldown, tested and deleted; settings can be updated; the management password
  * can be changed only with the current one. Boots a REAL server on a throwaway DATA_DIR.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
-const PORT = 21194;
-const BASE = `http://127.0.0.1:${PORT}`;
+let BASE = "";
 const PASSWORD = "accounts-contracts-password";
 const SECRET_KEY = "sk-live-secret-do-not-leak-0123456789";
-const BUN = `${process.env.HOME}/.bun/bin/bun`;
+const BUN = process.execPath;
 
 let proc: ReturnType<typeof spawn> | null = null;
 let dataDir = "";
@@ -23,7 +26,7 @@ let connId = "";
 
 const env = () => ({
   ...process.env,
-  PORT: String(PORT),
+
   DATA_DIR: dataDir,
   STYX_TEST_MODE: "1",
   JWT_SECRET: "accounts-contracts-jwt-secret-0123456789abcdef",
@@ -35,7 +38,7 @@ async function waitReady() {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
     try {
-      if ((await fetch(`${BASE}/api/health`)).ok) return;
+      if ((await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(2000) })).ok) return;
     } catch {}
     await new Promise((r) => setTimeout(r, 500));
   }
@@ -49,12 +52,12 @@ const api = (method: string, path: string, body?: unknown) =>
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 const login = (password: string) =>
-  fetch(`${BASE}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }) });
+  fetch(`${BASE}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }), signal: AbortSignal.timeout(10000) });
 const connections = async () => ((await (await api("GET", "/api/connections")).json()) as any).connections as any[];
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "styx-accounts-"));
-  const made = spawnSync(
+  const made = await promisify(execFile)(
     BUN,
     [
       "-e",
@@ -64,18 +67,22 @@ beforeAll(async () => {
        await updateProviderConnection(c.id, { testStatus: 'error', backoffLevel: 3, lastError: 'boom' });
        console.log('CONN_ID=' + c.id)`,
     ],
-    { cwd: ROOT, env: env(), encoding: "utf8" }
+    { cwd: ROOT, env: env(), encoding: "utf8", timeout: 30000, killSignal: "SIGKILL" }
   );
   connId = (made.stdout.match(/CONN_ID=(\S+)/) ?? [])[1] ?? "";
-  proc = spawn(BUN, ["server/styx.ts"], { cwd: ROOT, env: env(), stdout: "ignore", stderr: "ignore" });
+  if (!connId) throw new Error("Account seed did not return a connection ID");
+  ({ proc, base: BASE } = await startTestServer(BUN, { cwd: ROOT, env: env() }));
   await waitReady();
-  cookie = ((await login(PASSWORD)).headers.get("set-cookie") ?? "").split(";")[0];
-});
+  const response = await login(PASSWORD);
+  if (!response.ok) throw new Error(`Test login failed: ${response.status}`);
+  cookie = (response.headers.get("set-cookie") ?? "").split(";")[0];
+  if (!cookie) throw new Error("Test login did not return a session cookie");
+}, 110000);
 
-afterAll(() => {
-  proc?.kill("SIGKILL");
+afterAll(async () => {
+  await stopTestProcess(proc);
   if (dataDir) rmSync(dataDir, { recursive: true, force: true });
-});
+}, 10000);
 
 describe("connections", () => {
   test("list shows the account and never a secret", async () => {

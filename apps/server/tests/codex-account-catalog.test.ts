@@ -18,6 +18,22 @@ test("Codex effort aliases match canonical inventory and unknown inventories fai
   expect(isModelAdvertisedByConnection("gpt-6.1-terra", new Set())).toBe(true);
 });
 
+test("Terra effort aliases pass the authoritative active catalog gate", async () => {
+  const { createProviderConnection } = await import("../src/lib/db/providers.ts");
+  const { getModelInfo } = await import("../src/sse/services/model.ts");
+  const conn = await createProviderConnection({ provider: "codex", authType: "oauth", accessToken: "test-terra", isActive: true, name: "Terra" } as any);
+  await replaceSyncedAvailableModelsForConnection("codex", conn.id, [{ id: "gpt-6.1-terra", name: "Terra" }]);
+  for (const effort of ["low", "medium", "high", "xhigh", "max", "ultra"]) {
+    const info = await getModelInfo(`codex/gpt-6.1-terra-${effort}`);
+    expect(info.provider).toBe("codex");
+    expect(info.model).toBe(`gpt-6.1-terra-${effort}`);
+  }
+  const bare = await getModelInfo("gpt-6.1-terra-max");
+  expect(bare.provider).toBe("codex");
+  expect(bare.model).toBe("gpt-6.1-terra-max");
+  expect((await getModelInfo("codex/gpt-6.1-sol-max")).errorType).toBe("model_not_found");
+});
+
 test("stale last-good Codex inventories remain restrictive until a successful refresh", async () => {
   const { updateProviderConnection, createProviderConnection } = await import("../src/lib/db/providers.ts");
   const { getProviderCredentials } = await import("../src/sse/services/auth.ts");
