@@ -12,10 +12,10 @@ build/
 *.tsbuildinfo
 apps/panel/dist/
 
-# Env
+# Env: examples are safe to publish, deployment variants are not.
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Runtime data
 data/

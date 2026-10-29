@@ -1,12 +1,14 @@
 # syntax=docker/dockerfile:1
 
 # 1) Build the panel (static SPA bundle)
-FROM node:24-slim AS panel
+FROM oven/bun:1-debian AS panel
 WORKDIR /build
-COPY apps/panel/package.json apps/panel/package-lock.json ./
-RUN npm ci --no-audit --no-fund
-COPY apps/panel/ ./
-RUN npm run build
+COPY package.json bun.lock ./
+COPY apps/panel/package.json ./apps/panel/package.json
+COPY apps/server/package.json ./apps/server/package.json
+RUN bun install --frozen-lockfile --ignore-scripts
+COPY apps/panel/ ./apps/panel/
+RUN bun run panel:build
 
 # 2) Production dependencies from the workspace root lockfile
 FROM oven/bun:1-debian AS deps
@@ -25,7 +27,7 @@ WORKDIR /app/apps/server
 COPY --from=deps /app/node_modules /app/node_modules
 COPY --from=deps /app/apps/server/node_modules ./node_modules
 COPY apps/server/ ./
-COPY --from=panel /build/dist ./panel
+COPY --from=panel /build/apps/panel/dist ./panel
 RUN mkdir -p /data && chown -R bun:bun /data /app
 USER bun
 VOLUME /data

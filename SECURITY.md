@@ -1,8 +1,8 @@
 # Security policy
 
 StyxRouter brokers live provider credentials — OAuth access/refresh tokens and
-API keys — and encrypts them at rest. Treat any issue touching credential
-handling as sensitive.
+API keys. Credential encryption depends on configuration and can fall back to
+plaintext; see the limitations below. Treat credential-handling issues as sensitive.
 
 ## Reporting a vulnerability
 
@@ -18,15 +18,19 @@ any public disclosure.
 
 ## Handling of secrets
 
-- Provider credentials are stored encrypted at rest with a per-deployment
-  encryption salt plus a `STORAGE_ENCRYPTION_KEY` supplied via the environment.
-  Neither the key nor the salt value should ever appear in source, logs, or any
-  committed file.
+- When `STORAGE_ENCRYPTION_KEY` is configured and encryption succeeds, provider
+  credential fields are encrypted with AES-256-GCM; key derivation uses a fixed
+  application salt, not a unique per-deployment salt. Keep the environment key
+  secret and backed up separately from the database.
+- If the key is absent, key derivation fails, or encryption raises an error, the
+  current implementation can store plaintext. Configuring a key alone does not
+  guarantee existing credentials were migrated or all new writes are encrypted.
 - `.env` is gitignored. Only `.env.example` (no real values) is tracked.
-- The pre-publish hygiene gate (`scripts/public-hygiene-gate.py`) scans the tree,
-  commit history, built panel bundle, and (optionally) the live runtime for
-  leaked operator identifiers, infrastructure facts, and credential material.
-  Run it before publishing or pushing to a public remote.
+- The pre-publish hygiene gate (`scripts/public-hygiene-gate.py`) scans selected
+  Git-listed files, filenames, commit messages and optionally panel and runtime
+  surfaces. A skipped check or warning is not release clearance; it does not
+  audit historical file contents or untracked release candidates. Review those
+  separately before publishing.
 
 ## Scope
 

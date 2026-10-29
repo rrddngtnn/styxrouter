@@ -3,16 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "description": "StyxRouter — lean AI model router (OpenAI/Anthropic/Google/Tencent/Z.ai) on Hono + Bun.",
-  "license": "MIT",
+  "license": "SEE LICENSE IN CREDITS.md",
   "workspaces": [
     "apps/*"
   ],
+  "overrides": {
+    "@swc/core": "1.15.33"
+  },
   "scripts": {
     "server:start": "cd apps/server && bun server/styx.ts",
-    "server:test": "cd apps/server && bun test tests/",
+    "server:test": "cd apps/server && bun scripts/test-isolated.ts",
     "server:test:py": "cd apps/server && python3 -m unittest discover -s tests -p 'test_*.py' -v",
-    "panel:dev": "npm --prefix apps/panel run dev",
-    "panel:build": "npm --prefix apps/panel run build",
-    "panel:typecheck": "npm --prefix apps/panel run typecheck"
+    "panel:test": "cd apps/panel && bun test",
+    "panel:dev": "cd apps/panel && bun run dev",
+    "panel:build": "cd apps/panel && bun run build",
+    "panel:typecheck": "cd apps/panel && bun run typecheck"
   }
 }

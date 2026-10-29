@@ -43,53 +43,65 @@ Fail-closed dispatch — any provider ID not in the explicit registry whitelist 
 ## Quick start (from a fresh clone)
 
 ```bash
-# 1. Install workspace dependencies (server + panel) from the repository root
-bun install
+# 1. Install workspace dependencies using Bun 1.4.3 and the committed lockfile
+bun install --frozen-lockfile
 
 # 2. Build the administration panel SPA
-npm --prefix apps/panel run build
+bun run panel:build
 
-# 3. Create apps/server/.env with your secrets (generate each 32-byte hex secret with: openssl rand -hex 32)
+# 3. Create apps/server/.env, then edit it to set INITIAL_PASSWORD and the secrets.
+# Generate each 32-byte hex secret with: openssl rand -hex 32
 cp docker.env.example apps/server/.env
 
-# 4. Start the server (listens on :20128 by default)
-cd apps/server && bun server/styx.ts
+# 4. Start the server (binds 0.0.0.0:20128 by default)
+bun run server:start
 
 # 5. Open the panel at http://127.0.0.1:20128/panel/ and sign in with INITIAL_PASSWORD
 ```
+
+## SQLite backend compatibility
+
+Persistent deployments require a synchronous SQLite driver (`bun:sqlite` when running with Bun, `better-sqlite3`, or `node:sqlite`). The sql.js fallback supports `:memory:` only; file-backed startup deliberately fails rather than risk stale authorization or lost writes. This also applies to forced sql.js package-boot smoke mode; use a native driver for persistent boot checks. Stop all older sql.js processes before switching an existing database. See [sql.js backend safety](docs/sqljs-file-backend-safety.md).
+
+Backups can be created and listed, but there is currently no supported safe restore command. Do not replace a live database or its WAL/SHM files; see the [restore safety blocker](docs/sqlite-restore-blocker.md).
 
 ## Testing
 
 ```bash
 # TypeScript contract and routing tests (Bun test runner)
-cd apps/server && bun test tests/
+bun run server:test
+# Single server test: (cd apps/server && bun scripts/test-isolated.ts tests/example.test.ts)
+# Do not run server tests with bare `bun test`: files share state and may access your real data.
 
 # Panel unit tests + typecheck
-bun test apps/panel/tests/
-npm --prefix apps/panel run typecheck
+bun run panel:test
+bun run panel:typecheck
 
 # Python-side tooling tests (stdlib unittest)
-cd apps/server && python3 -m unittest discover -s tests -p 'test_*.py' -v
+bun run server:test:py
 ```
 
 ## Credits & lineage
 
-StyxRouter stands on three upstream projects. Full detail lives in
-[`CREDITS.md`](CREDITS.md).
+StyxRouter derives from upstream projects and contains additional named ports.
+Full attribution, inspected source revisions, and unresolved licensing questions
+live in [`CREDITS.md`](CREDITS.md). The main lineage includes:
 
 - **OmniRoute** — the lean AI-model-router line this project was ported and
   refactored from; the server engine (`apps/server/open-sse/`) derives from it.
   <https://github.com/diegosouzapw/OmniRoute>
-- **9Router** — reverse-engineered as a reference for a subset of provider
+- **9Router** — reference and explicitly attributed source ports for provider
   integrations. <https://github.com/decolua/9router>
 - **ZCode** — supplied the CLI client identity and plan-family taxonomy used by
   the Z.ai / GLM integration. <https://zcode.z.ai>
 
 ## License
 
-MIT (see `LICENSE`). Portions are ported from the upstream projects listed under
-**Credits & lineage**; see [`CREDITS.md`](CREDITS.md) for the per-subsystem
-attribution and SPDX detail.
+The root [`LICENSE`](LICENSE) records an MIT grant, but the retained tree is not
+verified as MIT-only. In particular, the Hailuo executor explicitly ports code
+from GPL-3.0-licensed gpt4free. See [`CREDITS.md`](CREDITS.md) for pinned evidence,
+retained notices, and unresolved provenance. These notices do not relicense the
+project or establish release clearance.
 
 ## Docker
 
@@ -97,13 +109,12 @@ A `Dockerfile`, `docker-compose.yml`, and GitHub Actions multi-arch image publis
 
 ## npm / Bun CLI (`@styxrouter/server`)
 
-`@styxrouter/server` ships a self-contained CLI binary (`styxrouter`) that bundles the compiled administration panel (`prepack` builds `apps/panel/dist` into the tarball):
+The `@styxrouter/server` package is configured to ship a Bun-based `styxrouter` CLI and the compiled administration panel (`prepack` builds `apps/panel/dist` into the tarball). It is not a standalone native binary and requires Bun. The package was not found on the public npm registry on 2026-10-28; installation below requires a published release.
 
 ```bash
 # Install globally with Bun and run from any directory
 bun add -g @styxrouter/server
 DATA_DIR=~/.styx INITIAL_PASSWORD=... JWT_SECRET=... API_KEY_SECRET=... STORAGE_ENCRYPTION_KEY=... styxrouter
-
-# Or publish a new version from apps/server
-cd apps/server && npm publish --access public
 ```
+
+Publishing remains blocked on the provenance and licensing review described in [CREDITS.md](CREDITS.md); the example is not release clearance.

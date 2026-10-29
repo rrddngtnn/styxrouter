@@ -2,7 +2,14 @@
 **/node_modules
 .git
 **/.env
+**/.env.*
+!**/.env.example
 **/*.sqlite*
+**/*.db
+**/*.db-*
+**/backups
+**/evidence
+**/snapshots
 **/*.log
 apps/panel/dist
 # a symlink to the panel build in the working tree; the image gets the freshly built panel instead

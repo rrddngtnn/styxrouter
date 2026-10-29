@@ -18,6 +18,8 @@ docker run -d --name styxrouter \
 
 Open `http://127.0.0.1:20128/panel/` and sign in with `INITIAL_PASSWORD`. The database and backups live in the
 `styx-data` volume (`/data`); a scheduled backup runs daily and the panel has a **Back up now** button.
+Backups do not provide a supported safe live restore. See the
+[SQLite restore blocker](docs/sqlite-restore-blocker.md) before planning recovery.
 
 - The container listens on port 20128 and is published on the loopback interface only. Put a reverse proxy with TLS
   in front of it if you need remote access.
