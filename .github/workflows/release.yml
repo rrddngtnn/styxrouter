@@ -13,7 +13,12 @@ permissions:
   packages: write
 
 jobs:
+  # HARD STOP for every trigger, including workflow_dispatch. After provenance,
+  # licence obligations and release clearance are reviewed and documented by the
+  # responsible owner, a separate deliberate workflow change is required to lift
+  # this block. A successful build or hygiene scan is not legal clearance.
   docker:
+    if: ${{ false }}
     name: Build & Push Docker Image (GHCR)
     runs-on: ubuntu-latest
     steps:
@@ -56,6 +61,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   npm:
+    if: ${{ false }}
     name: Pack & Publish npm (@styxrouter/server)
     runs-on: ubuntu-latest
     steps:
