@@ -21,7 +21,8 @@ bun run panel:build
 ## Build & test
 
 ```bash
-# TypeScript contract + routing tests
+# Server TypeScript check and contract + routing tests
+bun run server:typecheck
 bun run server:test
 # Single server test: cd apps/server && bun scripts/test-isolated.ts tests/example.test.ts
 # Avoid bare `bun test` for server tests: it shares module state and may access real data.

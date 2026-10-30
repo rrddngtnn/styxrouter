@@ -13,6 +13,7 @@
   "scripts": {
     "server:start": "cd apps/server && bun server/styx.ts",
     "server:test": "cd apps/server && bun scripts/test-isolated.ts",
+    "server:typecheck": "cd apps/server && bun run typecheck",
     "server:test:py": "cd apps/server && python3 -m unittest discover -s tests -p 'test_*.py' -v",
     "panel:test": "cd apps/panel && bun test",
     "panel:dev": "cd apps/panel && bun run dev",

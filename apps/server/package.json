@@ -56,6 +56,7 @@
   "scripts": {
     "start": "bun server/styx.ts",
     "test": "bun scripts/test-isolated.ts",
+    "typecheck": "bun --bun tsc --noEmit",
     "test:py": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
     "prepack": "cd ../panel && bun run build && cd ../server && rm -rf panel && cp -r ../panel/dist panel",
     "postpack": "rm -rf panel && ln -s ../panel/dist panel"
@@ -73,6 +74,7 @@
     "ioredis": "^5.10.1",
     "ipaddr.js": "^2.2.0",
     "jose": "^6.2.9",
+    "js-tiktoken": "^1.0.21",
     "node-machine-id": "^1.1.12",
     "omniglyph": "^1.4.0",
     "open": "^11.0.1",
@@ -97,9 +99,12 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "26.6.6",
     "typescript": "^5.7.2"
   },
   "optionalDependencies": {
+    "@huggingface/transformers": "^4.3.1",
     "tls-client-node": "^0.2.0",
     "wreq-js": "^3.0.0"
   },
