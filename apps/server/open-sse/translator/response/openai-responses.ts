@@ -1301,9 +1301,18 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
     return null;
   }
 
-  // Response completed
-  if (eventType === "response.completed") {
-    // Extract usage from response.completed event
+  // Response completed OR incomplete. OpenAI's Responses API emits
+  // `response.incomplete` (not `response.completed`) as the terminal event when
+  // generation stopped early — most commonly `max_output_tokens` reached, or a
+  // content filter truncating output. Without handling it here the event fell
+  // through to "Ignore other events" (return null), so the stream only
+  // terminated via the flush fallback, which emits finish_reason "stop" and
+  // discards the incomplete event's usage. A client that set a small max_tokens
+  // and relies on finish_reason to detect truncation (to continue the turn) was
+  // told the turn stopped cleanly. Map the incomplete reason to the correct Chat
+  // Completions finish_reason instead.
+  if (eventType === "response.completed" || eventType === "response.incomplete") {
+    // Extract usage from the terminal event
     const responseUsage = data.response?.usage;
     if (responseUsage && typeof responseUsage === "object") {
       const inputTokens = responseUsage.input_tokens || responseUsage.prompt_tokens || 0;
@@ -1360,7 +1369,17 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
 
     if (!state.finishReasonSent) {
       state.finishReasonSent = true;
-      const reason = computeFinishReason(state);
+      // For response.incomplete, the terminal reason is carried in
+      // incomplete_details.reason. max_output_tokens → "length"; any other
+      // (e.g. content_filter) → "content_filter". A pending tool call still
+      // takes precedence (computeFinishReason → "tool_calls"). For
+      // response.completed, computeFinishReason decides as before.
+      let reason: "stop" | "tool_calls" | "length" | "content_filter" = computeFinishReason(state);
+      if (eventType === "response.incomplete" && reason !== "tool_calls") {
+        const incompleteReason = data.response?.incomplete_details?.reason;
+        reason =
+          incompleteReason === "max_output_tokens" ? "length" : "content_filter";
+      }
       state.finishReason = reason; // Mark for usage injection in stream.js
 
       const finalChunk: Record<string, unknown> = {
