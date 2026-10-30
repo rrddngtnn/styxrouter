@@ -4519,7 +4519,20 @@ export async function handleChatCore({
             // Continue processing with the fallback response — skip error return
             log?.info?.("MODEL_FALLBACK", `Serving ${nextModel} as fallback for ${model}`);
             // Jump to streaming/non-streaming handling below
-            // We fall through by NOT returning here
+            // We fall through by NOT returning here.
+            // The providerFailure decrement above (trackPendingRequest(false) at the
+            // top of this block) already consumed this request's pending slot on the
+            // assumption it was terminal. It is NOT terminal — the family-fallback
+            // sibling succeeded and we fall through to the success path, which calls
+            // finalizePendingScope(pendingScope). Without re-registering, that finalize
+            // targets an already-removed id and no-ops: the counter double-decrements
+            // (corrupting a concurrent sibling's accounting) and the completed 200
+            // detail is never recorded. Re-register and repoint pendingScope so the
+            // success finalize consumes a live slot.
+            const refreshedPendingId = trackPendingRequest(model, provider, pendingConnId, true, {
+              stage: "family_fallback",
+            });
+            if (refreshedPendingId) pendingScope.id = refreshedPendingId;
           } else {
             // Fallback also failed — return original error
             persistAttemptLogs({
@@ -4610,6 +4623,15 @@ export async function handleChatCore({
               "CONTEXT_OVERFLOW_FALLBACK",
               `Serving ${nextModel} as fallback for ${model}`
             );
+            // Re-register the pending slot consumed by the providerFailure decrement
+            // above: this context-overflow fallback succeeded and falls through to the
+            // success path's finalizePendingScope, which would otherwise double-decrement
+            // (corrupting concurrent siblings) and drop the completed 200 detail. See the
+            // matching note in the model-unavailable fallback branch above.
+            const refreshedPendingId = trackPendingRequest(model, provider, pendingConnId, true, {
+              stage: "context_overflow_fallback",
+            });
+            if (refreshedPendingId) pendingScope.id = refreshedPendingId;
           } else {
             persistAttemptLogs({
               status: statusCode,
