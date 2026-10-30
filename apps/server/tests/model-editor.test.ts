@@ -38,6 +38,7 @@ test("Bun transport supplies the peer, rejects unauthenticated proxy headers, an
   const { Hono } = await import("hono");
   const { SignJWT } = await import("jose");
   const { createModelMetadataApi } = await import("../server/modelMetadata.ts");
+  const previousSecret = process.env.JWT_SECRET;
   process.env.JWT_SECRET = "test-model-editor-secret-key-32-bytes";
   const token = await new SignJWT({ authenticated: true })
     .setProtectedHeader({ alg: "HS256" })
@@ -62,8 +63,32 @@ test("Bun transport supplies the peer, rejects unauthenticated proxy headers, an
           },
         })
       ).status,
-    ).toBe(200);
-  } finally { await server.stop(true); }
+    ).toBe(403);
+    // Caddy preserves the public Host; a matching forwarded host alone must not
+    // authorize an Origin that differs from the actual HTTP Host.
+    const proxyHeaders = {
+      Cookie: `auth_token=${token}`,
+      Host: "styx.example.com",
+      "X-Forwarded-Host": "styx.example.com",
+      "X-Forwarded-For": "198.51.100.7",
+      Origin: "https://styx.example.com",
+    };
+    expect((await fetch(url, { headers: proxyHeaders })).status).toBe(200);
+    const edit = (headers: Record<string, string>) => fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({ provider: "codex", modelId: "proxy-origin-regression", contextWindow: null }),
+    });
+    // A session cookie does not make a spoofed forwarding header trustworthy,
+    // on writes either. Keep the public Origin but restore the backend Host.
+    expect((await edit({ ...proxyHeaders, Host: new URL(url).host })).status).toBe(403);
+    expect((await edit(proxyHeaders)).status).toBe(200);
+    expect((await edit({ ...proxyHeaders, Origin: "https://evil.example", "X-Forwarded-Host": "evil.example" })).status).toBe(403);
+  } finally {
+    await server.stop(true);
+    if (previousSecret === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = previousSecret;
+  }
 });
 
 test("boolean overrides persist and affect runtime and catalog snapshot resolution", () => {

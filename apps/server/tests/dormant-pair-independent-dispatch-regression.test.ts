@@ -17,10 +17,14 @@ const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
 }});
 const env = { ...process.env, DATA_DIR: dir, STYX_TEST_MODE: "1", MOCK_UPSTREAM_PORT: String(upstream.port), JWT_SECRET: "import-auth-jwt-secret-0123456789", API_KEY_SECRET: "import-auth-api-secret-0123456789", STORAGE_ENCRYPTION_KEY: "import-auth-encryption-key", INITIAL_PASSWORD: "import-auth-password" };
 beforeAll(async () => {
-  const made = spawnSync(process.execPath, ["-e", `const {createApiKey}=await import('./src/lib/db/apiKeys.ts'); const {createProviderConnection}=await import('./src/lib/db/providers.ts'); const {createCombo}=await import('./src/lib/db/combos.ts'); const key=(await createApiKey('import-auth','test')).key; const ids=[]; for (const token of ['synthetic-bad-token','synthetic-sibling-token','synthetic-combo-token','synthetic-messages-token','synthetic-responses-token','synthetic-rr-token','synthetic-quota-token']) ids.push((await createProviderConnection({provider:'codebuddy-cn',authType:'oauth',name:token,accessToken:token,refreshToken:'synthetic-refresh-'+token,isActive:true,providerSpecificData:{importedToken:true,nonRefreshable:true,autoRefreshDisabled:true}})).id); ids.push((await createProviderConnection({provider:'codebuddy-cn',authType:'apikey',name:'synthetic-key',apiKey:'synthetic-api-key',isActive:true,providerSpecificData:{importedToken:true,nonRefreshable:true}})).id); await createCombo({name:'auth-combo',strategy:'priority',models:['codebuddy-cn/deepseek-v3.2','codebuddy-cn/glm-5.0']}); await createCombo({name:'auth-round-robin',strategy:'round-robin',models:['codebuddy-cn/deepseek-v3.2','codebuddy-cn/glm-5.0']}); console.log(JSON.stringify({key,ids}));`], { cwd: root, env, encoding: "utf8" });
+  // Unpinned revocation cases consume active LRU accounts. Keep spare accounts
+  // ahead of the quota fixture so those cases cannot expire its credential.
+  const made = spawnSync(process.execPath, ["-e", `const {createApiKey}=await import('./src/lib/db/apiKeys.ts'); const {createProviderConnection}=await import('./src/lib/db/providers.ts'); const {createCombo}=await import('./src/lib/db/combos.ts'); const key=(await createApiKey('import-auth','test')).key; const ids=[]; for (const token of ['synthetic-bad-token','synthetic-sibling-token','synthetic-combo-token','synthetic-messages-token','synthetic-responses-token','synthetic-rr-token','synthetic-revoke-spare-1','synthetic-revoke-spare-2','synthetic-revoke-spare-3','synthetic-quota-token']) ids.push((await createProviderConnection({provider:'codebuddy-cn',authType:'oauth',name:token,accessToken:token,refreshToken:'synthetic-refresh-'+token,isActive:true,providerSpecificData:{importedToken:true,nonRefreshable:true,autoRefreshDisabled:true}})).id); ids.push((await createProviderConnection({provider:'codebuddy-cn',authType:'apikey',name:'synthetic-key',apiKey:'synthetic-api-key',isActive:true,providerSpecificData:{importedToken:true,nonRefreshable:true}})).id); await createCombo({name:'auth-combo',strategy:'priority',models:['codebuddy-cn/deepseek-v3.2','codebuddy-cn/glm-5.0']}); await createCombo({name:'auth-round-robin',strategy:'round-robin',models:['codebuddy-cn/deepseek-v3.2','codebuddy-cn/glm-5.0']}); console.log(JSON.stringify({key,ids}));`], { cwd: root, env, encoding: "utf8" });
   expect(made.status).toBe(0);
   const fixture = JSON.parse(made.stdout.trim().split("\n").pop()!);
   key = fixture.key; ids = fixture.ids;
+  expect(ids).toHaveLength(11);
+  expect(new Set(ids).size).toBe(ids.length);
   proc = spawn(process.execPath, [join(import.meta.dir, "helpers/token-auth-mock-server.ts")], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "", errors = "";
   proc.stderr!.on("data", c => { errors += c; });
@@ -149,12 +153,19 @@ for (const [model, stream] of [["auth-combo", true], ["auth-round-robin", true],
   }, 30000);
 }
 
-for (const [label, id, upstreamStatus] of [["quota", 6, 429], ["API key", 7, 401]] as const) {
+for (const [label, id, upstreamStatus] of [["quota", 9, 429], ["API key", 10, 401]] as const) {
   test(`${label} failure does not receive the imported OAuth reauth response`, async () => {
     calls.length = 0; status = upstreamStatus;
+    // This must exercise an upstream rejection, not local expired-account selection.
+    const beforeDb = new Database(join(dir, "storage.sqlite"), { readonly: true });
+    const before: any = beforeDb.query("SELECT is_active, test_status FROM provider_connections WHERE id = ?").get(ids[id]);
+    beforeDb.close();
+    expect(before.is_active).toBe(1);
+    expect(before.test_status).not.toBe("expired");
     const response = await fetch(base + "/v1/chat/completions", { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "x-styx-connection": ids[id] }, body: JSON.stringify({ model: "codebuddy-cn/deepseek-v3.2", messages: [{ role: "user", content: "test" }] }) });
     expect(await response.text()).not.toContain("IMPORTED_TOKEN_REAUTH_REQUIRED");
     expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0]).toBe(label === "quota" ? "Bearer synthetic-quota-token" : "Bearer synthetic-api-key");
     const db = new Database(join(dir, "storage.sqlite"), { readonly: true });
     const row: any = db.query("SELECT test_status FROM provider_connections WHERE id = ?").get(ids[id]);
     db.close();

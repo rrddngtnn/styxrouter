@@ -55,8 +55,10 @@ test("PromptQL Web access-only import is accepted after executor verification",a
   expect(row.access_token).toStartWith("enc:v1:");
 });
 test("known expired imported PromptQL returns typed reauthentication without dispatch", async () => {
+  // A pinned expired request is its own session. Reusing the identical prompt
+  // without a session ID would pin every later unpinned case to this account.
   calls.length = 0;
-  const response = await fetch(base + "/v1/chat/completions", { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "x-styx-connection": expiredId }, body: JSON.stringify({model:"promptql/claude-sonnet-4",messages:[{role:"user",content:"test"}]}) });
+  const response = await fetch(base + "/v1/chat/completions", { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "x-styx-connection": expiredId, "x-session-id": "promptql-expired-only" }, body: JSON.stringify({model:"promptql/claude-sonnet-4",messages:[{role:"user",content:"test"}]}) });
   const text = await response.text();
   expect(response.status).toBe(401);
   expect(text).toContain("IMPORTED_TOKEN_REAUTH_REQUIRED");
