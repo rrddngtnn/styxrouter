@@ -4,10 +4,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startTestServer } from './helpers/start-test-server';
+import { stopTestProcess } from './helpers/stop-test-process';
+import type { ChildProcess } from 'node:child_process';
 
 test('usage analytics includes the entire selected end date', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'usage-end-date-'));
-  let proc: any;
+  let proc: ChildProcess | null = null;
   try {
     let base: string;
     ({proc, base} = await startTestServer(process.execPath, {cwd: join(import.meta.dir, '..'), env: {...process.env, DATA_DIR: dir, STYX_TEST_MODE: '1', JWT_SECRET: 'usage-test-jwt-secret-0123456789abcdef', API_KEY_SECRET: 'usage-test-key-secret-0123456789abcdef', INITIAL_PASSWORD: 'usage-test-password'}}));
@@ -26,5 +28,8 @@ test('usage analytics includes the entire selected end date', async () => {
     const precise = await fetch(`${base}/api/usage/analytics?startDate=${today}&endDate=${today}T11%3A00%3A00.000Z`, {headers:{cookie}});
     expect(precise.status).toBe(200);
     expect((await precise.json() as any).summary.totalRequests).toBe(0);
-  } finally { proc?.kill('SIGKILL'); rmSync(dir, {recursive:true,force:true}); }
-});
+  } finally {
+    await stopTestProcess(proc);
+    rmSync(dir, {recursive:true,force:true});
+  }
+}, 45000);

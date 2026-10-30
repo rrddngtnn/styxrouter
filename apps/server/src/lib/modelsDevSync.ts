@@ -759,7 +759,7 @@ export function getSyncStatus(): SyncStatus {
   };
 }
 
-// ─── Init (called from server boot) ───────────────────
+// ─── Optional initialization entry point ───────────────────
 
 /**
  * Initialize models.dev sync if enabled.

@@ -1,4 +1,5 @@
 import { startTestServer } from "./helpers/start-test-server";
+import { stopTestProcess } from "./helpers/stop-test-process";
 /**
  * Admin write contract: API keys and combos have real server-side create / update / delete,
  * all behind the session (auth itself is covered by auth-contracts.test.ts).
@@ -58,13 +59,14 @@ beforeAll(async () => {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ password: PASSWORD }),
   });
+  expect(login.status).toBe(200);
   cookie = (login.headers.get("set-cookie") ?? "").split(";")[0];
-});
+}, 45000);
 
-afterAll(() => {
-  proc?.kill("SIGKILL");
+afterAll(async () => {
+  await stopTestProcess(proc);
   if (dataDir) rmSync(dataDir, { recursive: true, force: true });
-});
+}, 10000);
 
 describe("api keys", () => {
   let id = "";
