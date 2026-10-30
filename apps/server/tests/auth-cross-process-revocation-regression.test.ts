@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { expect, test } from "bun:test";
 import { createApiKey, validateApiKey, isModelAllowedForKey } from "../src/lib/db/apiKeys";
 import { SQLITE_FILE } from "../src/lib/db/core";

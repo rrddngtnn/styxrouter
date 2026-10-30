@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { expect, test, spyOn } from "bun:test";
 import { createProviderConnection, createProviderNode } from "../src/lib/db/providers";
 import { createApiKey } from "../src/lib/db/apiKeys";

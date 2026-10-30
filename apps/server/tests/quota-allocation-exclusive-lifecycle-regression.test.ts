@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { expect, test } from "bun:test";
 import { SignJWT } from "jose";
 import { Hono } from "hono";

@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { createApiKey } from "../src/lib/db/apiKeys";

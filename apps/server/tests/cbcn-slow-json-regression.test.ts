@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { expect, test } from "bun:test";
 import { CodeBuddyCnExecutor } from "../open-sse/executors/codebuddy-cn";
 import { createApiKey } from "../src/lib/db/apiKeys";

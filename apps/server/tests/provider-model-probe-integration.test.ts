@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';

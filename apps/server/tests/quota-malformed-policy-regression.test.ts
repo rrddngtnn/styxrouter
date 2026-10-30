@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { expect, test } from "bun:test";
 import { createApiKey, getApiKeyMetadata, getApiKeyById, getApiKeys, updateApiKeyPermissions } from "../src/lib/db/apiKeys";
 import { parseAllowedQuotas } from "../src/lib/db/apiKeys/rowParsers";

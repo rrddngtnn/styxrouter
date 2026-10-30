@@ -1,9 +1,11 @@
+import "./helpers/test-secrets";
 import { expect, test } from "bun:test";
 import { clearAntigravityVersionCaches } from "../open-sse/services/antigravityVersion";
 import { setAntigravityVersionPin } from "../src/lib/db/antigravityVersionPin";
 import config from "../server/styx";
 
 test("authenticated HTTP status reports independent observations, pins and effective versions without fetching", async () => {
+  process.env.INITIAL_PASSWORD = "fixture-password";
   clearAntigravityVersionCaches();
   setAntigravityVersionPin("ide", null); setAntigravityVersionPin("cli", null);
   const server = Bun.serve({ ...config, hostname: "127.0.0.1", port: 0 });

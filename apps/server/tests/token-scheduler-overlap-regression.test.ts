@@ -13,7 +13,10 @@ test("overlapping scheduler passes keep endpoint running until the older pass fi
   const interval = globalThis.setInterval;
   const env = { ...process.env };
   let tick!: () => void;
-  process.env.STYX_TEST_MODE = "0"; process.env.STYX_DISABLE_TOKEN_HEALTHCHECK = "0"; process.env.BUN_TEST = "";
+  process.env.STYX_TEST_MODE = "0"; process.env.STYX_DISABLE_TOKEN_HEALTHCHECK = "0"; process.env.BUN_TEST = ""; process.env.INITIAL_PASSWORD = "fixture-password";
+  process.env.JWT_SECRET ||= "fixture-jwt-secret-0123456789abcdef-0123456789abcdef";
+  process.env.API_KEY_SECRET ||= "fixture-api-key-secret-0123456789abcdef";
+  process.env.STORAGE_ENCRYPTION_KEY ||= "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
   globalThis.setTimeout = ((fn: () => void, ms?: number, ...args: unknown[]) => { if (ms === 30000) { tick = fn; return { unref() {} }; } return timeout(fn, ms, ...args); }) as any;
   globalThis.setInterval = ((fn: () => void, ms?: number, ...args: unknown[]) => ms === 1800000 ? { unref() {} } : interval(fn, ms, ...args)) as any;
   try {

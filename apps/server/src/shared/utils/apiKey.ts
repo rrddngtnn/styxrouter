@@ -10,7 +10,7 @@ function getApiKeySecret(): string {
   if (!secret || secret.trim() === "") {
     throw new Error(
       "API_KEY_SECRET is required for API key CRC operations. " +
-        "The startup validator (instrumentation-node.ts) should have set this automatically."
+        "Set it in the environment (.env or systemd EnvironmentFile) before boot."
     );
   }
   return secret;

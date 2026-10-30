@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { afterEach, expect, test, setSystemTime } from "bun:test";
 import { createApiKey, updateApiKeyPermissions } from "../src/lib/db/apiKeys.ts";
 import { enforceApiKeyPolicy } from "../src/shared/utils/apiKeyPolicy.ts";

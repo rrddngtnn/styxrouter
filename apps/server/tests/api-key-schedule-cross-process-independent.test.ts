@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { createApiKey } from "../src/lib/db/apiKeys";

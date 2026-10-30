@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { expect, test } from "bun:test";
 import { createApiKey, updateApiKeyPermissions } from "../src/lib/db/apiKeys.ts";
 import { handleChat } from "../src/sse/handlers/chat.ts";

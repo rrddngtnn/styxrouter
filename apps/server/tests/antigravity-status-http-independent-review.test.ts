@@ -1,8 +1,10 @@
+import "./helpers/test-secrets";
 import { expect, test } from "bun:test";
 import config from "../server/styx";
 import { clearAntigravityVersionCaches } from "../open-sse/services/antigravityVersion";
 
 test("status is authenticated, no-store, passive, and follows each product pin and retained observation over real HTTP", async () => {
+  process.env.INITIAL_PASSWORD = "fixture-password";
   clearAntigravityVersionCaches();
   const server = Bun.serve({ ...config, hostname: "127.0.0.1", port: 0 });
   const base = `http://127.0.0.1:${server.port}`;

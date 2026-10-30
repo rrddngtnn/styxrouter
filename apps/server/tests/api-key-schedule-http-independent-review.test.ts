@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { afterAll, afterEach, expect, test, setSystemTime } from "bun:test";
 import { createApiKey, updateApiKeyPermissions } from "../src/lib/db/apiKeys.ts";
 import { POST } from "../src/app/api/v1/messages/count_tokens/route.ts";

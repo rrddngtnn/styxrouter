@@ -63,7 +63,13 @@ try {
         XDG_CONFIG_HOME: join(home, ".config"), XDG_DATA_HOME: join(home, ".local", "share"),
         XDG_CACHE_HOME: join(home, ".cache"), CURSOR_DATA_DIR: join(data, "cursor"),
         QODER_CLI_CONFIG_DIR: join(data, "qoder"), STYX_DATA_DIR: data,
-        VIBEPROXY_DATA_DIR: data, DATA_DIR: data },
+        VIBEPROXY_DATA_DIR: data, DATA_DIR: data,
+        // No secrets seeded here on purpose: the runner drops inherited secrets so
+        // each test starts from a clean environment (asserted by
+        // runner-clean-env-regression.test.ts). A test that needs JWT_SECRET,
+        // API_KEY_SECRET, STORAGE_ENCRYPTION_KEY or INITIAL_PASSWORD must set them
+        // itself (process.env.X = ...) before importing the server.
+        STYX_TEST_MODE: "1" },
       stdin: "inherit", stdout: "inherit", stderr: "inherit",
     });
     if (child.exitCode !== 0) failed++;

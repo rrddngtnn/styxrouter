@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { expect, test } from "bun:test";
 import { parseUpstreamError } from "../open-sse/utils/error";
 import { createApiKey } from "../src/lib/db/apiKeys";

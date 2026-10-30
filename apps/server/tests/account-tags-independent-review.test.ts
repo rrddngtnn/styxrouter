@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { startTestServer } from "./helpers/start-test-server";

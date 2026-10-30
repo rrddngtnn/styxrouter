@@ -530,7 +530,7 @@ export function getSyncStatus(): SyncStatus {
   };
 }
 
-// ─── Init (called from instrumentation-node.ts) ───────────────────
+// ─── Init (called from server boot) ───────────────────
 
 /**
  * Initialize pricing sync if enabled.

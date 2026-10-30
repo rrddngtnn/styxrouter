@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { test, expect } from 'bun:test';
 import { SignJWT } from 'jose';
 import { createApiKey, getApiKeyById, updateApiKeyPermissions } from '../src/lib/db/apiKeys';
