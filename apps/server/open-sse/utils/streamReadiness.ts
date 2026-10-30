@@ -347,6 +347,22 @@ function processStreamReadinessEvent(state: StreamReadinessSignalState): boolean
       const diagnostic = sanitizeErrorMessage(rawMessage).trim();
       if (diagnostic) state.upstreamDiagnostic = diagnostic;
     }
+    // Claude lifecycle metadata is not evidence of model output. Committing on
+    // message_start lets a zero-output end_turn (or a subsequent error) escape
+    // the pre-header failure path as an HTTP 200 successful stop. Hold these
+    // frames until real output or an explicitly legitimate empty terminal state.
+    const type = getPayloadType(payload, eventType);
+    if (
+      type === "message_start" ||
+      type === "message_delta" ||
+      type === "message_stop" ||
+      type.startsWith("content_block_")
+    ) {
+      if (hasUsefulJsonPayload(payload)) return true;
+      const delta = isRecord(payload) && isRecord(payload.delta) ? payload.delta : null;
+      return typeof delta?.stop_reason === "string" &&
+        LEGIT_EMPTY_TERMINAL_REASONS.has(delta.stop_reason);
+    }
     return hasNonPingStructuredPayload(payload, eventType);
   } catch {
     return data.length > 0;
