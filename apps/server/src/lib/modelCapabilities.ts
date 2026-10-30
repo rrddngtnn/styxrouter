@@ -606,17 +606,38 @@ function getContextOverride(
   },
   snapshot?: ModelCapabilityResolutionSnapshot | null
 ): number | null {
+  // Manual choices win across the alias/base pair before automatic discovery.
+  const manual = getManualContextOverride(resolved, snapshot);
+  if (manual !== null) return manual;
   const bulk = snapshot?.contextOverrides ?? null;
-  const canonical = getModelContextOverride(resolved.provider, resolved.model, bulk);
-  if (canonical !== null) return canonical;
-  return resolved.rawModel && resolved.rawModel !== resolved.model
-    ? getModelContextOverride(resolved.provider, resolved.rawModel, bulk)
-    : null;
+  for (const id of getContextOverrideCandidates(resolved)) {
+    const value = getModelContextOverride(resolved.provider, id, bulk);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+/** Context inheritance is limited to Codex effort aliases, not literal suffixes. */
+function getContextOverrideCandidates(resolved: {
+  provider: string | null;
+  model: string | null;
+  rawModel: string | null;
+}): Set<string | null> {
+  const candidates = new Set([resolved.model, resolved.rawModel]);
+  if (resolved.provider === "codex" && resolved.model) {
+    const { baseModel, effort } = splitCodexReasoningSuffix(resolved.model);
+    // Registered literal IDs stay independent; these families explicitly register aliases.
+    const exactModel = getRegistryModel(resolved.provider, resolved.model);
+    if (effort && (!exactModel || baseModel === "gpt-6.1-terra" || baseModel.startsWith("gpt-5.6-"))) {
+      candidates.add(baseModel);
+    }
+  }
+  return candidates;
 }
 
 /**
- * Resolve a persisted context override by canonical id, then by the exact raw
- * alias supplied by the caller. Neither lookup inherits to related models.
+ * Resolve persisted context metadata with manual precedence and Codex effort
+ * alias fallback. Other provider/model IDs remain exact matches.
  *
  * `snapshot` is the #9147 build-local bulk load; when supplied the on-demand
  * SQLite read is skipped and the preloaded nested map is used instead.
@@ -633,17 +654,14 @@ export function getManualCatalogContextOverride(
   input: CapabilityInput,
   snapshot?: ModelCapabilityResolutionSnapshot | null
 ): number | null {
-  const resolved = resolveCapabilityInput(input);
-  const candidates = [resolved.model, resolved.rawModel];
-  if (resolved.provider === "codex" && resolved.model) {
-    const { baseModel, effort } = splitCodexReasoningSuffix(resolved.model);
-    // An exact registered model ID may legitimately end in an effort word.
-    const exactModel = getRegistryModel(resolved.provider, resolved.model);
-    if (effort && (!exactModel || baseModel === "gpt-6.1-terra" || baseModel.startsWith("gpt-5.6-"))) {
-      candidates.push(baseModel);
-    }
-  }
-  for (const id of new Set(candidates)) {
+  return getManualContextOverride(resolveCapabilityInput(input), snapshot);
+}
+
+function getManualContextOverride(
+  resolved: { provider: string | null; model: string | null; rawModel: string | null },
+  snapshot?: ModelCapabilityResolutionSnapshot | null
+): number | null {
+  for (const id of getContextOverrideCandidates(resolved)) {
     if (!id || !resolved.provider) continue;
     const value = snapshot
       ? snapshot.manualContextOverrides?.get(resolved.provider)?.get(id) ?? null
@@ -857,26 +875,11 @@ export function getResolvedModelCapabilities(
   const persistedContextWindow = usePersistedOverrides
     ? getContextOverride(resolved, snapshot)
     : null;
-  // Operator default is 1M for every model/provider; manual and discovery
-  // overrides still win, including alias→base fallback for effort suffixed ids.
+  // Terra's context metadata remains separate from its inference input limit.
   const configuredTerra = resolved.provider === "codex" && resolved.model &&
     (stripKnownEffortSuffix(resolved.model) ?? resolved.model) === "gpt-6.1-terra";
-  const baseModelId = stripKnownEffortSuffix(resolved.model) ?? resolved.model;
-  const manualAliasContext = usePersistedOverrides && resolved.provider && baseModelId && baseModelId !== resolved.model
-    ? [baseModelId].reduce<number | null>((value, id) => {
-        if (value !== null || !id) return value;
-        if (snapshot) return snapshot.manualContextOverrides?.get(resolved.provider!)?.get(id) ?? null;
-        const record = getModelContextOverrideRecord(resolved.provider!, id);
-        return record?.source === "manual" ? record.realContext : null;
-      }, null)
-    : null;
-  const discoveryAliasContext = usePersistedOverrides && baseModelId && baseModelId !== resolved.model
-    ? getContextOverride({ ...resolved, model: baseModelId, rawModel: null }, snapshot)
-    : null;
   const contextWindow =
     persistedContextWindow ??
-    manualAliasContext ??
-    discoveryAliasContext ??
     authoritativeContextWindow ??
     synced?.limit_context ??
     (typeof registryModel?.contextLength === "number" ? registryModel.contextLength : null) ??
@@ -1002,11 +1005,11 @@ export function getResolvedModelCapabilities(
  * rescues such targets, so the final hard gate in handleChatCore must not turn
  * around and reject the rescued target on the very hint the filter bypassed.
  *
- * Semantics (deliberately narrow — NO suffix/effort/family inheritance):
+ * Semantics (context aliases follow the Codex effort rules; capability overrides stay exact):
  * - An explicit `max_input_tokens` capability override is ALWAYS enforced, for
  *   direct and combo requests alike. It is the operator's input-only ceiling and
  *   must never be bypassed by a context-window override.
- * - Otherwise, for a COMBO request with an exact persisted context override, that
+ * - Otherwise, for a COMBO request with a resolved persisted context override, that
  *   context override is the input cap (it reflects the real window; the smaller
  *   catalog hint does not apply). Direct requests ignore this branch.
  * - Otherwise the canonical `maxInputTokens` chain applies (registry input hint →
@@ -1027,7 +1030,7 @@ export function resolveInputTokenCapForGate(
   const explicitInputOverride = getInputTokenCapabilityOverride(resolved);
   if (explicitInputOverride !== null) return explicitInputOverride;
 
-  // 2. Combo rescue: an exact persisted context override supersedes the smaller
+  // 2. Combo rescue: a resolved persisted context override supersedes the smaller
   //    catalog/client input hint (mirrors contextOverrideGate.evaluateContextLimit).
   if (isCombo) {
     const contextOverride = getContextOverride(resolved);
