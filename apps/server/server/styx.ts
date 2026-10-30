@@ -218,7 +218,10 @@ app.route("/v1", createV1Api(ensureTranslators));
 
 app.post("/v1/chat/completions", async (c) => {
   await ensureTranslators();
-  const body = await c.req.json();
+  const body = await c.req.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    return c.json({ error: { message: "Request body must be a JSON object", type: "invalid_request_error" } }, 400);
+  }
   try {
     const response = await handleChat(c.req.raw as any, null, body);
     return response;
