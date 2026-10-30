@@ -238,6 +238,20 @@ export function decrypt(
       return decrypted;
     }
 
+    // FALLBACK: tokens stored by an older build used a dynamic salt
+    // (sha256(secret).slice(0,16)). Those ciphertexts cannot be decrypted with
+    // the static key, so try the legacy key before giving up — the one-shot
+    // startup migration re-encrypts them, but hot reads (health sweep, request
+    // routing, webhook delivery) happen before/independently of it and must not
+    // collapse a live credential to null. Matches this function's contract.
+    const legacyKey = getLegacyDynamicKey();
+    if (legacyKey) {
+      const legacyDecrypted = tryDecryptWithKey(legacyKey);
+      if (legacyDecrypted !== null) {
+        return legacyDecrypted;
+      }
+    }
+
     // #9927 — the low-level generic log is suppressed when called through the
     // connection-decryption path (quiet:true); decryptConnectionFields emits a
     // single enriched message naming the credential + recovery path instead.
