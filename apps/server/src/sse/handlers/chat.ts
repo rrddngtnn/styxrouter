@@ -389,6 +389,16 @@ async function handleChatImplementation(
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid JSON body");
   }
 
+  // A syntactically-valid JSON primitive (number/string/boolean/null) parses
+  // without throwing, but every downstream guard below assumes an object (e.g.
+  // `"messages" in msgBody`, which throws `TypeError` when the RHS is not an
+  // object). Reject non-object bodies here with a clean 400 instead of letting
+  // the TypeError escape the handler.
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    log.warn("CHAT", "Rejecting non-object request body");
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, "Request body must be a JSON object");
+  }
+
   // Feature #6241: fold the canonical `effort` / `thinking` request params onto the
   // per-provider reasoning fields (reasoning_effort / reasoning.effort / thinking) that the
   // existing translators already consume. Done here — right after the body is first
