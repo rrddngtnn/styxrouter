@@ -2335,7 +2335,17 @@ export function createSSEStream(options: StreamOptions = {}) {
               }
             }
             const bufferedLine = buffer.trim();
-            if (skipPassthroughEvent || /^event:\s*keepalive\b/i.test(bufferedLine)) {
+            // A terminal `data: [DONE]` that arrived at EOF without a trailing blank
+            // line stays in `buffer`. Forwarding it verbatim here duplicates the
+            // canonical terminator emitted below (and would leak a `[DONE]` to
+            // Claude/Responses/Antigravity clients that terminate on their own
+            // protocol events) — the transform loop already skips `[DONE]` the same
+            // way (see the `trimmed.slice(5).trim() === "[DONE]"` guard above).
+            if (
+              skipPassthroughEvent ||
+              /^event:\s*keepalive\b/i.test(bufferedLine) ||
+              (bufferedLine.startsWith("data:") && bufferedLine.slice(5).trim() === "[DONE]")
+            ) {
               skipPassthroughEvent = false;
               clearPendingPassthroughEvent();
             } else if (buffer) {
