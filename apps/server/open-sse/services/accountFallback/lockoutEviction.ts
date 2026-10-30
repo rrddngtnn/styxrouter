@@ -46,8 +46,13 @@ export function evictLockoutOverflow(
     let evicted = 0;
     for (const key of modelFailureState.keys()) {
       if (evicted >= overflow) break;
-      if (!modelLockouts.has(key)) modelFailureState.delete(key);
-      evicted++;
+      // Only orphan entries (no active lockout) are evictable, and only an actual
+      // deletion counts toward the overflow budget — a protected skip must not
+      // consume it, or the sweep stops early and leaves the map over cap.
+      if (!modelLockouts.has(key)) {
+        modelFailureState.delete(key);
+        evicted++;
+      }
     }
   }
 }
