@@ -26,11 +26,13 @@ export function splitCodexReasoningSuffix(model: unknown): {
   if (gpt56Match) {
     const [, baseModel, hyphenEffort, parenthesizedEffort] = gpt56Match;
     const effort = hyphenEffort ?? parenthesizedEffort;
-    const supportedModels = parenthesizedEffort
-      ? GPT_5_6_MAX_ALIAS_MODELS
-      : effort === "ultra"
-        ? GPT_5_6_ULTRA_ALIAS_MODELS
-        : GPT_5_6_MAX_ALIAS_MODELS;
+    // The supported-model set is a function of the requested EFFORT, not of the
+    // spelling (hyphen vs parenthesized): luna supports max but not ultra, so
+    // both gpt-5.6-luna-ultra and gpt-5.6-luna(ultra) must be rejected identically.
+    // Keying off `parenthesizedEffort` alone let the paren spelling fabricate an
+    // ultra tier for luna that the hyphen spelling correctly refused.
+    const supportedModels =
+      effort === "ultra" ? GPT_5_6_ULTRA_ALIAS_MODELS : GPT_5_6_MAX_ALIAS_MODELS;
     if (supportedModels.has(baseModel)) {
       return { baseModel, effort: effort as CodexEffortLevel };
     }
