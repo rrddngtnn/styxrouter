@@ -3,8 +3,13 @@ export interface QuotaSyncServer {
 }
 
 export function extendQuotaSyncTimeout(request: Request, server?: QuotaSyncServer): void {
-  // Sequential OAuth quota probes intentionally take longer than Bun's 10s idle default.
-  if (request.method === "POST" && new URL(request.url).pathname === "/api/usage/provider-limits") {
+  if (request.method !== "POST") return;
+  const path = new URL(request.url).pathname;
+  // Inference has its own readiness/stall deadlines and cancellation. Bun's
+  // short socket idle timer otherwise cuts off quiet thinking/tool streams.
+  if (["/v1/chat/completions", "/chat/completions", "/v1/messages", "/messages", "/v1/responses", "/responses"].includes(path)) {
+    server?.timeout?.(request, 0);
+  } else if (path === "/api/usage/provider-limits") {
     server?.timeout?.(request, 240);
   }
 }
