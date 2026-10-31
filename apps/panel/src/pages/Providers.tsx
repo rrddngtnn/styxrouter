@@ -29,6 +29,7 @@ import { filterProviders } from "../lib/provider-search.ts";
 import { OAuthConnect, type FlowType } from "./OAuthConnect.tsx";
 import { ProviderModels } from "./ProviderModels.tsx";
 import { ProviderImport } from "./ProviderImport.tsx";
+import { ProviderNetworkRulesPanel } from "../components/settings/RoutingPoliciesPanel.tsx";
 import "./provider-workspace.css";
 
 interface Provider {
@@ -75,7 +76,7 @@ interface Node {
   createdAt: string | null;
 }
 
-type Tab = "oauth" | "apikey" | "custom";
+type Tab = "oauth" | "apikey" | "custom" | "network";
 
 const API_TYPES = ["chat", "responses", "embeddings", "rerank", "audio-transcriptions", "audio-speech", "images-generations"] as const;
 const blankNode = { type: "openai-compatible", name: "", prefix: "", apiType: "chat", baseUrl: "", chatPath: "", modelsPath: "" };
@@ -84,7 +85,10 @@ export function Providers() {
   const tr = useTranslator();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
-  const tab: Tab = initialTab === "apikey" || initialTab === "custom" ? initialTab : "oauth";
+  const tab: Tab =
+    initialTab === "apikey" || initialTab === "custom" || initialTab === "network"
+      ? initialTab
+      : "oauth";
   const setTab = (next: Tab) => setSearchParams({ tab: next }, { replace: true });
 
   const state = useFetch<ProvidersResponse>("/api/providers");
@@ -123,7 +127,7 @@ export function Providers() {
   const counts = useMemo(() => {
     const c: Record<string, { total: number; active: number }> = {};
     for (const a of accounts) {
-      if (tab !== "custom" && normalizeAccountAuthBucket(a.authType) !== tab) continue;
+      if (tab !== "custom" && tab !== "network" && normalizeAccountAuthBucket(a.authType) !== tab) continue;
       const slot = c[a.provider] ?? { total: 0, active: 0 };
       slot.total += 1;
       if (a.isActive && a.testStatus === "active") slot.active += 1;
@@ -166,8 +170,19 @@ export function Providers() {
               onClick={() => setTab("custom")}
             >{tr("Custom Providers")}<span className="tab-count">{nodes.length}</span>
             </button>
+            <button
+              role="tab"
+              aria-selected={tab === "network"}
+              className={tab === "network" ? "tab active" : "tab"}
+              onClick={() => setTab("network")}
+            >{tr("Proxies & Error Rules")}
+            </button>
           </div>
 
+          {tab === "network" ? (
+            <ProviderNetworkRulesPanel />
+          ) : (
+            <>
           <div className="panel-provider-search">
             <label>{tr("Search providers")}<input type="search" aria-label={tr("Search providers")} placeholder={tr("Search providers")}
                 value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -203,7 +218,7 @@ export function Providers() {
                 <ProviderCard
                   key={p.id + "-" + tab}
                   provider={p}
-                  tab={tab}
+                  tab={tab as "oauth" | "apikey"}
                   view={providerView}
                   accounts={accountsState.status === "ok" ? counts[p.id]?.total ?? 0 : null}
                   activeAccounts={counts[p.id]?.active ?? 0}
@@ -274,6 +289,8 @@ export function Providers() {
                   ))}
               </ul>
             </section>
+          )}
+            </>
           )}
         </>
       )}

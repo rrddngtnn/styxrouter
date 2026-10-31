@@ -556,39 +556,35 @@ export function HealthAndVersionsSettings() {
   }
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <HealthAndVersionsView
-        zcode={zcode.status === "ok" ? zcode.data : null}
-        antigravityIde={agIde.status === "ok" ? agIde.data : null}
-        antigravityCli={agCli.status === "ok" ? agCli.data : null}
-        processHealth={{
-          startedAt: start.status === "ok" ? start.data.startedAt : null,
-          peakRssBytes: peak.status === "ok" ? peak.data.peakRssBytes : null,
-          userMicroseconds: cpu.status === "ok" ? cpu.data.userMicroseconds : null,
-          systemMicroseconds: cpu.status === "ok" ? cpu.data.systemMicroseconds : null,
-          threadCount: threads.status === "ok" ? threads.data.threadCount : null,
-          tokenScheduler: sched.status === "ok" ? sched.data : null,
-          storage: {
-            databaseBytes: storage.status === "ok" ? storage.data.databaseBytes : null,
-            walBytes: storage.status === "ok" ? storage.data.walBytes : null,
-            lastSuccessfulSchedulerVacuumAt:
-              vacuum.status === "ok" ? vacuum.data.lastSuccessfulSchedulerVacuumAt : null,
-          },
-        }}
-        dispatchHealth={dispatch.status === "ok" ? dispatch.data.providers ?? [] : []}
-        routingTrace={trace.status === "ok" ? trace.data : null}
-        busy={busy}
-        onPinZcode={pinZcode}
-        onRefreshZcode={refreshZcode}
-        onPinAntigravity={pinAntigravity}
-        onRefreshAntigravity={refreshAntigravity}
-        onClearModelLocks={clearModelLocks}
-        onRunTokenHealthPass={runTokenHealthPassNow}
-        onReloadAll={reloadAll}
-      />
-      <OutboundProxyConfigSection />
-      <WebhookAlertsSection />
-    </div>
+    <HealthAndVersionsView
+      zcode={zcode.status === "ok" ? zcode.data : null}
+      antigravityIde={agIde.status === "ok" ? agIde.data : null}
+      antigravityCli={agCli.status === "ok" ? agCli.data : null}
+      processHealth={{
+        startedAt: start.status === "ok" ? start.data.startedAt : null,
+        peakRssBytes: peak.status === "ok" ? peak.data.peakRssBytes : null,
+        userMicroseconds: cpu.status === "ok" ? cpu.data.userMicroseconds : null,
+        systemMicroseconds: cpu.status === "ok" ? cpu.data.systemMicroseconds : null,
+        threadCount: threads.status === "ok" ? threads.data.threadCount : null,
+        tokenScheduler: sched.status === "ok" ? sched.data : null,
+        storage: {
+          databaseBytes: storage.status === "ok" ? storage.data.databaseBytes : null,
+          walBytes: storage.status === "ok" ? storage.data.walBytes : null,
+          lastSuccessfulSchedulerVacuumAt:
+            vacuum.status === "ok" ? vacuum.data.lastSuccessfulSchedulerVacuumAt : null,
+        },
+      }}
+      dispatchHealth={dispatch.status === "ok" ? dispatch.data.providers ?? [] : []}
+      routingTrace={trace.status === "ok" ? trace.data : null}
+      busy={busy}
+      onPinZcode={pinZcode}
+      onRefreshZcode={refreshZcode}
+      onPinAntigravity={pinAntigravity}
+      onRefreshAntigravity={refreshAntigravity}
+      onClearModelLocks={clearModelLocks}
+      onRunTokenHealthPass={runTokenHealthPassNow}
+      onReloadAll={reloadAll}
+    />
   );
 }
 

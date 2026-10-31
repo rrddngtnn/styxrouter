@@ -10,6 +10,10 @@ import { Modal, useAction } from "../lib/actions.tsx";
 import { EmptyState, LoadingState } from "../components/PageStates.tsx";
 import { TableScroll } from "../components/TableScroll.tsx";
 import { ModelPicker } from "../components/ModelPicker.tsx";
+import {
+  RoutingDecisionTracePanel,
+  RoutingPoliciesPanel,
+} from "../components/settings/RoutingPoliciesPanel.tsx";
 import { useFetch } from "../lib/useFetch.ts";
 
 type Step = string | { id?: string; model?: string; comboName?: string; name?: string; [k: string]: unknown };
@@ -76,6 +80,7 @@ export function Routing() {
   const [editing, setEditing] = useState<ComboRow | null>(null);
   const [dryRunResult, setDryRunResult] = useState<DryRunSimulationResult | null>(null);
   const [dryRunBusy, setDryRunBusy] = useState<string | null>(null);
+  const [workspaceTab, setWorkspaceTab] = useState<"combos" | "policies" | "trace">("combos");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const { busy, error, run } = useAction(state.reload);
@@ -154,11 +159,49 @@ export function Routing() {
           <h1 style={{ marginBottom: 4 }}>{t("Routing Combos")}</h1>
           <p className="muted" style={{ margin: 0 }}>{tr("A combo is a named fallback chain of models tried in order; clients call it by name as the model ID.")}</p>
         </div>
-        <button type="button" className="btn-add" onClick={() => setCreating(true)}>
-          <Plus size={14} />
-          <span>{t("New combo")}</span>
+        {workspaceTab === "combos" && (
+          <button type="button" className="btn-add" onClick={() => setCreating(true)}>
+            <Plus size={14} />
+            <span>{t("New combo")}</span>
+          </button>
+        )}
+      </div>
+
+      <div className="tabs" role="tablist" aria-label={tr("Routing workspace")}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={workspaceTab === "combos"}
+          className={workspaceTab === "combos" ? "tab active" : "tab"}
+          onClick={() => setWorkspaceTab("combos")}
+        >
+          <span>{t("Combos")}</span>
+          <span className="tab-count">{rows.length}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={workspaceTab === "policies"}
+          className={workspaceTab === "policies" ? "tab active" : "tab"}
+          onClick={() => setWorkspaceTab("policies")}
+        >
+          <span>{tr("Failover & Aliases")}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={workspaceTab === "trace"}
+          className={workspaceTab === "trace" ? "tab active" : "tab"}
+          onClick={() => setWorkspaceTab("trace")}
+        >
+          <span>{tr("Decision Trace")}</span>
         </button>
       </div>
+
+      {workspaceTab === "policies" && <RoutingPoliciesPanel />}
+      {workspaceTab === "trace" && <RoutingDecisionTracePanel />}
+      {workspaceTab === "combos" && (
+        <>
 
       <Modal
         open={creating}
@@ -455,6 +498,8 @@ export function Routing() {
           </div>
         )}
       </Modal>
+        </>
+      )}
     </div>
   );
 }

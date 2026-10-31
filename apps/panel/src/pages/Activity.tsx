@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { EmptyState, LoadingState } from "../components/PageStates.tsx";
 import { TableScroll } from "../components/TableScroll.tsx";
 import { Pagination } from "../components/Pagination.tsx";
+import { WebhookAlertsSection } from "../components/settings/HealthAndVersionsSettings.tsx";
 import { Modal } from "../lib/actions.tsx";
 import { api } from "../lib/api.ts";
 import { decodeUpstreamError } from "../lib/error-decoder.ts";
@@ -63,6 +64,7 @@ export function Activity() {
   const [pageSize, setPageSize] = useState(20);
   const [selected, setSelected] = useState<CallLog | null>(null);
   const [liveTail, setLiveTail] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState<"logs" | "webhooks">("logs");
   const [dryRunNote, setDryRunNote] = useState<string | null>(null);
   const [dryRunBusy, setDryRunBusy] = useState(false);
 
@@ -122,21 +124,51 @@ export function Activity() {
           <p className="muted" style={{ margin: 0 }}>{tr("Recent request telemetry and upstream error diagnostics. Click any row to inspect full details.")}</p>
         </div>
         <div className="row-actions">
-          <button
-            type="button"
-            className={liveTail ? "btn-add" : "btn-ghost"}
-            aria-pressed={liveTail}
-            onClick={() => setLiveTail((v) => !v)}
-          >
-            <Radio size={14} />
-            <span>{liveTail ? tr("Live tail: ON") : tr("Live tail")}</span>
-          </button>
-          <button type="button" className="btn-ghost" onClick={state.reload}>
-            <RefreshCw size={14} />
-            <span>{tr("Refresh")}</span>
-          </button>
+          {workspaceTab === "logs" && (
+            <>
+              <button
+                type="button"
+                className={liveTail ? "btn-add" : "btn-ghost"}
+                aria-pressed={liveTail}
+                onClick={() => setLiveTail((v) => !v)}
+              >
+                <Radio size={14} />
+                <span>{liveTail ? tr("Live tail: ON") : tr("Live tail")}</span>
+              </button>
+              <button type="button" className="btn-ghost" onClick={state.reload}>
+                <RefreshCw size={14} />
+                <span>{tr("Refresh")}</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
+
+      <div className="tabs" role="tablist" aria-label={tr("Activity workspace")}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={workspaceTab === "logs"}
+          className={workspaceTab === "logs" ? "tab active" : "tab"}
+          onClick={() => setWorkspaceTab("logs")}
+        >
+          <span>{tr("Request Log")}</span>
+          <span className="tab-count">{rows.length}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={workspaceTab === "webhooks"}
+          className={workspaceTab === "webhooks" ? "tab active" : "tab"}
+          onClick={() => setWorkspaceTab("webhooks")}
+        >
+          <span>{tr("Alert Webhooks")}</span>
+        </button>
+      </div>
+
+      {workspaceTab === "webhooks" && <WebhookAlertsSection />}
+      {workspaceTab === "logs" && (
+        <>
 
       <div className="toolbar">
         <input
@@ -426,6 +458,8 @@ export function Activity() {
           </div>
         )}
       </Modal>
+        </>
+      )}
     </div>
   );
 }

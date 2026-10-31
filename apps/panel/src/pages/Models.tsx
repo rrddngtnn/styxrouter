@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { EmptyState, LoadingState } from "../components/PageStates.tsx";
 import { TableScroll } from "../components/TableScroll.tsx";
 import { Pagination } from "../components/Pagination.tsx";
+import { ModelDefaultsPanel } from "../components/settings/RoutingPoliciesPanel.tsx";
 import { api } from "../lib/api.ts";
 import { Modal } from "../lib/actions.tsx";
 import { paginationState } from "../lib/pagination.ts";
@@ -247,6 +248,7 @@ export function Models() {
   const [model, setModel] = useState<ModelMetadata | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState<"catalog" | "defaults">("catalog");
 
   function loadCatalog() {
     setCatalogLoading(true);
@@ -339,11 +341,39 @@ export function Models() {
           <h1 style={{ marginBottom: 4 }}>{tr("Model Capabilities")}</h1>
           <p className="muted" style={{ margin: 0 }}>{tr("Inspect and override context window sizes, reasoning support, vision input, and tool calling per model.")}</p>
         </div>
-        <button type="button" className="btn-ghost" onClick={() => setCustomOpen(true)}>
-          <SlidersHorizontal size={14} />
-          <span>{tr("Inspect custom model ID")}</span>
+        {workspaceTab === "catalog" && (
+          <button type="button" className="btn-ghost" onClick={() => setCustomOpen(true)}>
+            <SlidersHorizontal size={14} />
+            <span>{tr("Inspect custom model ID")}</span>
+          </button>
+        )}
+      </div>
+
+      <div className="tabs" role="tablist" aria-label={tr("Models workspace")}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={workspaceTab === "catalog"}
+          className={workspaceTab === "catalog" ? "tab active" : "tab"}
+          onClick={() => setWorkspaceTab("catalog")}
+        >
+          <span>{tr("Catalog Inspector")}</span>
+          <span className="tab-count">{catalog.length}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={workspaceTab === "defaults"}
+          className={workspaceTab === "defaults" ? "tab active" : "tab"}
+          onClick={() => setWorkspaceTab("defaults")}
+        >
+          <span>{tr("Thinking & Modality Defaults")}</span>
         </button>
       </div>
+
+      {workspaceTab === "defaults" && <ModelDefaultsPanel />}
+      {workspaceTab === "catalog" && (
+        <>
 
       <label className="model-inventory-toggle"><input type="checkbox" checked={inventoryMode} onChange={(e) => { setInventoryMode(e.target.checked); setProviderFilter("all"); setPage(1); }} /> {tr("Show provider inventory (partial; not the served catalog)")}</label>
       {inventoryMode && <p className="muted">{tr("Registry, stored sync and custom models, unambiguous alias targets, and selected generated effort variants. This partial inventory may include inactive or unavailable models and omits other catalog sources.")}</p>}
@@ -521,6 +551,8 @@ export function Models() {
 
       </div>
       </div>
+        </>
+      )}
       <Modal
         open={customOpen}
         onOpenChange={setCustomOpen}
