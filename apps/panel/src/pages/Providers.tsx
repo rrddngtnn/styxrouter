@@ -836,7 +836,7 @@ export function ProviderDetail() {
 
       <nav className="provider-workspace-tabs" aria-label={tr("Provider workspace")}>
         {(
-          backTab === "oauth" || detailTab === "import"
+          !target.isCustomNode
             ? ([ ["accounts", "Accounts"], ["models", "Models"], ["import", "Import"] ] as const)
             : ([ ["accounts", "Accounts"], ["models", "Models"] ] as const)
         ).map(([id, title]) => (
