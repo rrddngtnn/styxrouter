@@ -110,6 +110,11 @@ const PORTABLE_SETTINGS_KEYS = [
   "preferClaudeCodeForUnprefixedClaudeModels",
   "thinkingBudget",
   "codexServiceTier",
+  "providerErrorRules",
+  "visionBridgeEnabled",
+  "visionBridgeModel",
+  "webSearchRouteModel",
+  "resilienceSettings",
 ] as const;
 
 export async function buildPortableConfigBundle(): Promise<ConfigBundlePlaintext> {

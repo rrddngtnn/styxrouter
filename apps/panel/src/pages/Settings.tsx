@@ -127,6 +127,82 @@ interface WildcardAlias {
   target: string;
 }
 
+export interface ProviderErrorRuleEntry {
+  status: number;
+  match: string;
+  scope: "model" | "provider" | "connection";
+  reason?: "auth_error" | "quota_exhausted" | "rate_limit_exceeded" | "model_capacity" | "server_error" | "unknown";
+  cooldownMs?: number;
+}
+
+export function formatProviderErrorRulesText(
+  rulesMap: unknown,
+): string {
+  if (!rulesMap || typeof rulesMap !== "object" || Array.isArray(rulesMap)) return "";
+  const lines: string[] = [];
+  for (const [provider, list] of Object.entries(rulesMap as Record<string, unknown>)) {
+    if (!Array.isArray(list)) continue;
+    for (const r of list) {
+      if (!r || typeof r !== "object") continue;
+      const rec = r as Record<string, unknown>;
+      const status = Number(rec.status ?? 429);
+      const match = String(rec.match ?? "").trim();
+      const scope = String(rec.scope ?? "model");
+      const reason = String(rec.reason ?? "quota_exhausted");
+      const cooldownSec = rec.cooldownMs != null ? Math.round(Number(rec.cooldownMs) / 1000) : 60;
+      if (provider && match) {
+        lines.push(`${provider} | ${status} | ${match} | ${scope} | ${reason} | ${cooldownSec}`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+export function parseProviderErrorRulesText(
+  text: string,
+): { ok: true; rules: Record<string, ProviderErrorRuleEntry[]> } | { ok: false; error: string } {
+  const rules: Record<string, ProviderErrorRuleEntry[]> = {};
+  const validScopes = new Set(["model", "provider", "connection"]);
+  const validReasons = new Set([
+    "auth_error",
+    "quota_exhausted",
+    "rate_limit_exceeded",
+    "model_capacity",
+    "server_error",
+    "unknown",
+  ]);
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const parts = line.split("|").map((p) => p.trim());
+    if (parts.length < 3) {
+      return { ok: false, error: `Invalid error rule line (expected provider | status | match | scope | reason | cooldownSec): ${line}` };
+    }
+    const [provider, statusStr, match, scopeRaw = "model", reasonRaw = "quota_exhausted", cooldownSecStr = "60"] = parts;
+    const status = Number(statusStr);
+    const cooldownSec = Number(cooldownSecStr);
+    if (!provider || !Number.isInteger(status) || status < 100 || status > 599 || !match) {
+      return { ok: false, error: `Invalid provider/status/match in rule: ${line}` };
+    }
+    if (!validScopes.has(scopeRaw)) {
+      return { ok: false, error: `Invalid scope "${scopeRaw}" (use model, provider, or connection)` };
+    }
+    if (!validReasons.has(reasonRaw)) {
+      return { ok: false, error: `Invalid reason "${reasonRaw}"` };
+    }
+    const list = rules[provider] ?? [];
+    list.push({
+      status,
+      match,
+      scope: scopeRaw as ProviderErrorRuleEntry["scope"],
+      reason: reasonRaw as ProviderErrorRuleEntry["reason"],
+      cooldownMs: Number.isFinite(cooldownSec) && cooldownSec >= 0 ? Math.round(cooldownSec * 1000) : 60000,
+    });
+    rules[provider] = list;
+  }
+  return { ok: true, rules };
+}
+
 function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag; onSaved: () => void }) {
   const tr = useTranslator();
   const { t } = usePreferences();
@@ -153,6 +229,27 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
   const [customSystemPrompt, setCustomSystemPrompt] = useState<string>(
     typeof initial.customSystemPrompt === "string" ? initial.customSystemPrompt : "",
   );
+  const initTb = (initial.thinkingBudget && typeof initial.thinkingBudget === "object" ? initial.thinkingBudget : {}) as Record<string, unknown>;
+  const [thinkingMode, setThinkingMode] = useState<string>(String(initTb.mode ?? "passthrough"));
+  const [thinkingCustomBudget, setThinkingCustomBudget] = useState<number>(Number(initTb.customBudget ?? 10240));
+  const [thinkingEffort, setThinkingEffort] = useState<string>(String(initTb.effortLevel ?? "medium"));
+
+  const initCodexTier = (initial.codexServiceTier && typeof initial.codexServiceTier === "object" ? initial.codexServiceTier : {}) as Record<string, unknown>;
+  const [codexTierEnabled, setCodexTierEnabled] = useState<boolean>(Boolean(initCodexTier.enabled));
+  const [codexTier, setCodexTier] = useState<string>(String(initCodexTier.tier ?? "default"));
+
+  const [visionBridgeEnabled, setVisionBridgeEnabled] = useState<boolean>(Boolean(initial.visionBridgeEnabled));
+  const [visionBridgeModel, setVisionBridgeModel] = useState<string>(typeof initial.visionBridgeModel === "string" ? initial.visionBridgeModel : "");
+  const [webSearchRouteModel, setWebSearchRouteModel] = useState<string>(typeof initial.webSearchRouteModel === "string" ? initial.webSearchRouteModel : "");
+
+  const initResilience = (initial.resilienceSettings && typeof initial.resilienceSettings === "object" ? initial.resilienceSettings : {}) as Record<string, unknown>;
+  const initStreamRec = (initResilience.streamRecovery && typeof initResilience.streamRecovery === "object" ? initResilience.streamRecovery : {}) as Record<string, unknown>;
+  const initWatchdog = (initStreamRec.throughputWatchdog && typeof initStreamRec.throughputWatchdog === "object" ? initStreamRec.throughputWatchdog : {}) as Record<string, unknown>;
+  const [streamRecoveryEnabled, setStreamRecoveryEnabled] = useState<boolean>(Boolean(initStreamRec.enabled));
+  const [continueMidStream, setContinueMidStream] = useState<boolean>(Boolean(initStreamRec.continueMidStream));
+  const [watchdogEnabled, setWatchdogEnabled] = useState<boolean>(Boolean(initWatchdog.enabled));
+
+  const [errorRulesText, setErrorRulesText] = useState<string>(() => formatProviderErrorRulesText(initial.providerErrorRules));
   const [aliasesText, setAliasesText] = useState<string>(() => {
     const arr = Array.isArray(initial.wildcardAliases) ? (initial.wildcardAliases as WildcardAlias[]) : [];
     return arr.map((a) => `${a.pattern} = ${a.target}`).join("\n");
@@ -206,6 +303,23 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
     setDebugMode(Boolean(initial.debugMode));
     setCustomSystemPromptEnabled(Boolean(initial.customSystemPromptEnabled));
     setCustomSystemPrompt(typeof initial.customSystemPrompt === "string" ? initial.customSystemPrompt : "");
+    const tb = (initial.thinkingBudget && typeof initial.thinkingBudget === "object" ? initial.thinkingBudget : {}) as Record<string, unknown>;
+    setThinkingMode(String(tb.mode ?? "passthrough"));
+    setThinkingCustomBudget(Number(tb.customBudget ?? 10240));
+    setThinkingEffort(String(tb.effortLevel ?? "medium"));
+    const ct = (initial.codexServiceTier && typeof initial.codexServiceTier === "object" ? initial.codexServiceTier : {}) as Record<string, unknown>;
+    setCodexTierEnabled(Boolean(ct.enabled));
+    setCodexTier(String(ct.tier ?? "default"));
+    setVisionBridgeEnabled(Boolean(initial.visionBridgeEnabled));
+    setVisionBridgeModel(typeof initial.visionBridgeModel === "string" ? initial.visionBridgeModel : "");
+    setWebSearchRouteModel(typeof initial.webSearchRouteModel === "string" ? initial.webSearchRouteModel : "");
+    const rs = (initial.resilienceSettings && typeof initial.resilienceSettings === "object" ? initial.resilienceSettings : {}) as Record<string, unknown>;
+    const sr = (rs.streamRecovery && typeof rs.streamRecovery === "object" ? rs.streamRecovery : {}) as Record<string, unknown>;
+    const wd = (sr.throughputWatchdog && typeof sr.throughputWatchdog === "object" ? sr.throughputWatchdog : {}) as Record<string, unknown>;
+    setStreamRecoveryEnabled(Boolean(sr.enabled));
+    setContinueMidStream(Boolean(sr.continueMidStream));
+    setWatchdogEnabled(Boolean(wd.enabled));
+    setErrorRulesText(formatProviderErrorRulesText(initial.providerErrorRules));
     const arr = Array.isArray(initial.wildcardAliases) ? (initial.wildcardAliases as WildcardAlias[]) : [];
     setAliasesText(arr.map((a) => `${a.pattern} = ${a.target}`).join("\n"));
   }, [initial]);
@@ -223,6 +337,24 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
       const target = line.slice(eq + 1).trim();
       if (pattern && target) wildcardAliases.push({ pattern, target });
     }
+    const parsedErrorRules = parseProviderErrorRulesText(errorRulesText);
+    if (parsedErrorRules.ok === false) {
+      toast.error(parsedErrorRules.error);
+      return;
+    }
+    const existingResilience =
+      initial.resilienceSettings && typeof initial.resilienceSettings === "object" && !Array.isArray(initial.resilienceSettings)
+        ? (initial.resilienceSettings as Record<string, JsonValue>)
+        : {};
+    const existingStreamRecovery =
+      existingResilience.streamRecovery && typeof existingResilience.streamRecovery === "object" && !Array.isArray(existingResilience.streamRecovery)
+        ? (existingResilience.streamRecovery as Record<string, JsonValue>)
+        : {};
+    const existingWatchdog =
+      existingStreamRecovery.throughputWatchdog && typeof existingStreamRecovery.throughputWatchdog === "object" && !Array.isArray(existingStreamRecovery.throughputWatchdog)
+        ? (existingStreamRecovery.throughputWatchdog as Record<string, JsonValue>)
+        : {};
+
     const payload: Record<string, JsonValue> = {
       fallbackStrategy,
       comboStrategy,
@@ -239,6 +371,31 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
       debugMode,
       customSystemPromptEnabled,
       customSystemPrompt,
+      thinkingBudget: {
+        mode: thinkingMode,
+        customBudget: Math.max(0, Math.min(1_000_000, Math.round(thinkingCustomBudget))),
+        effortLevel: thinkingEffort,
+      },
+      codexServiceTier: {
+        enabled: codexTierEnabled,
+        tier: codexTier,
+      },
+      visionBridgeEnabled,
+      visionBridgeModel: visionBridgeModel.trim(),
+      webSearchRouteModel: webSearchRouteModel.trim(),
+      providerErrorRules: parsedErrorRules.rules as unknown as JsonValue,
+      resilienceSettings: {
+        ...existingResilience,
+        streamRecovery: {
+          ...existingStreamRecovery,
+          enabled: streamRecoveryEnabled,
+          continueMidStream,
+          throughputWatchdog: {
+            ...existingWatchdog,
+            enabled: watchdogEnabled,
+          },
+        },
+      },
       wildcardAliases,
     };
     await run("save-settings", () => api.patch("/api/settings", payload));
@@ -349,6 +506,92 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
                 <input type="checkbox" checked={debugMode} onChange={(e) => setDebugMode(e.target.checked)} />
                 <span>{tr("Debug logging mode")}</span>
               </label>
+              <label className="check">
+                <input type="checkbox" checked={streamRecoveryEnabled} onChange={(e) => setStreamRecoveryEnabled(e.target.checked)} />
+                <span>{tr("Enable stream recovery (transparent early retry)")}</span>
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={continueMidStream} onChange={(e) => setContinueMidStream(e.target.checked)} />
+                <span>{tr("Continue mid-stream after unexpected disconnect")}</span>
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={watchdogEnabled} onChange={(e) => setWatchdogEnabled(e.target.checked)} />
+                <span>{tr("Enable stream throughput watchdog")}</span>
+              </label>
+            </div>
+
+            <h2 style={{ margin: "10px 0 0 0" }}>{tr("Thinking Budget & Codex Tier")}</h2>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12, alignItems: "end" }}>
+              <label>
+                {tr("Thinking mode")}
+                <select value={thinkingMode} onChange={(e) => setThinkingMode(e.target.value)}>
+                  <option value="passthrough">passthrough</option>
+                  <option value="auto">auto (strip)</option>
+                  <option value="custom">custom budget</option>
+                  <option value="adaptive">adaptive effort</option>
+                </select>
+              </label>
+              <label>
+                {tr("Custom budget tokens")}
+                <input
+                  type="number"
+                  min={0}
+                  max={1000000}
+                  step={1024}
+                  value={thinkingCustomBudget}
+                  onChange={(e) => setThinkingCustomBudget(Number(e.target.value))}
+                />
+              </label>
+              <label>
+                {tr("Effort level")}
+                <select value={thinkingEffort} onChange={(e) => setThinkingEffort(e.target.value)}>
+                  {["none", "low", "medium", "high", "max"].map((lvl) => (
+                    <option key={lvl} value={lvl}>
+                      {lvl}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="two-col" style={{ gap: 12, alignItems: "end" }}>
+              <label className="check">
+                <input type="checkbox" checked={codexTierEnabled} onChange={(e) => setCodexTierEnabled(e.target.checked)} />
+                <span>{tr("Override Codex service tier")}</span>
+              </label>
+              <label>
+                {tr("Codex tier")}
+                <select value={codexTier} onChange={(e) => setCodexTier(e.target.value)} disabled={!codexTierEnabled}>
+                  <option value="default">default</option>
+                  <option value="priority">priority</option>
+                  <option value="flex">flex</option>
+                </select>
+              </label>
+            </div>
+
+            <h2 style={{ margin: "10px 0 0 0" }}>{tr("Vision Bridge & Web-Search Router")}</h2>
+            <label className="check">
+              <input type="checkbox" checked={visionBridgeEnabled} onChange={(e) => setVisionBridgeEnabled(e.target.checked)} />
+              <span>{tr("Enable Vision Bridge (describe images for text-only models)")}</span>
+            </label>
+            <div className="two-col" style={{ gap: 12 }}>
+              <label>
+                {tr("Vision Bridge model")}
+                <input
+                  type="text"
+                  placeholder="antigravity/gemini-3-flash"
+                  value={visionBridgeModel}
+                  onChange={(e) => setVisionBridgeModel(e.target.value)}
+                />
+              </label>
+              <label>
+                {tr("Web-search route model")}
+                <input
+                  type="text"
+                  placeholder="antigravity/gemini-3-flash"
+                  value={webSearchRouteModel}
+                  onChange={(e) => setWebSearchRouteModel(e.target.value)}
+                />
+              </label>
             </div>
           </div>
 
@@ -448,6 +691,21 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
                 value={customSystemPrompt}
                 onChange={(e) => setCustomSystemPrompt(e.target.value)}
                 placeholder={tr("Enter custom system prompt or persona instructions…")}
+              />
+            </label>
+
+            <h2 style={{ margin: "10px 0 0 0" }}>{tr("Custom Provider Error Rules")}</h2>
+            <p className="muted" style={{ margin: 0, fontSize: 14 }}>
+              {tr("Override cooldown classification per provider — one rule per line:")}{" "}
+              <code>provider | status | substring | scope | reason | cooldownSec</code>
+            </p>
+            <label>
+              <textarea
+                rows={4}
+                aria-label={tr("Custom provider error rules")}
+                value={errorRulesText}
+                onChange={(e) => setErrorRulesText(e.target.value)}
+                placeholder={"codebuddy-cn | 400 | 6000 | model | quota_exhausted | 300\nglm | 429 | rate limit | connection | rate_limit_exceeded | 60"}
               />
             </label>
           </div>

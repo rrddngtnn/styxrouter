@@ -6,6 +6,10 @@ import {
   WebhookAlertsCard,
   validateSemverPin,
 } from "../src/components/settings/HealthAndVersionsSettings.tsx";
+import {
+  formatProviderErrorRulesText,
+  parseProviderErrorRulesText,
+} from "../src/pages/Settings.tsx";
 
 test("validateSemverPin accepts x.y.z up to 6 digits per segment and rejects malformed strings", () => {
   expect(validateSemverPin("3.16.3")).toBe("3.16.3");
@@ -152,4 +156,23 @@ test("WebhookAlertsCard renders configured alert destinations and event subscrip
   expect(html).toContain("Telegram Ops Bot");
   expect(html).toContain("quota.exceeded, request.failed");
   expect(html).toContain("HTTP 200");
+});
+
+test("parseProviderErrorRulesText and formatProviderErrorRulesText round-trip valid rules and reject invalid scopes", () => {
+  const input = "codebuddy-cn | 400 | 6000 | model | quota_exhausted | 300";
+  const parsed = parseProviderErrorRulesText(input);
+  expect(parsed.ok).toBe(true);
+  if (parsed.ok) {
+    expect(parsed.rules["codebuddy-cn"]).toEqual([
+      {
+        status: 400,
+        match: "6000",
+        scope: "model",
+        reason: "quota_exhausted",
+        cooldownMs: 300000,
+      },
+    ]);
+    expect(formatProviderErrorRulesText(parsed.rules)).toBe(input);
+  }
+  expect(parseProviderErrorRulesText("codebuddy-cn | 400 | 6000 | invalid_scope").ok).toBe(false);
 });

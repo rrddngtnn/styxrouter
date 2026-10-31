@@ -211,6 +211,14 @@ export const updateSettingsSchema = z.object({
       supportedModels: z.array(z.string().max(200)).max(200).optional(),
     })
     .optional(),
+  thinkingBudget: z
+    .object({
+      mode: z.enum(["passthrough", "auto", "custom", "adaptive"]).optional(),
+      customBudget: z.number().int().min(0).max(1_000_000).optional(),
+      effortLevel: z.enum(["none", "low", "medium", "high", "max", "xhigh"]).optional(),
+    })
+    .optional(),
+  resilienceSettings: z.record(z.string().max(100), z.unknown()).optional(),
   // Claude Fast Mode: opt-in toggle that asks a paired CLIProxyAPI build
   // (claude-fastmode-spoof) to rewrite SDK-shaped entrypoints so requests can
   // reach Anthropic Fast Mode (speed:"fast"). Default off; only the listed

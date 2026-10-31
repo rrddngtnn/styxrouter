@@ -4,6 +4,7 @@ import {
   setOperatorProviderErrorRules,
   type OperatorProviderErrorRule,
 } from "@styxrouter/open-sse/config/providerErrorRules.ts";
+import { hydrateThinkingBudgetConfig } from "@styxrouter/open-sse/services/thinkingBudget.ts";
 import { isAutomatedTestProcess } from "@/shared/utils/testProcess";
 
 type JsonRecord = Record<string, unknown>;
@@ -581,6 +582,8 @@ export async function applyRuntimeSettings(
   ) {
     setOperatorProviderErrorRules(currentSnapshot.providerErrorRules ?? undefined);
   }
+
+  hydrateThinkingBudgetConfig(settings);
 
   lastAppliedSnapshot = currentSnapshot;
   return changes;
