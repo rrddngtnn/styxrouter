@@ -2,7 +2,7 @@ import { useTranslator } from "../lib/useTranslator.ts";
 import { useState } from "react";
 import { usePreferences } from "../lib/preferences.tsx";
 import { filterCombos, visibleSelectedIds } from "../lib/table-search.ts";
-import { Plus } from "lucide-react";
+import { Play, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { appendModelLine } from "../lib/model-selection.ts";
 import { api } from "../lib/api.ts";
@@ -25,6 +25,39 @@ interface ComboRow {
   enabled?: boolean;
 }
 
+interface DryRunCandidate {
+  id: string;
+  name: string | null;
+  eligible: boolean;
+  reason: string;
+  tags: string[];
+  priority: number | null;
+}
+
+interface DryRunSimulationResult {
+  target: string;
+  isCombo: boolean;
+  strategy: string;
+  winner: {
+    stepIndex: number;
+    rawTarget: string;
+    provider: string;
+    model: string;
+    accountId: string;
+    accountName: string | null;
+  } | null;
+  steps: Array<{
+    stepIndex: number;
+    rawTarget: string;
+    provider: string;
+    model: string;
+    eligibleCount: number;
+    selectedAccountId: string | null;
+    selectedAccountName: string | null;
+    candidates: DryRunCandidate[];
+  }>;
+}
+
 export function Routing() {
   const tr = useTranslator();
   const {t} = usePreferences();
@@ -36,6 +69,8 @@ export function Routing() {
   const [models, setModels] = useState("");
   const [addedModel, setAddedModel] = useState("");
   const [editing, setEditing] = useState<ComboRow | null>(null);
+  const [dryRunResult, setDryRunResult] = useState<DryRunSimulationResult | null>(null);
+  const [dryRunBusy, setDryRunBusy] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const { busy, error, run } = useAction(state.reload);
@@ -93,6 +128,18 @@ export function Routing() {
     if (target < 0 || target >= ids.length) return;
     [ids[index], ids[target]] = [ids[target], ids[index]];
     return run("reorder", () => api.post("/api/routing/combos/reorder", { comboIds: ids }));
+  }
+
+  async function simulateCombo(comboName: string) {
+    setDryRunBusy(comboName);
+    try {
+      const res = await api.post<DryRunSimulationResult>("/api/routing/dry-run", { target: comboName });
+      setDryRunResult(res);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDryRunBusy(null);
+    }
   }
 
   return (
@@ -296,6 +343,15 @@ export function Routing() {
                     >
                       ↓
                     </button>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      disabled={locked || dryRunBusy !== null || !r.name}
+                      onClick={() => r.name && void simulateCombo(r.name)}
+                    >
+                      <Play size={13} />
+                      <span>{dryRunBusy === r.name ? "…" : tr("Dry run")}</span>
+                    </button>
                     <button type="button" className="btn-ghost" disabled={locked} onClick={() => setEditing(r)}>
                       {t("Edit steps")}
                     </button>
@@ -326,6 +382,74 @@ export function Routing() {
           </TableScroll>
         </div>
       )}
+
+      <Modal
+        open={dryRunResult !== null}
+        onOpenChange={(open) => {
+          if (!open) setDryRunResult(null);
+        }}
+        title={tr("Routing dry-run — {0}", {0: String(dryRunResult?.target ?? "")})}
+        description={tr("Simulated candidate evaluation without contacting upstream providers.")}
+        maxWidth="640px"
+      >
+        {dryRunResult && (
+          <div className="stack-form" style={{ maxWidth: "100%" }}>
+            {dryRunResult.winner ? (
+              <div className="card" style={{ padding: 12 }}>
+                <strong className="ok">{tr("Selected winner")}</strong>
+                <div style={{ marginTop: 4, fontSize: 14 }}>
+                  {tr("Step")} #{dryRunResult.winner.stepIndex}:{" "}
+                  <code>{dryRunResult.winner.provider}/{dryRunResult.winner.model}</code> →{" "}
+                  <strong>{dryRunResult.winner.accountName ?? dryRunResult.winner.accountId.slice(0, 8)}</strong>
+                </div>
+              </div>
+            ) : (
+              <div className="card" style={{ padding: 12 }}>
+                <strong className="bad">{tr("No eligible upstream account available")}</strong>
+                <p className="muted" style={{ margin: "4px 0 0 0", fontSize: 14 }}>
+                  {tr("Every step in this combo currently has zero eligible accounts.")}
+                </p>
+              </div>
+            )}
+
+            <div style={{ display: "grid", gap: 10, maxHeight: 360, overflowY: "auto" }}>
+              {dryRunResult.steps.map((s) => (
+                <div key={s.stepIndex} className="card" style={{ padding: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                    <strong>
+                      {tr("Step")} #{s.stepIndex}: <code>{s.rawTarget}</code>
+                    </strong>
+                    <span className={s.eligibleCount > 0 ? "ok" : "bad"}>
+                      {s.eligibleCount} {tr("eligible")} / {s.candidates.length} {tr("total")}
+                    </span>
+                  </div>
+                  {s.candidates.length === 0 ? (
+                    <p className="muted" style={{ margin: 0, fontSize: 14 }}>{tr("No connected accounts for provider")} <code>{s.provider}</code>.</p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 4, fontSize: 14 }}>
+                      {s.candidates.map((c) => (
+                        <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                          <span>
+                            <strong>{c.name ?? c.id.slice(0, 8)}</strong>
+                            {c.tags.length > 0 ? ` (${c.tags.join(", ")})` : ""}
+                          </span>
+                          <span className={c.eligible ? "ok" : "muted"}>{c.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="row-actions">
+              <button type="button" className="btn-ghost" onClick={() => setDryRunResult(null)}>
+                {t("Close")}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -25,6 +25,7 @@ import {
   decryptConfigBundle,
   encryptConfigBundle,
 } from "./configBundle.ts";
+import { pruneTelemetryLogs, simulateRoutingDryRun } from "./routingDryRun.ts";
 
 const audit = (action: string, target: string, details?: unknown) =>
   logAuditEvent({ action, actor: "admin", target, details, resourceType: "admin_api", status: "success" });
@@ -292,6 +293,38 @@ export function createAdminApi2() {
     }
     const summary = await applyPortableConfigBundle(decrypted, v.data.mode);
     audit("configBundle.import", "settings", { mode: v.data.mode, ...summary });
+    return c.json({ success: true, ...summary });
+  });
+
+  // ── Routing dry-run simulator & telemetry log pruning ───────────────────
+  const dryRunSchema = z
+    .object({
+      target: z.string().trim().min(1).max(200),
+      tag: z.string().trim().max(64).optional().nullable(),
+    })
+    .strict();
+
+  api.post("/routing/dry-run", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const v = validateBody(dryRunSchema, await bodyOf(c));
+    if (isValidationFailure(v)) return bad(c, v.error);
+    const result = await simulateRoutingDryRun(v.data);
+    return c.json(result);
+  });
+
+  const pruneLogsSchema = z
+    .object({
+      retentionDays: z.number().int().min(1).max(365).default(14),
+      vacuum: z.boolean().default(true),
+    })
+    .strict();
+
+  api.post("/storage/prune", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const v = validateBody(pruneLogsSchema, await bodyOf(c));
+    if (isValidationFailure(v)) return bad(c, v.error);
+    const summary = pruneTelemetryLogs(v.data);
+    audit("storage.prune", "database", summary);
     return c.json({ success: true, ...summary });
   });
 

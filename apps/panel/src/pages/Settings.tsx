@@ -464,11 +464,26 @@ function DatabaseBackupsSection() {
   const state = useFetch<{ backups?: BackupRow[] }>("/api/backups");
   const rows = state.status === "ok" ? state.data.backups ?? [] : [];
   const { busy, error, run } = useAction(state.reload);
+  const [retentionDays, setRetentionDays] = useState(14);
 
   async function createSnapshot() {
     const out = await run("backup", () => api.post<{ filename: string; size: number }>("/api/backups"));
     if (out) {
       toast.success(`Created backup ${out.filename} (${formatBytes(out.size)})`);
+    }
+  }
+
+  async function pruneLogsAndVacuum() {
+    const out = await run("prune", () =>
+      api.post<{ deletedCallLogs: number; deletedProxyLogs: number; vacuumed: boolean }>("/api/storage/prune", {
+        retentionDays,
+        vacuum: true,
+      }),
+    );
+    if (out) {
+      toast.success(
+        `Pruned ${out.deletedCallLogs} call logs & ${out.deletedProxyLogs} proxy logs${out.vacuumed ? " + VACUUM completed" : ""}`,
+      );
     }
   }
 
@@ -521,6 +536,38 @@ function DatabaseBackupsSection() {
           </TableScroll>
         </div>
       )}
+
+      <div className="card" style={{ padding: 14, marginTop: 16 }}>
+        <div className="section-head" style={{ marginBottom: 8 }}>
+          <div>
+            <strong style={{ fontSize: 15 }}>{tr("Telemetry log retention & SQLite VACUUM")}</strong>
+            <p className="muted" style={{ margin: "2px 0 0 0", fontSize: 14 }}>
+              {tr("Prune raw call_logs and proxy_logs older than the selected retention window and compact SQLite WAL/pages.")}
+            </p>
+          </div>
+          <div className="row-actions" style={{ gap: 8 }}>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 14 }}>
+              <span>{tr("Keep")}</span>
+              <select
+                aria-label={tr("Log retention days")}
+                value={retentionDays}
+                onChange={(e) => setRetentionDays(Number(e.target.value))}
+                disabled={busy !== null}
+              >
+                {[3, 7, 14, 30, 60, 90].map((d) => (
+                  <option key={d} value={d}>
+                    {d} {tr("days")}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" className="btn-ghost" disabled={busy !== null} onClick={pruneLogsAndVacuum}>
+              <Trash2 size={14} />
+              <span>{busy === "prune" ? "Pruning…" : tr("Prune logs & VACUUM")}</span>
+            </button>
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
