@@ -1206,6 +1206,7 @@ export async function handleChatCore({
     apiKeyId: apiKeyInfo?.id ?? undefined,
     cacheDefaultMode: (apiKeyInfo as { cacheDefaultMode?: "legacy" | "bypass" } | null)
       ?.cacheDefaultMode,
+    pendingRequestId: pendingScope.id,
   });
   if (cacheHit) {
     return cacheHit;
@@ -5480,7 +5481,7 @@ export async function handleChatCore({
     providerHeaders: providerResponse.headers,
     provider,
     model,
-    pendingRequestId,
+    pendingRequestId: pendingScope.id || pendingRequestId,
     compressionResponseMeta,
     comboStrategy,
   });
@@ -5586,7 +5587,7 @@ export async function handleChatCore({
     }
 
     streamFailure.finalizeStreamRequestLog({
-      pendingRequestId,
+      pendingRequestId: pendingScope.id || pendingRequestId,
       model,
       provider,
       connectionId: streamConnectionId,

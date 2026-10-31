@@ -25,6 +25,7 @@ export async function checkSemanticCache({
   persistAttemptLogs,
   apiKeyId,
   cacheDefaultMode,
+  pendingRequestId,
 }: {
   semanticCacheEnabled: boolean;
   // Only the fields this read path actually touches are named; everything else
@@ -42,6 +43,7 @@ export async function checkSemanticCache({
   persistAttemptLogs: (args: unknown) => void;
   apiKeyId?: string | null;
   cacheDefaultMode?: "legacy" | "bypass" | null;
+  pendingRequestId?: string | null;
 }) {
   // Per-key bypass: skip cache lookup entirely when the API key opts out.
   if (cacheDefaultMode === "bypass") return null;
@@ -74,7 +76,7 @@ export async function checkSemanticCache({
         clientResponse: cached,
         cacheSource: "semantic",
       });
-      trackPendingRequest(model, provider, connectionId, false);
+      trackPendingRequest(model, provider, connectionId, false, undefined, pendingRequestId);
       const cachedSse = stream ? synthesizeOpenAiSseFromJson(JSON.stringify(cached)) : "";
       const headers: Record<string, string> = {
         "Content-Type": cachedSse ? "text/event-stream" : "application/json",
