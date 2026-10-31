@@ -287,12 +287,21 @@ function applyCachedLimits(
 ): QuotaProviderEntry {
   if (!cached) return entry;
 
-  const windows = extractCachedWindows(entry.provider, cached.quotas ?? null, cached.windowFetchedAt, cached.fetchedAt, cached.staleWindows).map(w => cached.refreshFailed ? { ...w, stale: true } : w);
+  const isBogusClaudeOauthLegacyError =
+    entry.provider === "claude" &&
+    entry.authType === "oauth" &&
+    typeof cached.message === "string" &&
+    cached.message.includes("Usage API requires admin permissions");
+  const effectiveRefreshFailed = isBogusClaudeOauthLegacyError ? false : cached.refreshFailed;
+  const windows = extractCachedWindows(entry.provider, cached.quotas ?? null, cached.windowFetchedAt, cached.fetchedAt, cached.staleWindows).map(w => effectiveRefreshFailed ? { ...w, stale: true } : w);
   const plan = typeof cached.plan === "string" && cached.plan.trim() ? cached.plan.trim() : entry.plan;
   const fetchedAt =
     typeof cached.fetchedAt === "string" && cached.fetchedAt.trim() ? cached.fetchedAt.trim() : entry.fetchedAt;
-  const message =
-    typeof cached.message === "string" && cached.message.trim() ? cached.message.trim() : entry.message;
+  const message = isBogusClaudeOauthLegacyError
+    ? entry.message
+    : typeof cached.message === "string" && cached.message.trim()
+      ? cached.message.trim()
+      : entry.message;
 
   let best: QuotaWindowEntry | null = null;
   for (const w of windows) {

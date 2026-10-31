@@ -20,6 +20,24 @@
 export const OAUTH_USAGE_429_COOLDOWN_MS = 180_000; // 3 minutes
 
 const oauthCooldown = new Map<string, number>();
+const oauthUsageCache = new Map<string, Record<string, unknown>>();
+
+/** Cache the last successful OAuth usage payload for `accessToken`. */
+export function setCachedClaudeOauthUsage(
+  accessToken: string | undefined,
+  usage: Record<string, unknown>
+): void {
+  if (!accessToken) return;
+  oauthUsageCache.set(accessToken, usage);
+}
+
+/** Retrieve the last successful OAuth usage payload for `accessToken`, if any. */
+export function getCachedClaudeOauthUsage(
+  accessToken: string | undefined
+): Record<string, unknown> | null {
+  if (!accessToken) return null;
+  return oauthUsageCache.get(accessToken) ?? null;
+}
 
 /** Returns true while `accessToken` is still inside its 429 cooldown window. */
 export function isClaudeOauthUsageCoolingDown(
@@ -48,4 +66,5 @@ export function markClaudeOauthUsage429(
 /** Test-only: clear all entries. */
 export function _resetClaudeOauthUsageCooldown(): void {
   oauthCooldown.clear();
+  oauthUsageCache.clear();
 }

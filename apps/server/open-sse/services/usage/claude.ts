@@ -11,7 +11,12 @@
 
 import { safePercentage } from "@/shared/utils/formatting";
 import { CLAUDE_CODE_VERSION, fetchClaudeBootstrap } from "../../executors/claudeIdentity.ts";
-import { isClaudeOauthUsageCoolingDown, markClaudeOauthUsage429 } from "../claudeUsageCooldown.ts";
+import {
+  getCachedClaudeOauthUsage,
+  isClaudeOauthUsageCoolingDown,
+  markClaudeOauthUsage429,
+  setCachedClaudeOauthUsage,
+} from "../claudeUsageCooldown.ts";
 import { toRecord } from "./scalars.ts";
 import { type UsageQuota, parseResetTime } from "./quota.ts";
 
@@ -49,14 +54,17 @@ export async function getClaudeUsage(accessToken?: string) {
     return { message: "Claude connected. Access token not available.", bootstrap: null };
   }
 
-  // Refresh bootstrap in parallel; best-effort, failure non-fatal.
-  const bootstrapPromise = fetchClaudeBootstrap(accessToken).catch(() => null);
   // Skip OAuth usage call while this token is cooling down from a recent 429
   // (chat with the same token still works — only the quota endpoint is throttled).
+  // Never fall back to legacy /v1/settings during an OAuth 429 cooldown: OAuth
+  // tokens always get 401/403 there and produce a bogus "requires admin permissions" message.
   if (isClaudeOauthUsageCoolingDown(accessToken)) {
-    const legacy = await getClaudeUsageLegacy(accessToken);
-    return { ...legacy, bootstrap: await bootstrapPromise };
+    const cached = getCachedClaudeOauthUsage(accessToken);
+    if (cached) return cached;
+    return { quotas: {}, bootstrap: null };
   }
+  // Refresh bootstrap in parallel; best-effort, failure non-fatal.
+  const bootstrapPromise = fetchClaudeBootstrap(accessToken).catch(() => null);
   try {
     // Real CLI uses axios here, not Stainless — UA is `claude-code/<version>`
     // (not `claude-cli/...`) and the shape is simpler than /v1/messages.
@@ -134,17 +142,24 @@ export async function getClaudeUsage(accessToken?: string) {
           bootstrap?.organization_rate_limit_tier
         ) ?? undefined;
 
-      return {
+      const result = {
         ...(plan ? { plan } : {}),
         quotas,
         extraUsage: data.extra_usage ?? null,
         bootstrap,
       };
+      setCachedClaudeOauthUsage(accessToken, result);
+      return result;
     }
 
     // Cool down OAuth usage polling after a 429 (quota endpoint only — chat is unaffected).
+    // Do not fall back to legacy /v1/settings on a 429: OAuth tokens are rejected
+    // there and would overwrite cached quotas with "Usage API requires admin permissions."
     if (oauthResponse.status === 429) {
       markClaudeOauthUsage429(accessToken);
+      const cached = getCachedClaudeOauthUsage(accessToken);
+      if (cached) return cached;
+      return { quotas: {}, bootstrap: await bootstrapPromise };
     }
 
     // Fallback: OAuth endpoint returned non-OK, try legacy settings/org endpoint
