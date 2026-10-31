@@ -88,9 +88,17 @@ export const cline = {
     return {
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
-      expiresIn: tokens.expires_at
-        ? Math.floor((new Date(tokens.expires_at).getTime() - Date.now()) / 1000)
-        : 3600,
+      // Guard the parse, not just the presence: a non-empty but unparseable
+      // expires_at makes new Date(...).getTime() === NaN, so this expression
+      // would yield NaN. persistOAuthConnection treats a falsy expiresIn as
+      // "no expiry" (expiresAt=null), which marks the connection never-expiring
+      // and the token is never refreshed. Fall back to the same default a
+      // missing expires_at uses when the value does not parse to a finite time.
+      expiresIn: (() => {
+        if (!tokens.expires_at) return 3600;
+        const ms = new Date(tokens.expires_at).getTime();
+        return Number.isFinite(ms) ? Math.floor((ms - Date.now()) / 1000) : 3600;
+      })(),
       // Use full name if available, fallback to email so UI shows a real label
       name: fullName || tokens.email || null,
       email: tokens.email,
