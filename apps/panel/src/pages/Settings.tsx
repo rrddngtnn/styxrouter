@@ -1,6 +1,6 @@
 import { useTranslator } from "../lib/useTranslator.ts";
 import { useEffect, useState } from "react";
-import { DatabaseBackup, KeyRound, Plus, SlidersHorizontal, Trash2, Wrench } from "lucide-react";
+import { Activity, DatabaseBackup, KeyRound, Plus, SlidersHorizontal, Trash2, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { LoadingState } from "../components/PageStates.tsx";
 import { api, type JsonValue } from "../lib/api.ts";
@@ -9,10 +9,14 @@ import { when } from "../lib/format.ts";
 import { useFetch } from "../lib/useFetch.ts";
 import { usePreferences } from "../lib/preferences.tsx";
 import { AdvancedSettings } from "../components/settings/AdvancedSettings.tsx";
+import {
+  EmergencyDispatchPauseSection,
+  HealthAndVersionsSettings,
+} from "../components/settings/HealthAndVersionsSettings.tsx";
 import { TableScroll } from "../components/TableScroll.tsx";
 
 type SettingsBag = Record<string, unknown>;
-type SettingsTab = "runtime" | "security" | "backups" | "advanced";
+type SettingsTab = "runtime" | "security" | "backups" | "health" | "advanced";
 
 const FALLBACK_STRATEGIES = [
   "priority",
@@ -75,6 +79,16 @@ export function Settings() {
         <button
           type="button"
           role="tab"
+          aria-selected={tab === "health"}
+          className={tab === "health" ? "tab active" : "tab"}
+          onClick={() => setTab("health")}
+        >
+          <Activity size={14} />
+          <span>{t("Health & Versions")}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={tab === "advanced"}
           className={tab === "advanced" ? "tab active" : "tab"}
           onClick={() => setTab("advanced")}
@@ -92,9 +106,16 @@ export function Settings() {
         </>
       )}
 
-      {tab === "security" && <ChangePassword />}
+      {tab === "security" && (
+        <>
+          <ChangePassword />
+          <EmergencyDispatchPauseSection />
+        </>
+      )}
 
       {tab === "backups" && <DatabaseBackupsSection />}
+
+      {tab === "health" && <HealthAndVersionsSettings />}
 
       {tab === "advanced" && <AdvancedSettings settings={state.status === "ok" ? state.data : {}} loading={state.status === "loading"} error={state.status === "error" ? state.error.message : undefined} />}
     </div>
