@@ -14,9 +14,9 @@ import "./quota.css";
 const quotaId: Record<string, string> = {
   "Filter by tag": "Filter berdasarkan tag", "Apply tag filter": "Terapkan filter tag", "Clear tag filter": "Hapus filter tag",
   "Hide providers": "Sembunyikan penyedia", "Show providers": "Tampilkan penyedia", "No matching providers.": "Tidak ada penyedia yang cocok.",
-  "Selected": "Dipilih", "Remaining unknown": "Sisa tidak diketahui", "Reset (UTC)": "Reset (UTC)",
+  "Selected": "Dipilih", "Remaining unknown": "Sisa tidak diketahui", "Reset": "Reset",
   "Fresh": "Terbaru", "Cached": "Cache", "Stale": "Data lama", "Freshly checked": "Baru diperiksa",
-  "Updated (UTC)": "Diperbarui (UTC)", "Time unknown": "Waktu tidak diketahui", "Quota unavailable": "Kuota tidak tersedia", "More quota windows": "Jendela kuota lainnya",
+  "Updated": "Diperbarui", "Time unknown": "Waktu tidak diketahui", "Quota unavailable": "Kuota tidak tersedia", "More quota windows": "Jendela kuota lainnya",
   "Token": "Token", "valid": "valid", "expired": "kedaluwarsa", "expiring": "akan kedaluwarsa", "refreshing": "sedang diperbarui", "refreshable": "dapat diperbarui",
   "Credit": "Kredit", "Unknown": "Tidak diketahui", "Observed": "Teramati", "Account cooldown": "Jeda akun", "Model cooldowns (this process only)": "Jeda model (hanya proses ini)",
 };
@@ -221,8 +221,8 @@ export function QuotaBrowser({ rows, names, live, syncingAll, onRefresh, onCheck
           return <section className="quota-window" key={w.key}>
             <div className="quota-window-head"><strong>{tr(w.label)}</strong><span>{w.unlimited ? tr("Unlimited") : w.percentRemaining != null ? tr("{0} left", {0: fmtPct(w.percentRemaining)}) : tr("Remaining unknown")}</span></div>
             {w.percentRemaining != null && Number.isFinite(w.percentRemaining) && !w.unlimited && <Meter value={w.percentRemaining} />}
-            <div className="quota-window-head"><span>{w.used != null && w.total != null ? tr("{0} used", {0: fmtUsedLimit(w)}) : fmtUsedLimit(w)}</span><span>{tr("Reset (UTC)")}: {when(w.resetAt)}</span></div>
-            <small className="muted">{stale || w.stale || (!cachedNewer && fresh.length > 0 && !isFresh) ? tr("Stale") : isFresh ? tr("Fresh") : tr("Cached")} · {w.fetchedAt ? `${tr("Updated (UTC)")}: ${when(w.fetchedAt)}` : tr("Time unknown")}</small>
+            <div className="quota-window-head"><span>{w.used != null && w.total != null ? tr("{0} used", {0: fmtUsedLimit(w)}) : fmtUsedLimit(w)}</span><span>{tr("Reset")}: {when(w.resetAt)}</span></div>
+            <small className="muted">{stale || w.stale || (!cachedNewer && fresh.length > 0 && !isFresh) ? tr("Stale") : isFresh ? tr("Fresh") : tr("Cached")} · {w.fetchedAt ? `${tr("Updated")}: ${when(w.fetchedAt)}` : tr("Time unknown")}</small>
             {!!w.models?.length && <details><summary>{tr("Models (")}{w.models.length})</summary>{w.models.join(", ")}</details>}
           </section>;
         };
@@ -231,10 +231,10 @@ export function QuotaBrowser({ rows, names, live, syncingAll, onRefresh, onCheck
           <div className={row.isActive === false ? "muted" : tokenTone(row.tokenStatus)}>{row.isActive === false && <>{tr("Disabled ·")} </>}{tr("Token")}: {tr(row.tokenStatus)}</div>
           {row.provider === "codebuddy-cn" && <>
             <div>{tr("Credit")}: {tr(row.creditStatus === "observed" ? (stale ? "Stale" : "Observed") : row.creditStatus === "stale" ? "Stale" : "Unknown")}</div>
-            {row.accountCooldownUntil && <div>{tr("Account cooldown")}: {when(row.accountCooldownUntil)} (UTC)</div>}
-            {!!row.modelCooldowns?.length && <details className="quota-more quota-cooldowns"><summary>{tr("Model cooldowns (this process only)")} ({row.modelCooldowns.length})</summary>{row.modelCooldowns.map((lock, i) => <div key={`${lock.model}:${i}`}>{lock.model} · {lock.reason} · {when(lock.until)} (UTC)</div>)}</details>}
+            {row.accountCooldownUntil && <div>{tr("Account cooldown")}: {when(row.accountCooldownUntil)}</div>}
+            {!!row.modelCooldowns?.length && <details className="quota-more quota-cooldowns"><summary>{tr("Model cooldowns (this process only)")} ({row.modelCooldowns.length})</summary>{row.modelCooldowns.map((lock, i) => <div key={`${lock.model}:${i}`}>{lock.model} · {lock.reason} · {when(lock.until)}</div>)}</details>}
           </>}
-          <p className="quota-fetched muted">{stale ? tr("Stale") : fresh.length && !cachedNewer ? tr("Freshly checked") : tr("Cached")} · {fetched ? `${tr("Updated (UTC)")}: ${when(fetched)}` : tr("Never synced")}</p>
+          <p className="quota-fetched muted">{stale ? tr("Stale") : fresh.length && !cachedNewer ? tr("Freshly checked") : tr("Cached")} · {fetched ? `${tr("Updated")}: ${when(fetched)}` : tr("Never synced")}</p>
           {warning && <p className="bad" role="status">{warning}</p>}
           {row.quotaSupported === false ? <p className="muted">{tr("Upstream quota API unavailable")}</p> : windows.length === 0 ? <p className="muted">{row.fetchedAt ? tr("Quota unavailable") : tr("Not synced yet")}</p> : <>
             {windows.slice(0, 3).map(renderWindow)}

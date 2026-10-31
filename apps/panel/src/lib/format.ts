@@ -48,11 +48,29 @@ export function countdown(iso?: string | null, now = Date.now()): string {
   return `${s}s`;
 }
 
-export const when = (iso?: string | null, locale = currentLocale()) => {
+export const localTimeZone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export const when = (iso?: string | null, locale = currentLocale(), timeZone = localTimeZone()) => {
   if (!iso) return DASH;
   const date = new Date(/Z$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso.replace(' ', 'T') + 'Z');
   if (!Number.isFinite(date.getTime())) return DASH;
-  return new Intl.DateTimeFormat(locale, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC', hour12: false }).format(date);
+  return new Intl.DateTimeFormat(locale, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    ...(timeZone ? { timeZone } : {}),
+    timeZoneName: 'short',
+    hour12: false,
+  }).format(date);
 };
 
 /** Download rows as a CSV file (values quoted; formulas neutralised so a spreadsheet will not execute them). */
