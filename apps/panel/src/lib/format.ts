@@ -90,8 +90,8 @@ export function downloadCsv(filename: string, header: string[], rows: (string | 
 }
 
 /** Registry name when known; the generated id of a user-added endpoint becomes "Custom endpoint". */
-export const providerLabel = (id: string, names?: Map<string, string>) =>
-  names?.get(id) ?? id.replace(/^openai-compatible-[a-z]+-[0-9a-f-]{20,}$/, "Custom endpoint");
+export const providerLabel = (id?: string | null, names?: Map<string, string>) =>
+  !id ? DASH : names?.get(id) ?? id.replace(/^openai-compatible-[a-z]+-[0-9a-f-]{20,}$/, "Custom endpoint");
 
 /** A reset time already in the past means the window has rolled over, not that it resets "now". */
 export const resetText = (iso: string | null | undefined, now = Date.now()) => {

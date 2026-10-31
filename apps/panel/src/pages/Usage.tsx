@@ -23,7 +23,7 @@ export function Usage() {
   const allProviders = useFetch<Analytics>(`/api/usage/analytics?range=${range}`);
   const state = useFetch<Analytics>(provider ? `/api/usage/analytics?range=${range}&provider=${encodeURIComponent(provider)}` : null);
   const activeState = provider ? state : allProviders;
-  const a = activeState.status === "ok" && activeState.data.range === range && (activeState.data.provider ?? "") === provider ? activeState.data : null;
+  const a = activeState.status === "ok" && (activeState.data.range ?? range) === range && (activeState.data.provider ?? "") === provider ? activeState.data : null;
   const provs = useFetch<{ providers?: { id: string; name?: string }[] }>("/api/providers");
   const nodes = useFetch<{ nodes?: { id: string; name: string; prefix: string | null }[] }>("/api/provider-nodes");
   const names = useMemo(() => {
@@ -61,7 +61,7 @@ export function Usage() {
         <div className="toolbar" style={{ marginBottom: 0 }}>
           <label>{tr("Provider")}{" "}<select aria-label={tr("Provider")} value={provider} onChange={(event) => setProvider(event.target.value)}>
             <option value="">{tr("All providers")}</option>
-            {(allProviders.data?.byProvider ?? []).map((p) => <option key={p.providerId} value={p.providerId}>{label(p.providerId)}</option>)}
+            {(allProviders.data?.byProvider ?? []).map((p) => { const pid = p.providerId ?? p.provider; return <option key={pid} value={pid}>{label(pid)}</option>; })}
           </select></label>
           <div className="seg" role="group" aria-label={tr("Range")}>
             {RANGES.map((r) => (
@@ -117,11 +117,11 @@ export function Usage() {
             </div>
             <TableScroll label={tr("Usage by provider table")} stickyPrimary><table className="table">
               <thead><tr>{[tr("Provider"), tr("Requests"), tr("Tokens"), tr("Latency"), tr("Success"), tr("Cost"), tr("Accounts")].map(h => <th key={h}>{h}</th>)}</tr></thead>
-              <tbody>{a.byProvider.map(p => <tr key={p.providerId} onClick={(event) => { if (!(event.target as HTMLElement).closest('a,button')) setProvider(p.providerId); }} style={{ cursor: "pointer" }}>
-                <td><button type="button" className="btn-ghost" aria-label={`${tr("Focus")} ${p.provider}`} aria-pressed={provider === p.providerId} onClick={() => setProvider(p.providerId)}><ProviderIcon providerId={p.providerId} label={p.provider} size={24} /> {p.provider}</button></td>
+              <tbody>{a.byProvider.map(p => { const pid = p.providerId ?? p.provider; return <tr key={pid} onClick={(event) => { if (!(event.target as HTMLElement).closest('a,button')) setProvider(pid); }} style={{ cursor: "pointer" }}>
+                <td><button type="button" className="btn-ghost" aria-label={`${tr("Focus")} ${p.provider}`} aria-pressed={provider === pid} onClick={() => setProvider(pid)}><ProviderIcon providerId={pid} label={p.provider} size={24} /> {p.provider}</button></td>
                 <td>{int(p.requests)}</td><td>{num(p.totalTokens)}</td><td>{ms(p.avgLatencyMs)}</td><td>{pctText(p.successRatePct)}</td><td>{usd(p.cost)}</td>
-                <td><Link to={`/providers/${encodeURIComponent(p.providerId)}?tab=accounts`} aria-label={`${tr("Accounts")} ${p.provider}`}>{tr("Accounts")}</Link></td>
-              </tr>)}</tbody>
+                <td><Link to={`/providers/${encodeURIComponent(pid)}?tab=accounts`} aria-label={`${tr("Accounts")} ${p.provider}`}>{tr("Accounts")}</Link></td>
+              </tr>; })}</tbody>
             </table></TableScroll>
           </section>
 
