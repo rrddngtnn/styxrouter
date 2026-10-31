@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { accountsForProvider, groupAccounts, resolveProviderTarget, runBulk, selectedAccounts } from "../src/lib/account-management.ts";
+import { accountsForProvider, formatCredentialExpiryHint, groupAccounts, resolveProviderTarget, runBulk, selectedAccounts } from "../src/lib/account-management.ts";
 
 test("selection excludes stale IDs", () => {
   expect(selectedAccounts([{ id: "a" }, { id: "b" }], new Set(["a", "stale"]))).toEqual(["a"]);
@@ -71,6 +71,12 @@ test("resolveProviderTarget and accountsForProvider isolate a single provider or
   expect(accountsForProvider(accounts, "glm").map((a) => a.name)).toEqual(["alpha-oauth", "zeta-key"]);
   expect(accountsForProvider(accounts, "glm", "oauth").map((a) => a.name)).toEqual(["alpha-oauth"]);
   expect(accountsForProvider(accounts, "glm", "apikey").map((a) => a.name)).toEqual(["zeta-key"]);
+  const baseNow = Date.parse("2026-10-31T00:00:00.000Z");
+  expect(formatCredentialExpiryHint(null, baseNow)).toBeNull();
+  expect(formatCredentialExpiryHint("2026-11-15T00:00:00.000Z", baseNow)).toBeNull();
+  expect(formatCredentialExpiryHint("2026-11-03T00:00:00.000Z", baseNow)).toBe("expires in 3d");
+  expect(formatCredentialExpiryHint("2026-10-31T06:00:00.000Z", baseNow)).toBe("expires in 6h");
+  expect(formatCredentialExpiryHint("2026-10-30T23:59:59.000Z", baseNow)).toBe("token expired");
 
   const nodeTarget = resolveProviderTarget("openai-compatible-chat-112e", providers, nodes);
   expect(nodeTarget).toMatchObject({

@@ -98,6 +98,19 @@ export function normalizeAccountAuthBucket(authType?: string | null): "oauth" | 
   return authType === "apikey" || authType === "api_key" ? "apikey" : "oauth";
 }
 
+export function formatCredentialExpiryHint(tokenExpiresAt?: string | null, now = Date.now()): string | null {
+  if (!tokenExpiresAt) return null;
+  const ms = Date.parse(tokenExpiresAt);
+  if (!Number.isFinite(ms)) return null;
+  const diff = ms - now;
+  if (diff <= 0) return "token expired";
+  const sevenDaysMs = 7 * 86_400_000;
+  if (diff > sevenDaysMs) return null;
+  const hours = Math.ceil(diff / 3_600_000);
+  if (hours < 24) return `expires in ${hours}h`;
+  return `expires in ${Math.ceil(diff / 86_400_000)}d`;
+}
+
 export function accountsForProvider<T extends AccountIdentity>(
   accounts: T[],
   providerId: string,

@@ -7,6 +7,7 @@ import { usePreferences } from "../lib/preferences.tsx";
 import {
   accountsForProvider,
   filterProviderAccounts,
+  formatCredentialExpiryHint,
   normalizeAccountAuthBucket,
   resolveProviderTarget,
   runBulk,
@@ -51,6 +52,9 @@ interface Account {
   provider: string;
   name: string | null;
   authType?: string;
+  tags?: string[];
+  tokenExpiresAt?: string | null;
+  rateLimitedUntil?: string | null;
   isActive: boolean;
   testStatus: string | null;
   lastError: string | null;
@@ -979,6 +983,15 @@ export function ProviderDetail() {
                     </td>
                     <td>
                       <div className="table-identity">{labelText}</div>
+                      {Array.isArray(a.tags) && a.tags.length > 0 && (
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+                          {a.tags.map((tag) => (
+                            <span key={tag} className="vendor-badge">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td>
                       <span className="auth-type">{isApiKey ? "apikey" : a.authType ?? "oauth"}</span>
@@ -986,6 +999,10 @@ export function ProviderDetail() {
                     <td className={!a.isActive ? "muted" : failing ? "bad" : "ok"}>
                       {!a.isActive ? tr("disabled") : a.testStatus ?? tr("unchecked")}
                       {a.backoffLevel > 0 ? ` · backoff ${a.backoffLevel}` : ""}
+                      {(() => {
+                        const expHint = formatCredentialExpiryHint(a.tokenExpiresAt);
+                        return expHint ? ` · ${expHint}` : "";
+                      })()}
                     </td>
                     <td className="cell-error" title={a.lastError ?? undefined}>
                       {results[a.id] ?? (a.lastError ? a.lastError.replace(/\s+/g, " ").slice(0, 80) : "")}
