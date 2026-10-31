@@ -94,9 +94,21 @@ export function resolveProviderTarget<P extends ProviderIdentity, N extends Node
   return null;
 }
 
-export function accountsForProvider<T extends AccountIdentity>(accounts: T[], providerId: string): T[] {
+export function normalizeAccountAuthBucket(authType?: string | null): "oauth" | "apikey" {
+  return authType === "apikey" || authType === "api_key" ? "apikey" : "oauth";
+}
+
+export function accountsForProvider<T extends AccountIdentity>(
+  accounts: T[],
+  providerId: string,
+  authTab?: AccountTab,
+): T[] {
   return accounts
-    .filter((a) => a.provider === providerId)
+    .filter((a) => {
+      if (a.provider !== providerId) return false;
+      if (!authTab || authTab === "custom") return true;
+      return normalizeAccountAuthBucket(a.authType) === authTab;
+    })
     .sort((a, b) => String(a.name ?? a.id).localeCompare(String(b.name ?? b.id)));
 }
 

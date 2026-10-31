@@ -69,6 +69,8 @@ test("resolveProviderTarget and accountsForProvider isolate a single provider or
     defaultTab: "oauth",
   });
   expect(accountsForProvider(accounts, "glm").map((a) => a.name)).toEqual(["alpha-oauth", "zeta-key"]);
+  expect(accountsForProvider(accounts, "glm", "oauth").map((a) => a.name)).toEqual(["alpha-oauth"]);
+  expect(accountsForProvider(accounts, "glm", "apikey").map((a) => a.name)).toEqual(["zeta-key"]);
 
   const nodeTarget = resolveProviderTarget("openai-compatible-chat-112e", providers, nodes);
   expect(nodeTarget).toMatchObject({

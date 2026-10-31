@@ -7,10 +7,12 @@ import { usePreferences } from "../lib/preferences.tsx";
 import {
   accountsForProvider,
   filterProviderAccounts,
+  normalizeAccountAuthBucket,
   resolveProviderTarget,
   runBulk,
   selectedAccounts,
   updateVisibleAccountSelection,
+  type AccountTab,
   type BulkAction,
   type BulkResult,
 } from "../lib/account-management.ts";
@@ -116,13 +118,14 @@ export function Providers() {
   const counts = useMemo(() => {
     const c: Record<string, { total: number; active: number }> = {};
     for (const a of accounts) {
+      if (tab !== "custom" && normalizeAccountAuthBucket(a.authType) !== tab) continue;
       const slot = c[a.provider] ?? { total: 0, active: 0 };
       slot.total += 1;
       if (a.isActive && a.testStatus === "active") slot.active += 1;
       c[a.provider] = slot;
     }
     return c;
-  }, [accounts]);
+  }, [accounts, tab]);
 
   const list = filterProviders(tab === "oauth" ? oauthList : apikeyList, search);
   const filteredNodes = filterProviders(nodes, search);
@@ -441,16 +444,29 @@ export function ProviderDetail() {
   };
 
   const target = useMemo(() => resolveProviderTarget(providerId, providers, nodes), [providerId, providers, nodes]);
-  const providerAccounts = useMemo(() => accountsForProvider(allAccounts, providerId), [allAccounts, providerId]);
+  const rawAuthParam = searchParams.get("auth") ?? searchParams.get("tab") ?? "";
+  const requestedBucket: AccountTab =
+    rawAuthParam === "oauth" || rawAuthParam === "apikey" || rawAuthParam === "custom"
+      ? rawAuthParam
+      : target?.defaultTab ?? "oauth";
+  const backTab: AccountTab = target?.isCustomNode
+    ? "custom"
+    : requestedBucket === "apikey" && target?.canApiKey
+      ? "apikey"
+      : requestedBucket === "oauth" && target?.canOauth
+        ? "oauth"
+        : target?.defaultTab ?? requestedBucket;
+  const detailTab = searchParams.get("tab") === "models" ? "models" : searchParams.get("tab") === "import" ? "import" : "accounts";
+  const backHref = `/providers?tab=${encodeURIComponent(backTab)}`;
+  const providerAccounts = useMemo(
+    () => accountsForProvider(allAccounts, providerId, backTab),
+    [allAccounts, providerId, backTab],
+  );
   const activeCount = useMemo(
     () => providerAccounts.filter((a) => a.isActive && a.testStatus === "active").length,
     [providerAccounts],
   );
   const flow = flows.get(providerId);
-
-  const backTab = ["oauth", "apikey", "custom"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : target?.defaultTab ?? "oauth";
-  const detailTab = searchParams.get("tab") === "models" ? "models" : searchParams.get("tab") === "import" ? "import" : "accounts";
-  const backHref = `/providers?tab=${encodeURIComponent(backTab)}`;
 
   const [connecting, setConnecting] = useState(false);
   const [addingKey, setAddingKey] = useState(false);
@@ -637,13 +653,13 @@ export function ProviderDetail() {
         </div>
 
         <div className="row-actions">
-          {target.canOauth && flow?.flowType && (
+          {backTab === "oauth" && target.canOauth && flow?.flowType && (
             <button type="button" className="btn-add" onClick={() => setConnecting(true)}>
               <Link2 size={14} />
               <span>{tr("Connect OAuth")}</span>
             </button>
           )}
-          {target.canApiKey && (
+          {(backTab === "apikey" || backTab === "custom") && target.canApiKey && (
             <>
               <button type="button" className="btn-add" onClick={() => setAddingKey(true)}>
                 <KeyRound size={14} />
@@ -819,8 +835,17 @@ export function ProviderDetail() {
       </Modal>
 
       <nav className="provider-workspace-tabs" aria-label={tr("Provider workspace")}>
-        {([ ["accounts", "Accounts"], ["models", "Models"], ["import", "Import"] ] as const).map(([id, title]) => (
-          <Link key={id} aria-current={detailTab === id ? "page" : undefined} className={detailTab === id ? "active" : ""} to={`?tab=${id}`}>
+        {(
+          backTab === "oauth" || detailTab === "import"
+            ? ([ ["accounts", "Accounts"], ["models", "Models"], ["import", "Import"] ] as const)
+            : ([ ["accounts", "Accounts"], ["models", "Models"] ] as const)
+        ).map(([id, title]) => (
+          <Link
+            key={id}
+            aria-current={detailTab === id ? "page" : undefined}
+            className={detailTab === id ? "active" : ""}
+            to={id === "accounts" ? `?tab=${encodeURIComponent(backTab)}` : `?tab=${id}&auth=${encodeURIComponent(backTab)}`}
+          >
             {tr(title)}
           </Link>
         ))}

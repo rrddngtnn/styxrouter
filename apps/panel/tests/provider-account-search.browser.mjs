@@ -6,9 +6,9 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const base = new URL(process.env.PANEL_TEST_URL || 'http://127.0.0.1:5199/panel/');
 if (!['127.0.0.1','localhost','[::1]'].includes(base.hostname)) throw new Error('Local fixture only');
 const accounts = [
-  {id:'a',name:'Alice Sample',provider:'alpha'}, {id:'b',name:'Bob Fixture',provider:'alpha'},
-  {id:'c',name:'Carol Custom',provider:'custom1'}, {id:'d',name:'Derek Custom',provider:'custom1'},
-].map(a=>({...a,isActive:true,testStatus:'active',authType:'apikey',lastError:null,backoffLevel:0}));
+  {id:'a',name:'Alice Sample',provider:'alpha',authType:'oauth'}, {id:'b',name:'Bob Fixture',provider:'alpha',authType:'oauth'},
+  {id:'c',name:'Carol Custom',provider:'custom1',authType:'apikey'}, {id:'d',name:'Derek Custom',provider:'custom1',authType:'apikey'},
+].map(a=>({...a,isActive:true,testStatus:'active',lastError:null,backoffLevel:0}));
 let browser;
 test.before(async()=>{browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});});
 test.after(async()=>browser?.close());
