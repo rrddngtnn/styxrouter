@@ -99,6 +99,8 @@ const PORTABLE_SETTINGS_KEYS = [
   "promptCacheAffinityEnabled",
   "lkgpEnabled",
   "autoRefreshProviderQuota",
+  "customSystemPromptEnabled",
+  "customSystemPrompt",
   "wildcardAliases",
   "blockedProviders",
   "hideAutoCombos",

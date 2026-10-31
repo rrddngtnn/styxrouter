@@ -1,3 +1,4 @@
+import { isQuotaExhaustedForRequest } from "../src/domain/quotaCache.ts";
 import { getConnectionRoutingTags } from "../src/domain/tagRouter.ts";
 import { getComboByName } from "../src/lib/db/combos.ts";
 import { getDbInstance } from "../src/lib/db/core.ts";
@@ -5,6 +6,7 @@ import { getProviderConnections, getProviderNodes } from "../src/lib/db/provider
 import { deleteCallLogsBefore } from "../src/lib/usage/callLogRotation.ts";
 import { isModelLocked } from "../open-sse/services/accountFallback.ts";
 import { parseModel } from "../open-sse/services/model.ts";
+import { evaluateQuotaLimitPolicy } from "../src/sse/services/auth.ts";
 
 export interface DryRunCandidate {
   id: string;
@@ -149,6 +151,35 @@ export async function simulateRoutingDryRun(input: {
           name,
           eligible: false,
           reason: "model-locked in this process",
+          tags,
+          priority: Number(c.priority ?? 0),
+        };
+      }
+      if (isQuotaExhaustedForRequest(id, resolvedProvider, resolvedModel)) {
+        return {
+          id,
+          name,
+          eligible: false,
+          reason: "quota exhausted",
+          tags,
+          priority: Number(c.priority ?? 0),
+        };
+      }
+      let parsedPsdObj: Record<string, unknown> = {};
+      try {
+        parsedPsdObj = typeof psd === "string" ? JSON.parse(psd) : (psd as Record<string, unknown>) ?? {};
+      } catch {}
+      const limitCheck = evaluateQuotaLimitPolicy(
+        resolvedProvider,
+        { id, providerSpecificData: parsedPsdObj } as never,
+        resolvedModel,
+      );
+      if (limitCheck.blocked) {
+        return {
+          id,
+          name,
+          eligible: false,
+          reason: `quota policy (${limitCheck.reasons.join(", ")})`,
           tags,
           priority: Number(c.priority ?? 0),
         };

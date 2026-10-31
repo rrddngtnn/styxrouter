@@ -141,6 +141,12 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
   const [autoRefreshQuota, setAutoRefreshQuota] = useState<boolean>(initial.autoRefreshProviderQuota !== false);
   const [hideHealthLogs, setHideHealthLogs] = useState<boolean>(Boolean(initial.hideHealthCheckLogs));
   const [debugMode, setDebugMode] = useState<boolean>(Boolean(initial.debugMode));
+  const [customSystemPromptEnabled, setCustomSystemPromptEnabled] = useState<boolean>(
+    Boolean(initial.customSystemPromptEnabled),
+  );
+  const [customSystemPrompt, setCustomSystemPrompt] = useState<string>(
+    typeof initial.customSystemPrompt === "string" ? initial.customSystemPrompt : "",
+  );
   const [aliasesText, setAliasesText] = useState<string>(() => {
     const arr = Array.isArray(initial.wildcardAliases) ? (initial.wildcardAliases as WildcardAlias[]) : [];
     return arr.map((a) => `${a.pattern} = ${a.target}`).join("\n");
@@ -190,6 +196,8 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
     setAutoRefreshQuota(initial.autoRefreshProviderQuota !== false);
     setHideHealthLogs(Boolean(initial.hideHealthCheckLogs));
     setDebugMode(Boolean(initial.debugMode));
+    setCustomSystemPromptEnabled(Boolean(initial.customSystemPromptEnabled));
+    setCustomSystemPrompt(typeof initial.customSystemPrompt === "string" ? initial.customSystemPrompt : "");
     const arr = Array.isArray(initial.wildcardAliases) ? (initial.wildcardAliases as WildcardAlias[]) : [];
     setAliasesText(arr.map((a) => `${a.pattern} = ${a.target}`).join("\n"));
   }, [initial]);
@@ -219,6 +227,8 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
       autoRefreshProviderQuota: autoRefreshQuota,
       hideHealthCheckLogs: hideHealthLogs,
       debugMode,
+      customSystemPromptEnabled,
+      customSystemPrompt,
       wildcardAliases,
     };
     await run("save-settings", () => api.patch("/api/settings", payload));
@@ -382,6 +392,29 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
                 value={aliasesText}
                 onChange={(e) => setAliasesText(e.target.value)}
                 placeholder={"gpt-4o* = codex/gpt-5.3-codex\nclaude-sonnet* = antigravity/claude-sonnet-4-6"}
+              />
+            </label>
+
+            <h2 style={{ margin: "10px 0 0 0" }}>{t("Custom persona / Soul prompt")}</h2>
+            <p className="muted" style={{ margin: 0, fontSize: 14 }}>
+              {tr("Optionally inject a custom system prompt or persona across inbound requests before upstream dispatch.")}
+            </p>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={customSystemPromptEnabled}
+                onChange={(e) => setCustomSystemPromptEnabled(e.target.checked)}
+              />
+              <span>{tr("Enable custom system prompt injection")}</span>
+            </label>
+            <label>
+              <span className="muted" style={{ fontSize: 14 }}>{tr("System prompt text (max 10,000 chars)")}</span>
+              <textarea
+                rows={4}
+                maxLength={10000}
+                value={customSystemPrompt}
+                onChange={(e) => setCustomSystemPrompt(e.target.value)}
+                placeholder={tr("Enter custom system prompt or persona instructions…")}
               />
             </label>
           </div>

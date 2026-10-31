@@ -26,10 +26,28 @@ test("POST /routing/dry-run simulates combo resolution and reports per-step acco
     isActive: true,
   })) as { id: string };
 
+  const c3 = (await createProviderConnection({
+    provider: "antigravity",
+    authType: "oauth",
+    name: "ag-exhausted",
+    accessToken: "fake-ag",
+    isActive: true,
+  })) as { id: string };
+  const { setQuotaCache } = await import("../src/domain/quotaCache");
+  setQuotaCache(c3.id, "antigravity", {
+    "gemini-4-argon-medium": {
+      used: 1000,
+      total: 1000,
+      remaining: 0,
+      remainingPercentage: 0,
+      resetAt: new Date(Date.now() + 3600_000).toISOString(),
+    },
+  });
+
   await createCombo({
     name: "dry-run-combo",
     strategy: "priority",
-    models: ["openai/gpt-4o", "glm/glm-5.3"],
+    models: ["openai/gpt-4o", "antigravity/gemini-4-argon-medium", "glm/glm-5.3"],
   } as never);
 
   const res = await app.request("/routing/dry-run", {
@@ -53,15 +71,18 @@ test("POST /routing/dry-run simulates combo resolution and reports per-step acco
   };
 
   expect(data.isCombo).toBe(true);
-  expect(data.steps).toHaveLength(2);
+  expect(data.steps).toHaveLength(3);
   expect(data.steps[0]?.provider).toBe("openai");
   expect(data.steps[0]?.eligibleCount).toBe(0);
-  expect(data.steps[1]?.provider).toBe("glm");
-  expect(data.steps[1]?.eligibleCount).toBe(1);
+  expect(data.steps[1]?.provider).toBe("antigravity");
+  expect(data.steps[1]?.eligibleCount).toBe(0);
+  expect(data.steps[1]?.candidates[0]?.reason).toContain("quota exhausted");
+  expect(data.steps[2]?.provider).toBe("glm");
+  expect(data.steps[2]?.eligibleCount).toBe(1);
   expect(data.winner?.provider).toBe("glm");
   expect(data.winner?.accountId).toBe(c2.id);
   expect(data.winner?.accountName).toBe("glm-healthy");
-  const coolingCandidate = data.steps[1]?.candidates.find((c) => c.id === c1.id);
+  const coolingCandidate = data.steps[2]?.candidates.find((c) => c.id === c1.id);
   expect(coolingCandidate?.eligible).toBe(false);
   expect(coolingCandidate?.reason).toContain("cooldown");
 });
