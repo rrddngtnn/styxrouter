@@ -1890,6 +1890,39 @@ export async function getProviderCredentials(
       );
     });
 
+    const softQuotaFloorPercent = Math.max(
+      0,
+      Math.min(50, toNumber((settings as Record<string, unknown>).softQuotaFloorPercent, 0)),
+    );
+    const accountMinSpacingMs = Math.max(
+      0,
+      Math.min(60_000, toNumber((settings as Record<string, unknown>).accountMinSpacingMs, 0)),
+    );
+
+    if (softQuotaFloorPercent > 0 && orderedConnections.length > 1) {
+      const aboveFloor = orderedConnections.filter((c) => {
+        const headroom = getConnectionQuotaHeadroomPercent(provider, c, requestedModel);
+        return headroom === null || headroom >= softQuotaFloorPercent;
+      });
+      if (aboveFloor.length > 0 && aboveFloor.length < orderedConnections.length) {
+        const belowFloor = orderedConnections.filter((c) => !aboveFloor.includes(c));
+        orderedConnections.splice(0, orderedConnections.length, ...aboveFloor, ...belowFloor);
+      }
+    }
+
+    if (accountMinSpacingMs > 0 && orderedConnections.length > 1) {
+      const nowMs = Date.now();
+      const spacedReady = orderedConnections.filter((c) => {
+        if (!c.lastUsedAt) return true;
+        const usedAt = new Date(c.lastUsedAt).getTime();
+        return !Number.isFinite(usedAt) || nowMs - usedAt >= accountMinSpacingMs;
+      });
+      if (spacedReady.length > 0 && spacedReady.length < orderedConnections.length) {
+        const spacedCooling = orderedConnections.filter((c) => !spacedReady.includes(c));
+        orderedConnections.splice(0, orderedConnections.length, ...spacedReady, ...spacedCooling);
+      }
+    }
+
     const providerStrategyOverrides = (settings.providerStrategies || {}) as Record<
       string,
       { fallbackStrategy?: string; stickyRoundRobinLimit?: number }

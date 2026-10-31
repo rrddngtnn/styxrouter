@@ -135,6 +135,12 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
   const [requestRetry, setRequestRetry] = useState<number>(Number(initial.requestRetry ?? 2));
   const [maxRetryIntervalSec, setMaxRetryIntervalSec] = useState<number>(Number(initial.maxRetryIntervalSec ?? 30));
   const [stickyLimit, setStickyLimit] = useState<number>(Number(initial.stickyRoundRobinLimit ?? 0));
+  const [softQuotaFloorPercent, setSoftQuotaFloorPercent] = useState<number>(
+    Number(initial.softQuotaFloorPercent ?? 0),
+  );
+  const [accountMinSpacingMs, setAccountMinSpacingMs] = useState<number>(
+    Number(initial.accountMinSpacingMs ?? 0),
+  );
   const [disableStickiness, setDisableStickiness] = useState<boolean>(Boolean(initial.disableSessionStickiness));
   const [promptCacheAffinity, setPromptCacheAffinity] = useState<boolean>(initial.promptCacheAffinityEnabled !== false);
   const [lkgpEnabled, setLkgpEnabled] = useState<boolean>(Boolean(initial.lkgpEnabled));
@@ -190,6 +196,8 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
     setRequestRetry(Number(initial.requestRetry ?? 2));
     setMaxRetryIntervalSec(Number(initial.maxRetryIntervalSec ?? 30));
     setStickyLimit(Number(initial.stickyRoundRobinLimit ?? 0));
+    setSoftQuotaFloorPercent(Number(initial.softQuotaFloorPercent ?? 0));
+    setAccountMinSpacingMs(Number(initial.accountMinSpacingMs ?? 0));
     setDisableStickiness(Boolean(initial.disableSessionStickiness));
     setPromptCacheAffinity(initial.promptCacheAffinityEnabled !== false);
     setLkgpEnabled(Boolean(initial.lkgpEnabled));
@@ -221,6 +229,8 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
       requestRetry: Math.max(0, Math.min(10, Math.round(requestRetry))),
       maxRetryIntervalSec: Math.max(0, Math.min(300, Math.round(maxRetryIntervalSec))),
       stickyRoundRobinLimit: Math.max(0, Math.min(1000, Math.round(stickyLimit))),
+      softQuotaFloorPercent: Math.max(0, Math.min(50, Math.round(softQuotaFloorPercent))),
+      accountMinSpacingMs: Math.max(0, Math.min(60000, Math.round(accountMinSpacingMs))),
       disableSessionStickiness: disableStickiness,
       promptCacheAffinityEnabled: promptCacheAffinity,
       lkgpEnabled,
@@ -288,6 +298,29 @@ function RoutingAndRuntimeSettings({ initial, onSaved }: { initial: SettingsBag;
                   max={1000}
                   value={stickyLimit}
                   onChange={(e) => setStickyLimit(Number(e.target.value))}
+                />
+              </label>
+            </div>
+            <div className="two-col" style={{ gap: 12 }}>
+              <label>
+                {tr("Soft quota floor % (0\u201350)")}
+                <input
+                  type="number"
+                  min={0}
+                  max={50}
+                  value={softQuotaFloorPercent}
+                  onChange={(e) => setSoftQuotaFloorPercent(Number(e.target.value))}
+                />
+              </label>
+              <label>
+                {tr("Min account pacing ms (0\u201360000)")}
+                <input
+                  type="number"
+                  min={0}
+                  max={60000}
+                  step={100}
+                  value={accountMinSpacingMs}
+                  onChange={(e) => setAccountMinSpacingMs(Number(e.target.value))}
                 />
               </label>
             </div>

@@ -26,6 +26,8 @@ import {
   encryptConfigBundle,
 } from "./configBundle.ts";
 import { pruneTelemetryLogs, simulateRoutingDryRun } from "./routingDryRun.ts";
+import { createWebhook, deleteWebhook, getWebhooks, updateWebhook } from "../src/lib/db/webhooks.ts";
+import { WEBHOOK_EVENT_VALUES } from "../src/lib/webhooks/eventDescriptions.ts";
 
 const audit = (action: string, target: string, details?: unknown) =>
   logAuditEvent({ action, actor: "admin", target, details, resourceType: "admin_api", status: "success" });
@@ -326,6 +328,74 @@ export function createAdminApi2() {
     const summary = pruneTelemetryLogs(v.data);
     audit("storage.prune", "database", summary);
     return c.json({ success: true, ...summary });
+  });
+
+  // ── Webhook alert subscriptions CRUD (no secret echoed on list/update) ───
+  const webhookView = (w: any) => ({
+    id: w.id,
+    url: w.url,
+    kind: w.kind ?? "custom",
+    events: Array.isArray(w.events) ? w.events : [],
+    enabled: Boolean(w.enabled),
+    description: w.description ?? "",
+    createdAt: w.created_at ?? null,
+    lastTriggeredAt: w.last_triggered_at ?? null,
+    lastStatus: w.last_status ?? null,
+    failureCount: w.failure_count ?? 0,
+  });
+
+  const createWebhookSchema = z
+    .object({
+      url: z.string().trim().url().max(1000).refine((u) => /^https?:\/\//i.test(u), {
+        message: "Webhook URL must start with http:// or https://",
+      }),
+      kind: z.enum(["slack", "telegram", "discord", "custom"]).default("custom"),
+      description: z.string().trim().max(200).optional().default(""),
+      events: z.array(z.enum(WEBHOOK_EVENT_VALUES)).min(1).max(10),
+    })
+    .strict();
+
+  const patchWebhookSchema = z
+    .object({
+      enabled: z.boolean().optional(),
+      description: z.string().trim().max(200).optional(),
+      events: z.array(z.enum(WEBHOOK_EVENT_VALUES)).min(1).max(10).optional(),
+    })
+    .strict()
+    .refine((v) => Object.keys(v).length > 0, { message: "Nothing to update" });
+
+  api.get("/webhooks", (c) => {
+    c.header("Cache-Control", "no-store");
+    const { webhooks } = getWebhooks({ limit: 100, offset: 0 });
+    return c.json({ webhooks: webhooks.map(webhookView) });
+  });
+
+  api.post("/webhooks", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const v = validateBody(createWebhookSchema, await bodyOf(c));
+    if (isValidationFailure(v)) return bad(c, v.error);
+    const created = createWebhook(v.data);
+    audit("webhook.create", created.id, { kind: created.kind, events: created.events });
+    return c.json({ webhook: webhookView(created) }, 201);
+  });
+
+  api.patch("/webhooks/:id", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const id = c.req.param("id");
+    const v = validateBody(patchWebhookSchema, await bodyOf(c));
+    if (isValidationFailure(v)) return bad(c, v.error);
+    const updated = updateWebhook(id, v.data);
+    if (!updated) return notFound(c, "Webhook");
+    audit("webhook.update", id, v.data);
+    return c.json({ webhook: webhookView(updated) });
+  });
+
+  api.delete("/webhooks/:id", (c) => {
+    c.header("Cache-Control", "no-store");
+    const id = c.req.param("id");
+    if (!deleteWebhook(id)) return notFound(c, "Webhook");
+    audit("webhook.delete", id);
+    return c.json({ success: true });
   });
 
   return api;

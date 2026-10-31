@@ -94,6 +94,8 @@ const PORTABLE_SETTINGS_KEYS = [
   "comboStrategy",
   "requestRetry",
   "maxRetryIntervalSec",
+  "softQuotaFloorPercent",
+  "accountMinSpacingMs",
   "stickyRoundRobinLimit",
   "disableSessionStickiness",
   "promptCacheAffinityEnabled",

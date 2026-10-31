@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   EmergencyDispatchPauseCard,
   HealthAndVersionsView,
+  WebhookAlertsCard,
   validateSemverPin,
 } from "../src/components/settings/HealthAndVersionsSettings.tsx";
 
@@ -129,4 +130,26 @@ test("EmergencyDispatchPauseCard displays active account counts and emergency pa
   expect(html).toContain("12");
   expect(html).toContain("15");
   expect(html).toContain("Disable all active accounts");
+});
+
+test("WebhookAlertsCard renders configured alert destinations and event subscriptions", () => {
+  const html = renderToStaticMarkup(
+    <WebhookAlertsCard
+      webhooks={[
+        {
+          id: "wh-1",
+          url: "https://hooks.example.com/telegram",
+          kind: "telegram",
+          events: ["quota.exceeded", "request.failed"],
+          enabled: true,
+          description: "Telegram Ops Bot",
+          lastStatus: 200,
+        },
+      ]}
+    />,
+  );
+  expect(html).toContain("Webhook &amp; Telegram Alert Subscriptions");
+  expect(html).toContain("Telegram Ops Bot");
+  expect(html).toContain("quota.exceeded, request.failed");
+  expect(html).toContain("HTTP 200");
 });

@@ -318,6 +318,8 @@ export const updateSettingsSchema = z.object({
     .optional(),
   requestRetry: z.number().int().min(0).max(10).optional(),
   maxRetryIntervalSec: z.number().int().min(0).max(300).optional(),
+  softQuotaFloorPercent: z.number().int().min(0).max(50).optional(),
+  accountMinSpacingMs: z.number().int().min(0).max(60000).optional(),
   maxBodySizeMb: z
     .number()
     .int()

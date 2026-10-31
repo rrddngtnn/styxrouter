@@ -512,32 +512,272 @@ export function HealthAndVersionsSettings() {
   }
 
   return (
-    <HealthAndVersionsView
-      zcode={zcode.status === "ok" ? zcode.data : null}
-      antigravityIde={agIde.status === "ok" ? agIde.data : null}
-      antigravityCli={agCli.status === "ok" ? agCli.data : null}
-      processHealth={{
-        startedAt: start.status === "ok" ? start.data.startedAt : null,
-        peakRssBytes: peak.status === "ok" ? peak.data.peakRssBytes : null,
-        userMicroseconds: cpu.status === "ok" ? cpu.data.userMicroseconds : null,
-        systemMicroseconds: cpu.status === "ok" ? cpu.data.systemMicroseconds : null,
-        threadCount: threads.status === "ok" ? threads.data.threadCount : null,
-        tokenScheduler: sched.status === "ok" ? sched.data : null,
-        storage: {
-          databaseBytes: storage.status === "ok" ? storage.data.databaseBytes : null,
-          walBytes: storage.status === "ok" ? storage.data.walBytes : null,
-          lastSuccessfulSchedulerVacuumAt:
-            vacuum.status === "ok" ? vacuum.data.lastSuccessfulSchedulerVacuumAt : null,
-        },
-      }}
-      dispatchHealth={dispatch.status === "ok" ? dispatch.data.providers ?? [] : []}
-      routingTrace={trace.status === "ok" ? trace.data : null}
+    <div style={{ display: "grid", gap: 16 }}>
+      <HealthAndVersionsView
+        zcode={zcode.status === "ok" ? zcode.data : null}
+        antigravityIde={agIde.status === "ok" ? agIde.data : null}
+        antigravityCli={agCli.status === "ok" ? agCli.data : null}
+        processHealth={{
+          startedAt: start.status === "ok" ? start.data.startedAt : null,
+          peakRssBytes: peak.status === "ok" ? peak.data.peakRssBytes : null,
+          userMicroseconds: cpu.status === "ok" ? cpu.data.userMicroseconds : null,
+          systemMicroseconds: cpu.status === "ok" ? cpu.data.systemMicroseconds : null,
+          threadCount: threads.status === "ok" ? threads.data.threadCount : null,
+          tokenScheduler: sched.status === "ok" ? sched.data : null,
+          storage: {
+            databaseBytes: storage.status === "ok" ? storage.data.databaseBytes : null,
+            walBytes: storage.status === "ok" ? storage.data.walBytes : null,
+            lastSuccessfulSchedulerVacuumAt:
+              vacuum.status === "ok" ? vacuum.data.lastSuccessfulSchedulerVacuumAt : null,
+          },
+        }}
+        dispatchHealth={dispatch.status === "ok" ? dispatch.data.providers ?? [] : []}
+        routingTrace={trace.status === "ok" ? trace.data : null}
+        busy={busy}
+        onPinZcode={pinZcode}
+        onRefreshZcode={refreshZcode}
+        onPinAntigravity={pinAntigravity}
+        onRefreshAntigravity={refreshAntigravity}
+        onReloadAll={reloadAll}
+      />
+      <WebhookAlertsSection />
+    </div>
+  );
+}
+
+export interface WebhookSubscriptionRow {
+  id: string;
+  url: string;
+  kind: "slack" | "telegram" | "discord" | "custom";
+  events: string[];
+  enabled: boolean;
+  description: string;
+  lastTriggeredAt?: string | null;
+  lastStatus?: number | null;
+  failureCount?: number;
+}
+
+export function WebhookAlertsCard({
+  webhooks,
+  busy = false,
+  onCreate = () => {},
+  onToggle = () => {},
+  onDelete = () => {},
+}: {
+  webhooks: WebhookSubscriptionRow[];
+  busy?: boolean;
+  onCreate?: (input: { url: string; kind: WebhookSubscriptionRow["kind"]; description: string; events: string[] }) => void;
+  onToggle?: (id: string, enabled: boolean) => void;
+  onDelete?: (id: string) => void;
+}) {
+  const tr = useTranslator();
+  const [url, setUrl] = useState("");
+  const [kind, setKind] = useState<WebhookSubscriptionRow["kind"]>("telegram");
+  const [description, setDescription] = useState("");
+  const [selectedEvents, setSelectedEvents] = useState<string[]>(["quota.exceeded", "request.failed"]);
+
+  const toggleEvent = (ev: string) => {
+    setSelectedEvents((cur) => (cur.includes(ev) ? cur.filter((x) => x !== ev) : [...cur, ev]));
+  };
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!url.trim() || selectedEvents.length === 0) return;
+    onCreate({ url: url.trim(), kind, description: description.trim(), events: selectedEvents });
+    setUrl("");
+    setDescription("");
+  };
+
+  return (
+    <section className="settings-card">
+      <div className="section-head" style={{ marginBottom: 12 }}>
+        <div>
+          <h2 style={{ marginBottom: 4 }}>{tr("Webhook & Telegram Alert Subscriptions")}</h2>
+          <p className="muted" style={{ margin: 0 }}>
+            {tr("Receive outbound notifications when account quotas hit thresholds or requests fail across all fallback steps.")}
+          </p>
+        </div>
+      </div>
+
+      <form onSubmit={submit} className="stack-form" style={{ marginBottom: 16 }}>
+        <div className="two-col" style={{ gap: 12 }}>
+          <label>
+            {tr("Target URL (https://…)")}
+            <input
+              type="url"
+              placeholder="https://api.telegram.org/bot… or https://hooks.example.com/…"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              disabled={busy}
+              required
+            />
+          </label>
+          <div className="two-col" style={{ gap: 12 }}>
+            <label>
+              {tr("Channel kind")}
+              <select
+                value={kind}
+                onChange={(e) => setKind(e.target.value as WebhookSubscriptionRow["kind"])}
+                disabled={busy}
+              >
+                <option value="telegram">Telegram</option>
+                <option value="discord">Discord</option>
+                <option value="slack">Slack</option>
+                <option value="custom">Custom HMAC Webhook</option>
+              </select>
+            </label>
+            <label>
+              {tr("Label / description")}
+              <input
+                type="text"
+                placeholder={tr("e.g. Ops Telegram Alert")}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                disabled={busy}
+              />
+            </label>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+          {(["quota.exceeded", "request.failed", "request.completed", "test.ping"] as const).map((ev) => (
+            <label key={ev} className="check" style={{ fontSize: 14 }}>
+              <input
+                type="checkbox"
+                checked={selectedEvents.includes(ev)}
+                onChange={() => toggleEvent(ev)}
+                disabled={busy}
+              />
+              <code>{ev}</code>
+            </label>
+          ))}
+          <button type="submit" className="btn-add" disabled={busy || !url.trim() || selectedEvents.length === 0}>
+            <span>{tr("Add webhook")}</span>
+          </button>
+        </div>
+      </form>
+
+      {webhooks.length === 0 ? (
+        <p className="muted" style={{ margin: 0 }}>{tr("No webhook subscriptions configured.")}</p>
+      ) : (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <TableScroll label={tr("Webhooks table")} stickyPrimary>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{tr("Destination")}</th>
+                  <th>{tr("Kind")}</th>
+                  <th>{tr("Events")}</th>
+                  <th>{tr("Status")}</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {webhooks.map((w) => (
+                  <tr key={w.id}>
+                    <td>
+                      <div>
+                        <strong>{w.description || w.url}</strong>
+                      </div>
+                      {w.description && (
+                        <div className="muted" style={{ fontSize: 14 }}>
+                          <code>{w.url}</code>
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <span className="vendor-badge">{w.kind}</span>
+                    </td>
+                    <td>
+                      <code>{w.events.join(", ")}</code>
+                    </td>
+                    <td className={w.enabled ? "ok" : "muted"}>
+                      {w.enabled ? tr("enabled") : tr("disabled")}
+                      {w.lastStatus ? ` · HTTP ${w.lastStatus}` : ""}
+                    </td>
+                    <td className="row-actions">
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        disabled={busy}
+                        onClick={() => onToggle(w.id, !w.enabled)}
+                      >
+                        {w.enabled ? tr("Disable") : tr("Enable")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-danger"
+                        disabled={busy}
+                        onClick={() => onDelete(w.id)}
+                      >
+                        {tr("Delete")}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function WebhookAlertsSection() {
+  const state = useFetch<{ webhooks?: WebhookSubscriptionRow[] }>("/api/webhooks");
+  const [busy, setBusy] = useState(false);
+  const rows = state.status === "ok" ? state.data.webhooks ?? [] : [];
+
+  async function create(input: {
+    url: string;
+    kind: WebhookSubscriptionRow["kind"];
+    description: string;
+    events: string[];
+  }) {
+    setBusy(true);
+    try {
+      await api.post("/api/webhooks", input);
+      toast.success("Webhook subscription added");
+      state.reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggle(id: string, enabled: boolean) {
+    setBusy(true);
+    try {
+      await api.patch(`/api/webhooks/${encodeURIComponent(id)}`, { enabled });
+      state.reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: string) {
+    setBusy(true);
+    try {
+      await api.delete(`/api/webhooks/${encodeURIComponent(id)}`);
+      toast.success("Webhook deleted");
+      state.reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <WebhookAlertsCard
+      webhooks={rows}
       busy={busy}
-      onPinZcode={pinZcode}
-      onRefreshZcode={refreshZcode}
-      onPinAntigravity={pinAntigravity}
-      onRefreshAntigravity={refreshAntigravity}
-      onReloadAll={reloadAll}
+      onCreate={create}
+      onToggle={toggle}
+      onDelete={remove}
     />
   );
 }
