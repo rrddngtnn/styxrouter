@@ -32,6 +32,13 @@ import { deliverStoredWebhook } from "../src/lib/webhookDispatcher.ts";
 import { clearAllModelLockouts, getModelLockoutSize } from "../open-sse/services/accountFallback.ts";
 import { getProxyConfig, setProxyForLevel } from "../src/lib/db/settings.ts";
 import { executeTokenHealthPass } from "./tokenSchedulerHealth.ts";
+import {
+  EDITABLE_ENV_ALLOWLIST,
+  applyEnvUpdatesToFile,
+  defaultServerEnvPath,
+  parseMaskedEnvFile,
+  validateEnvUpdates,
+} from "./envEditor.ts";
 
 const audit = (action: string, target: string, details?: unknown) =>
   logAuditEvent({ action, actor: "admin", target, details, resourceType: "admin_api", status: "success" });
@@ -513,6 +520,37 @@ export function createAdminApi2() {
       host: parsedProxy?.host ?? null,
     });
     return c.json({ success: true });
+  });
+
+  // ── In-panel .env inspector & syntax-checked allowlisted editor (P13) ───
+  api.get("/admin/env", (c) => {
+    c.header("Cache-Control", "no-store");
+    return c.json({
+      entries: parseMaskedEnvFile(),
+      allowlist: [...EDITABLE_ENV_ALLOWLIST],
+    });
+  });
+
+  api.put("/admin/env", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const body = (await bodyOf(c)) as { updates?: Record<string, unknown> } | undefined;
+    if (!body || !body.updates || typeof body.updates !== "object" || Array.isArray(body.updates)) {
+      return bad(c, "Expected { updates: Record<string, string> }");
+    }
+    const validation = validateEnvUpdates(body.updates);
+    if (validation.ok === false) {
+      return bad(c, validation.error);
+    }
+    try {
+      const result = applyEnvUpdatesToFile(
+        defaultServerEnvPath(),
+        body.updates as Record<string, string>,
+      );
+      audit("env.update", ".env", { keys: result.updatedKeys });
+      return c.json({ success: true, ...result });
+    } catch (e) {
+      return bad(c, e instanceof Error ? e.message : "Could not update .env");
+    }
   });
 
   return api;

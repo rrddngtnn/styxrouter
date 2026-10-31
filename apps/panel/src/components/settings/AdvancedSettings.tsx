@@ -24,8 +24,63 @@ export function AdvancedSettings({settings,loading=false,error}: {settings:Recor
       {loading ? <LoadingState label={t('Loading configuration')}/> : error ? <p role="alert" className="bad">{error}</p> : jsonView ? <pre className="json">{json}</pre> : <div className="advanced-table-wrap"><TableScroll label={t('Configuration table')} stickyPrimary><table className="table"><thead><tr><th>{t('Setting')}</th><th>{t('Value')}</th></tr></thead><tbody>{Object.entries(shown).map(([key,value])=><tr key={key}><td><code>{key}</code></td><td>{typeof value==='object'&&value!==null?<details><summary>{Array.isArray(value)?`${value.length} ${t('items')}`:t('Object')}</summary><pre className="json">{JSON.stringify(value,null,2)}</pre></details>:<code>{String(value)}</code>}</td></tr>)}</tbody></table></TableScroll>{Object.keys(shown).length===0&&<p className="muted">{t('No matching settings')}</p>}</div>}
     </section>
     <EncryptedConfigBundleSection />
+    <EnvironmentEditorSection />
     <LocalMigration />
   </div>;
+}
+
+export function EnvironmentEditorSection() {
+  const {t} = usePreferences();
+  const [keyName, setKeyName] = useState('STYX_ANTIGRAVITY_CLIENT_PROFILE');
+  const [keyValue, setKeyValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [savedMsg, setSavedMsg] = useState('');
+
+  async function saveEnvKey(e: React.FormEvent) {
+    e.preventDefault();
+    if (!keyName.trim()) return;
+    setBusy(true); setErr(''); setSavedMsg('');
+    try {
+      const res = await api.put<{updatedKeys:string[];backupPath:string|null}>('/api/admin/env', {
+        updates: { [keyName.trim()]: keyValue.trim() },
+      });
+      setSavedMsg(`Updated ${res.updatedKeys.join(', ')}${res.backupPath ? ' (backup saved to .env.bak)' : ''}`);
+      setKeyValue('');
+      toast.success(t('Environment variable saved with .env.bak backup'));
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <section className="settings-card">
+    <div className="section-head"><div><h2 className="advanced-migration-title">{t('Environment (.env) syntax-checked editor')}</h2><p className="muted">{t('Update allowlisted non-secret environment variables with quote-balance validation and automatic .env.bak backup before writing.')}</p></div></div>
+    <form className="stack-form" onSubmit={saveEnvKey}>
+      <div className="two-col" style={{ gap: 12 }}>
+        <label>{t('Allowlisted variable')}<select value={keyName} onChange={e=>setKeyName(e.target.value)} disabled={busy}>
+          {[
+            'STYX_ANTIGRAVITY_CLIENT_PROFILE',
+            'STYX_TRUSTED_PUBLIC_ORIGIN',
+            'AUTH_COOKIE_SECURE',
+            'STYX_BACKUP_KEEP',
+            'STYX_BACKUP_MIN_FREE_MB',
+            'STYX_BACKUP_INTERVAL_HOURS',
+            'STYX_DISABLE_TOKEN_HEALTHCHECK',
+            'RATMAN_SOUL_PATH',
+            'STREAM_RECOVERY_ENABLED',
+            'STREAM_RECOVERY_MIDSTREAM_ENABLED',
+            'STREAM_THROUGHPUT_WATCHDOG_ENABLED',
+          ].map(k => <option key={k} value={k}>{k}</option>)}
+        </select></label>
+        <label>{t('Value')}<input type="text" placeholder={t('New value')} value={keyValue} onChange={e=>setKeyValue(e.target.value)} disabled={busy} required/></label>
+      </div>
+      <div><button type="submit" className="btn-add" disabled={busy||!keyValue.trim()}><span>{busy?'…':t('Validate & write .env')}</span></button></div>
+    </form>
+    {err && <p role="alert" className="bad">{err}</p>}
+    {savedMsg && <p role="status" className="ok">{savedMsg}</p>}
+  </section>;
 }
 
 export function EncryptedConfigBundleSection() {

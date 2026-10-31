@@ -143,7 +143,116 @@ export function Quota() {
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
       {state.status === "ok" && !state.data.providers?.length && <p className="muted">{tag ? tr("No matching accounts.") : tr("No accounts connected.")}</p>}
       {state.status === "ok" && <QuotaBrowser rows={state.data.providers ?? []} names={names} live={live} syncingAll={syncingAll} onRefresh={refresh} onCheckGroup={checkGroup} selectedProvider={selectedProvider} onSelectProvider={setSelectedProvider} />}
+      <QuotaPoolsSection connections={state.status === "ok" ? state.data.providers ?? [] : []} />
     </div>
+  );
+}
+
+interface QuotaPoolItem {
+  id: string;
+  name: string;
+  connectionId: string;
+  connectionIds?: string[];
+  exclusive?: boolean;
+}
+
+function QuotaPoolsSection({ connections }: { connections: QuotaRow[] }) {
+  const tr = useQuotaTranslator();
+  const poolsState = useFetch<{ pools?: QuotaPoolItem[]; total?: number }>("/api/quota/pools");
+  const [poolName, setPoolName] = useState("");
+  const [connId, setConnId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const pools = poolsState.status === "ok" ? poolsState.data.pools ?? [] : [];
+
+  async function createPoolNow(e: React.FormEvent) {
+    e.preventDefault();
+    const targetConn = connId || connections[0]?.connectionId || "";
+    if (!poolName.trim() || !targetConn) return;
+    setBusy(true);
+    try {
+      await api.post("/api/quota/pools", {
+        name: poolName.trim(),
+        connectionId: targetConn,
+        connectionIds: [targetConn],
+      });
+      toast.success(`Created quota pool “${poolName.trim()}”`);
+      setPoolName("");
+      poolsState.reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removePool(id: string) {
+    setBusy(true);
+    try {
+      await api.delete(`/api/quota/pools/${encodeURIComponent(id)}`);
+      toast.success("Quota pool removed");
+      poolsState.reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <details className="card" style={{ padding: 14, marginTop: 20 }}>
+      <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+        {tr("Quota-Share Pools")} ({pools.length})
+      </summary>
+      <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+        <p className="muted" style={{ margin: 0, fontSize: 14 }}>
+          {tr("Group accounts into named quota-share pools (auto-minting quotaShared-* routing combos).")}
+        </p>
+        {connections.length > 0 && (
+          <form onSubmit={createPoolNow} className="toolbar" style={{ marginBottom: 0 }}>
+            <input
+              type="text"
+              placeholder={tr("Pool name (e.g. team-alpha)")}
+              value={poolName}
+              onChange={(e) => setPoolName(e.target.value)}
+              disabled={busy}
+            />
+            <select
+              aria-label={tr("Primary account")}
+              value={connId || connections[0]?.connectionId || ""}
+              onChange={(e) => setConnId(e.target.value)}
+              disabled={busy}
+            >
+              {connections.map((c) => (
+                <option key={c.connectionId} value={c.connectionId}>
+                  {c.name} ({c.provider})
+                </option>
+              ))}
+            </select>
+            <button type="submit" className="btn-add" disabled={busy || !poolName.trim()}>
+              {tr("Create pool")}
+            </button>
+          </form>
+        )}
+        {pools.length > 0 && (
+          <div style={{ display: "grid", gap: 8 }}>
+            {pools.map((p) => (
+              <div
+                key={p.id}
+                className="card"
+                style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+              >
+                <span>
+                  <strong>{p.name}</strong> · <code>{p.id.slice(0, 8)}</code>
+                </span>
+                <button type="button" className="btn-danger" disabled={busy} onClick={() => void removePool(p.id)}>
+                  {tr("Delete")}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
 
