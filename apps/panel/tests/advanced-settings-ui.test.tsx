@@ -13,6 +13,7 @@ test("inspector renders redacted readable configuration with read-only export co
   expect(html).not.toContain("DO_NOT_RENDER");
   expect(html).not.toContain("NESTED_SECRET");
   expect(html).not.toContain("textarea");
+  expect(html).toContain("Encrypted configuration export &amp; import");
   expect(html).toContain("Not available from a remote domain");
   expect(html).toMatch(/<h2[^>]*class="advanced-migration-title"/);
   expect(html).not.toMatch(/<details[^>]*>\s*<summary[^>]*class="advanced-migration-title"/);

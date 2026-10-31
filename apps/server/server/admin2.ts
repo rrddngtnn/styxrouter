@@ -19,6 +19,12 @@ import { getAuditLog, countAuditLog, logAuditEvent } from "../src/lib/compliance
 import { isReservedProviderPrefix } from "../src/shared/constants/reservedProviderPrefixes.ts";
 import { REGISTRY } from "../open-sse/config/providers/index.ts";
 import { createKeySchema } from "../src/shared/validation/schemas/keys.ts";
+import {
+  applyPortableConfigBundle,
+  buildPortableConfigBundle,
+  decryptConfigBundle,
+  encryptConfigBundle,
+} from "./configBundle.ts";
 
 const audit = (action: string, target: string, details?: unknown) =>
   logAuditEvent({ action, actor: "admin", target, details, resourceType: "admin_api", status: "success" });
@@ -244,6 +250,49 @@ export function createAdminApi2() {
     if (!ok) return notFound(c, "Connection");
     audit("connection.rotateKey", id);
     return c.json({ success: true });
+  });
+
+  // ── Passphrase-encrypted portable configuration export & import (P8) ────
+  const exportBundleSchema = z
+    .object({
+      passphrase: z.string().min(12, "Passphrase must be at least 12 characters").max(200),
+    })
+    .strict();
+
+  api.post("/config-bundle/export", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const v = validateBody(exportBundleSchema, await bodyOf(c));
+    if (isValidationFailure(v)) return bad(c, v.error);
+    const payload = await buildPortableConfigBundle();
+    const bundle = encryptConfigBundle(payload, v.data.passphrase);
+    audit("configBundle.export", "settings", {
+      combos: payload.combos.length,
+      providerNodes: payload.providerNodes.length,
+    });
+    return c.json({ bundle });
+  });
+
+  const importBundleSchema = z
+    .object({
+      passphrase: z.string().min(12, "Passphrase must be at least 12 characters").max(200),
+      mode: z.enum(["merge", "replace"]).default("merge"),
+      bundle: z.unknown(),
+    })
+    .strict();
+
+  api.post("/config-bundle/import", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const v = validateBody(importBundleSchema, await bodyOf(c));
+    if (isValidationFailure(v)) return bad(c, v.error);
+    let decrypted;
+    try {
+      decrypted = decryptConfigBundle(v.data.bundle, v.data.passphrase);
+    } catch {
+      return bad(c, "Could not decrypt bundle: invalid passphrase or corrupted envelope");
+    }
+    const summary = await applyPortableConfigBundle(decrypted, v.data.mode);
+    audit("configBundle.import", "settings", { mode: v.data.mode, ...summary });
+    return c.json({ success: true, ...summary });
   });
 
   return api;

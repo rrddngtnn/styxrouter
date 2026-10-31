@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Copy, Download, Database, Search } from 'lucide-react';
+import { Copy, Download, Database, Lock, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Modal } from '../../lib/actions.tsx';
-import { api } from '../../lib/api.ts';
+import { api, type JsonValue } from '../../lib/api.ts';
 import { usePreferences } from '../../lib/preferences.tsx';
 import { LoadingState } from '../PageStates.tsx';
 import { TableScroll } from '../TableScroll.tsx';
@@ -23,8 +23,85 @@ export function AdvancedSettings({settings,loading=false,error}: {settings:Recor
       <div className="toolbar"><label className="advanced-search"><Search size={16}/><input type="search" aria-label={t('Search setting keys')} placeholder={t('Search setting keys')} value={query} onChange={e=>setQuery(e.target.value)}/></label><button className="btn-ghost" aria-pressed={jsonView} onClick={()=>setJsonView(!jsonView)}>{t(jsonView?'Table view':'JSON view')}</button></div>
       {loading ? <LoadingState label={t('Loading configuration')}/> : error ? <p role="alert" className="bad">{error}</p> : jsonView ? <pre className="json">{json}</pre> : <div className="advanced-table-wrap"><TableScroll label={t('Configuration table')} stickyPrimary><table className="table"><thead><tr><th>{t('Setting')}</th><th>{t('Value')}</th></tr></thead><tbody>{Object.entries(shown).map(([key,value])=><tr key={key}><td><code>{key}</code></td><td>{typeof value==='object'&&value!==null?<details><summary>{Array.isArray(value)?`${value.length} ${t('items')}`:t('Object')}</summary><pre className="json">{JSON.stringify(value,null,2)}</pre></details>:<code>{String(value)}</code>}</td></tr>)}</tbody></table></TableScroll>{Object.keys(shown).length===0&&<p className="muted">{t('No matching settings')}</p>}</div>}
     </section>
+    <EncryptedConfigBundleSection />
     <LocalMigration />
   </div>;
+}
+
+export function EncryptedConfigBundleSection() {
+  const {t} = usePreferences();
+  const [exportPass, setExportPass] = useState('');
+  const [importPass, setImportPass] = useState('');
+  const [importMode, setImportMode] = useState<'merge'|'replace'>('merge');
+  const [bundleText, setBundleText] = useState('');
+  const [busy, setBusy] = useState<'export'|'import'|null>(null);
+  const [err, setErr] = useState('');
+  const [importSummary, setImportSummary] = useState<{settingsUpdated:number;combosImported:number;providerNodesImported:number}|null>(null);
+
+  async function handleExport(e: React.FormEvent) {
+    e.preventDefault();
+    if (exportPass.trim().length < 12) return;
+    setBusy('export'); setErr('');
+    try {
+      const res = await api.post<{bundle: unknown}>('/api/config-bundle/export', { passphrase: exportPass });
+      const text = JSON.stringify(res.bundle, null, 2);
+      const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `styx-config-bundle-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setExportPass('');
+      toast.success(t('Encrypted configuration bundle exported'));
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleImport(e: React.FormEvent) {
+    e.preventDefault();
+    if (importPass.trim().length < 12 || !bundleText.trim()) return;
+    setBusy('import'); setErr(''); setImportSummary(null);
+    try {
+      let parsed: JsonValue;
+      try { parsed = JSON.parse(bundleText) as JsonValue; } catch { throw new Error('Bundle must be valid JSON'); }
+      const res = await api.post<{settingsUpdated:number;combosImported:number;providerNodesImported:number}>('/api/config-bundle/import', {
+        passphrase: importPass,
+        mode: importMode,
+        bundle: parsed,
+      });
+      setImportSummary(res);
+      setImportPass('');
+      setBundleText('');
+      toast.success(t('Configuration bundle imported'));
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return <section className="settings-card">
+    <div className="section-head"><div><h2 className="advanced-migration-title"><Lock size={18}/>{t('Encrypted configuration export & import')}</h2><p className="muted">{t('Export routing settings, combos, and custom provider nodes encrypted with a fresh passphrase (AES-256-GCM), or restore a bundle onto another host.')}</p></div></div>
+    <div className="two-col" style={{ gap: 16 }}>
+      <form className="stack-form" onSubmit={handleExport}>
+        <strong>{t('Export encrypted bundle')}</strong>
+        <label>{t('Bundle passphrase (12+ characters)')}<input type="password" autoComplete="new-password" placeholder={t('Enter encryption passphrase')} minLength={12} value={exportPass} onChange={e=>setExportPass(e.target.value)} disabled={busy!==null}/></label>
+        <div><button type="submit" className="btn-add" disabled={busy!==null||exportPass.trim().length<12}><Download size={14}/><span>{busy==='export'?'…':t('Export encrypted bundle')}</span></button></div>
+      </form>
+      <form className="stack-form" onSubmit={handleImport}>
+        <strong>{t('Import encrypted bundle')}</strong>
+        <label>{t('Decryption passphrase')}<input type="password" autoComplete="off" placeholder={t('Enter bundle passphrase')} minLength={12} value={importPass} onChange={e=>setImportPass(e.target.value)} disabled={busy!==null}/></label>
+        <label>{t('Import mode')}<select value={importMode} onChange={e=>setImportMode(e.target.value as 'merge'|'replace')} disabled={busy!==null}><option value="merge">{t('Merge with existing combos & settings')}</option><option value="replace">{t('Replace existing combos')}</option></select></label>
+        <label>{t('Encrypted bundle JSON file')}<input type="file" accept=".json,application/json" disabled={busy!==null} onChange={async e=>{const file=e.target.files?.[0];if(!file)return;try{setBundleText(await file.text());}catch{setErr('Could not read file');}}}/></label>
+        <div><button type="submit" className="btn-ghost" disabled={busy!==null||importPass.trim().length<12||!bundleText.trim()}><Upload size={14}/><span>{busy==='import'?'…':t('Import bundle')}</span></button></div>
+      </form>
+    </div>
+    {err && <p role="alert" className="bad">{err}</p>}
+    {importSummary && <p role="status" className="ok">{t('Imported')}: {importSummary.settingsUpdated} settings, {importSummary.combosImported} combos, {importSummary.providerNodesImported} custom nodes.</p>}
+  </section>;
 }
 function LocalMigration(){
   const {t}=usePreferences();const local=typeof location!=='undefined'&&isMigrationLoopback(location.hostname);

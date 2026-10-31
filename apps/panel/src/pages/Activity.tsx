@@ -1,12 +1,13 @@
 import { useTranslator } from "../lib/useTranslator.ts";
-import { useMemo, useState } from "react";
-import { Copy, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Copy, Radio, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { EmptyState, LoadingState } from "../components/PageStates.tsx";
 import { TableScroll } from "../components/TableScroll.tsx";
 import { Pagination } from "../components/Pagination.tsx";
 import { Modal } from "../lib/actions.tsx";
+import { decodeUpstreamError } from "../lib/error-decoder.ts";
 import { DASH, int, ms, when } from "../lib/format.ts";
 import { paginationState } from "../lib/pagination.ts";
 import { useFetch } from "../lib/useFetch.ts";
@@ -37,6 +38,7 @@ export function Activity() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [selected, setSelected] = useState<CallLog | null>(null);
+  const [liveTail, setLiveTail] = useState(false);
 
   const toggleErrors = (checked: boolean) => {
     setOnlyErrors(checked);
@@ -48,6 +50,13 @@ export function Activity() {
   };
 
   const state = useFetch<CallLog[]>(`/api/usage/call-logs?limit=${limit}`);
+  useEffect(() => {
+    if (!liveTail) return;
+    const timer = setInterval(() => {
+      state.reload();
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [liveTail, state.reload]);
   const provs = useFetch<{ providers?: { id: string; name?: string }[] }>("/api/providers");
   const nodes = useFetch<{ nodes?: { id: string; name: string; prefix: string | null }[] }>("/api/provider-nodes");
   const providerNames = useMemo(() => {
@@ -86,10 +95,21 @@ export function Activity() {
           <h1 style={{ marginBottom: 4 }}>{tr("Activity")}</h1>
           <p className="muted" style={{ margin: 0 }}>{tr("Recent request telemetry and upstream error diagnostics. Click any row to inspect full details.")}</p>
         </div>
-        <button type="button" className="btn-ghost" onClick={state.reload}>
-          <RefreshCw size={14} />
-          <span>{tr("Refresh")}</span>
-        </button>
+        <div className="row-actions">
+          <button
+            type="button"
+            className={liveTail ? "btn-add" : "btn-ghost"}
+            aria-pressed={liveTail}
+            onClick={() => setLiveTail((v) => !v)}
+          >
+            <Radio size={14} />
+            <span>{liveTail ? tr("Live tail: ON") : tr("Live tail")}</span>
+          </button>
+          <button type="button" className="btn-ghost" onClick={state.reload}>
+            <RefreshCw size={14} />
+            <span>{tr("Refresh")}</span>
+          </button>
+        </div>
       </div>
 
       <div className="toolbar">
@@ -262,36 +282,59 @@ export function Activity() {
                 </div>
               </div>
             </div>
-            {selected.error ? (
+            {(selected.error || (selected.status != null && selected.status >= 400)) ? (
               <div>
-                <div className="section-head" style={{ marginBottom: 6 }}>
-                  <small className="bad">{tr("Upstream error message")}</small>
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    onClick={() =>
-                      navigator.clipboard?.writeText(selected.error ?? "").then(() => toast.success("Copied error message"))
-                    }
-                  >
-                    <Copy size={13} />
-                    <span>{tr("Copy error")}</span>
-                  </button>
-                </div>
-                <pre
-                  style={{
-                    margin: 0,
-                    padding: 12,
-                    borderRadius: 6,
-                    background: "#08090a",
-                    border: "1px solid rgba(248, 113, 113, 0.35)",
-                    color: "#fca5a5",
-                    fontSize: 14,
-                    whiteSpace: "pre-wrap",
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  {selected.error}
-                </pre>
+                {(() => {
+                  const decoded = decodeUpstreamError({
+                    provider: selected.provider ?? selected.providerDisplay,
+                    status: selected.status,
+                    error: selected.error,
+                  });
+                  return decoded ? (
+                    <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                        <strong>{tr(decoded.title)}</strong>
+                        <span className="vendor-badge">{decoded.code}</span>
+                      </div>
+                      <p className="muted" style={{ margin: "0 0 6px 0", fontSize: 14 }}>{tr(decoded.summary)}</p>
+                      <p style={{ margin: 0, fontSize: 14 }}>
+                        <strong>{tr("Recommended action")}:</strong> {tr(decoded.recommendedAction)}
+                      </p>
+                    </div>
+                  ) : null;
+                })()}
+                {selected.error && (
+                  <>
+                    <div className="section-head" style={{ marginBottom: 6 }}>
+                      <small className="bad">{tr("Upstream error message")}</small>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        onClick={() =>
+                          navigator.clipboard?.writeText(selected.error ?? "").then(() => toast.success("Copied error message"))
+                        }
+                      >
+                        <Copy size={13} />
+                        <span>{tr("Copy error")}</span>
+                      </button>
+                    </div>
+                    <pre
+                      style={{
+                        margin: 0,
+                        padding: 12,
+                        borderRadius: 6,
+                        background: "#08090a",
+                        border: "1px solid rgba(248, 113, 113, 0.35)",
+                        color: "#fca5a5",
+                        fontSize: 14,
+                        whiteSpace: "pre-wrap",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {selected.error}
+                    </pre>
+                  </>
+                )}
               </div>
             ) : (
               <p className="muted" style={{ margin: 0 }}>{tr("Completed without upstream errors.")}</p>

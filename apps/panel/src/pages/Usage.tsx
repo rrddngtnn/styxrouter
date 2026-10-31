@@ -15,6 +15,65 @@ const RANGES = ["1d", "7d", "30d", "90d", "365d", "all"] as const;
 type Range = (typeof RANGES)[number];
 type Metric = "requests" | "totalTokens" | "cost";
 
+export interface UsageProviderRow {
+  provider: string;
+  providerId?: string;
+  requests: number;
+  totalTokens: number;
+  avgLatencyMs: number;
+  successRatePct: number | string;
+  cost: number;
+}
+
+export function UsageFocusBar({
+  providers,
+  selected,
+  onSelect,
+  label,
+}: {
+  providers: UsageProviderRow[];
+  selected: string;
+  onSelect: (providerId: string) => void;
+  label: (id: string) => string;
+}) {
+  const tr = useTranslator();
+  if (!providers.length) return null;
+  return (
+    <section className="card" style={{ padding: 14, marginBottom: 20 }} aria-label={tr("Provider focus")}>
+      <div className="row-actions" style={{ flexWrap: "wrap", gap: 8 }}>
+        <button
+          type="button"
+          className={!selected ? "btn-add" : "btn-ghost"}
+          aria-pressed={!selected}
+          onClick={() => onSelect("")}
+        >
+          <span>{tr("All providers")}</span>
+        </button>
+        {providers.map((p) => {
+          const pid = p.providerId ?? p.provider;
+          const active = selected === pid;
+          return (
+            <button
+              key={pid}
+              type="button"
+              className={active ? "btn-add" : "btn-ghost"}
+              aria-pressed={active}
+              onClick={() => onSelect(active ? "" : pid)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+            >
+              <ProviderIcon providerId={pid} label={label(pid)} size={20} />
+              <span>{label(pid)}</span>
+              <span className="muted" style={{ fontSize: 14 }}>
+                {int(p.requests)} · {pctText(p.successRatePct)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export function Usage() {
   const tr = useTranslator();
   const [range, setRange] = useState<Range>("30d");
@@ -91,6 +150,13 @@ export function Usage() {
             <Stat label={tr("Avg latency")} value={ms(a.summary.avgLatencyMs)} />
             <Stat label={tr("Est. cost")} value={usd(a.summary.totalCost)} sub={tr("indicative only")} />
           </div>
+
+          <UsageFocusBar
+            providers={allProviders.data?.byProvider ?? a.byProvider}
+            selected={provider}
+            onSelect={setProvider}
+            label={label}
+          />
 
           <section className="card" style={{ marginBottom: 20 }}>
             <h2 style={{ marginTop: 0 }}>{tr("Daily trend (")}{tr(metric === "totalTokens" ? "tokens" : metric)})</h2>
