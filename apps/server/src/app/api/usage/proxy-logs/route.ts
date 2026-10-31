@@ -27,7 +27,21 @@ export async function GET(request: Request) {
     if (searchParams.get("provider")) filters.provider = searchParams.get("provider");
     if (searchParams.get("level")) filters.level = searchParams.get("level");
     if (searchParams.get("search")) filters.search = searchParams.get("search");
-    if (searchParams.get("limit")) filters.limit = parseInt(searchParams.get("limit"), 10);
+    if (searchParams.has("limit")) {
+      const limit = Number(searchParams.get("limit"));
+      if (!Number.isInteger(limit) || limit < 1 || limit > 10000) {
+        return Response.json(
+          {
+            error: {
+              message: "limit must be an integer between 1 and 10000",
+              type: "invalid_request_error",
+            },
+          },
+          { status: 400 }
+        );
+      }
+      filters.limit = limit;
+    }
 
     const logs = getProxyLogs(filters);
     return Response.json(logs);
