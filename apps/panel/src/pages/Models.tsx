@@ -34,6 +34,8 @@ export interface CatalogModel {
   context_length?: number | null;
   thinking?: boolean;
   supportsThinking?: boolean;
+  supportsVision?: boolean;
+  supportsTools?: boolean;
   capabilities?: {
     thinking?: boolean;
     supportsThinking?: boolean;
@@ -62,10 +64,10 @@ export function extractCatalogCapabilities(row: CatalogModel): string[] {
   if (row.thinking || row.supportsThinking || caps?.thinking || caps?.supportsThinking || caps?.reasoning) {
     tags.push("Reasoning");
   }
-  if (caps?.vision) {
+  if (row.supportsVision || caps?.vision) {
     tags.push("Vision");
   }
-  if (caps?.tool_calling || caps?.supportsTools) {
+  if (row.supportsTools || caps?.tool_calling || caps?.supportsTools) {
     tags.push("Tools");
   }
   return tags;

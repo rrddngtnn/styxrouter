@@ -5,7 +5,7 @@
 .advanced-table-wrap { overflow-x: auto; max-height: 500px; }
 .advanced-table-wrap td { overflow-wrap: anywhere; max-width: 520px; }
 .advanced-table-wrap pre { white-space: pre-wrap; }
-.advanced-migration-title { cursor: pointer; display: flex; gap: 10px; align-items: center; font-weight: 500; }
+.advanced-migration-title { display: flex; gap: 10px; align-items: center; font-weight: 600; }
 .advanced-results { display: flex; gap: 24px; flex-wrap: wrap; }
 .advanced-results dd { margin: 4px 0; font-size: 22px; }
 @media(max-width:600px) { .advanced-search { width: 100%; } .advanced-search input { width: 100%; min-width: 0 !important; } }
