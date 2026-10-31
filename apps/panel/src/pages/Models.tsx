@@ -465,7 +465,13 @@ export function Models() {
                         <code>{row.id}</code>
                       </td>
                       <td>
-                        <span className="vendor-badge">{providerNames[identity(row)] || identity(row)}</span>
+                        <a
+                          className="vendor-badge"
+                          href={`/panel/providers/${encodeURIComponent(nodeIds?.[identity(row)] || identity(row))}?tab=models`}
+                          style={{ textDecoration: "none" }}
+                        >
+                          {providerNames[identity(row)] || identity(row)}
+                        </a>
                       </td>
                       <td className="muted">{rowType(row)}</td>
                       <td>

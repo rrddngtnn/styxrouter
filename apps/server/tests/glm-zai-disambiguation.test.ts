@@ -47,5 +47,8 @@ describe("GLM / Z.ai runtime disambiguation", () => {
     expect(REGISTRY.glm?.displayName).toBe("GLM (Z.ai Coding / Start Plan)");
     expect(REGISTRY.glmt?.displayName).toBe("GLM (Thinking)");
     expect(REGISTRY.zcode?.displayName).toBe("ZCode CLI");
+    expect(AI_PROVIDERS.glm?.name).toBe("GLM (Z.ai Coding / Start Plan)");
+    expect(AI_PROVIDERS.glmt?.name).toBe("GLM (Thinking)");
+    expect(AI_PROVIDERS.zcode?.name).toBe("ZCode CLI");
   });
 });

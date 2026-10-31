@@ -17,7 +17,7 @@ export const APIKEY_PROVIDERS_REGIONAL = {
   glm: {
     id: "glm",
     alias: "glm",
-    name: "GLM Coding",
+    name: "GLM (Z.ai Coding / Start Plan)",
     icon: "code",
     color: "#2563EB",
     textIcon: "GL",
@@ -35,7 +35,7 @@ export const APIKEY_PROVIDERS_REGIONAL = {
   glmt: {
     id: "glmt",
     alias: "glmt",
-    name: "GLM Thinking",
+    name: "GLM (Thinking)",
     icon: "psychology",
     color: "#1D4ED8",
     textIcon: "GT",

@@ -160,7 +160,7 @@ export const NOAUTH_PROVIDERS = {
   zcode: {
     id: "zcode",
     alias: "zc",
-    name: "ZCode (GLM Coding Plan)",
+    name: "ZCode CLI",
     icon: "terminal",
     color: "#3B82F6",
     textIcon: "ZC",
