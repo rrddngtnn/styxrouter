@@ -26,8 +26,11 @@ import {
   encryptConfigBundle,
 } from "./configBundle.ts";
 import { pruneTelemetryLogs, simulateRoutingDryRun } from "./routingDryRun.ts";
-import { createWebhook, deleteWebhook, getWebhooks, updateWebhook } from "../src/lib/db/webhooks.ts";
+import { createWebhook, deleteWebhook, getWebhook, getWebhooks, recordWebhookDelivery, updateWebhook } from "../src/lib/db/webhooks.ts";
 import { WEBHOOK_EVENT_VALUES } from "../src/lib/webhooks/eventDescriptions.ts";
+import { deliverStoredWebhook } from "../src/lib/webhookDispatcher.ts";
+import { clearAllModelLockouts, getModelLockoutSize } from "../open-sse/services/accountFallback.ts";
+import { getProxyConfig, setProxyForLevel } from "../src/lib/db/settings.ts";
 
 const audit = (action: string, target: string, details?: unknown) =>
   logAuditEvent({ action, actor: "admin", target, details, resourceType: "admin_api", status: "success" });
@@ -395,6 +398,112 @@ export function createAdminApi2() {
     const id = c.req.param("id");
     if (!deleteWebhook(id)) return notFound(c, "Webhook");
     audit("webhook.delete", id);
+    return c.json({ success: true });
+  });
+
+  api.post("/webhooks/:id/test", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const id = c.req.param("id");
+    const wh = getWebhook(id);
+    if (!wh) return notFound(c, "Webhook");
+    const res = await deliverStoredWebhook(
+      wh.url,
+      {
+        event: "test.ping",
+        timestamp: new Date().toISOString(),
+        data: { message: "Test ping from StyxRouter", webhookId: wh.id },
+      },
+      wh.secret,
+      0,
+    );
+    recordWebhookDelivery(wh.id, res.status, res.success);
+    audit("webhook.test", id, { success: res.success, status: res.status });
+    return c.json(res);
+  });
+
+  // ── Clear all in-memory process model lockouts ───────────────────────────
+  api.post("/process-health/clear-model-locks", (c) => {
+    c.header("Cache-Control", "no-store");
+    const cleared = getModelLockoutSize();
+    clearAllModelLockouts();
+    audit("processHealth.clearModelLocks", "process", { cleared });
+    return c.json({ success: true, cleared });
+  });
+
+  // ── Outbound proxy configuration (global, provider, account) ─────────────
+  const redactProxyEntry = (entry: any) => {
+    if (!entry || typeof entry !== "object") return null;
+    return {
+      type: entry.type ?? "http",
+      host: entry.host ?? "",
+      port: entry.port ?? "",
+      username: entry.username ? String(entry.username) : "",
+      hasPassword: Boolean(entry.password),
+      family: entry.family ?? "auto",
+    };
+  };
+
+  api.get("/proxies/config", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const cfg = await getProxyConfig();
+    const providers: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(cfg.providers ?? {})) {
+      const redacted = redactProxyEntry(v);
+      if (redacted) providers[k] = redacted;
+    }
+    const keys: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(cfg.keys ?? {})) {
+      const redacted = redactProxyEntry(v);
+      if (redacted) keys[k] = redacted;
+    }
+    return c.json({
+      global: redactProxyEntry(cfg.global),
+      providers,
+      keys,
+    });
+  });
+
+  const putProxyConfigSchema = z
+    .object({
+      level: z.enum(["global", "provider", "key"]),
+      id: z.string().trim().min(1).max(200).nullable().optional(),
+      proxyUrl: z.string().trim().max(1000).nullable(),
+    })
+    .strict();
+
+  api.put("/proxies/config", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const v = validateBody(putProxyConfigSchema, await bodyOf(c));
+    if (isValidationFailure(v)) return bad(c, v.error);
+    const { level, id, proxyUrl } = v.data;
+    if (level !== "global" && !id) return bad(c, "Target id is required for provider or account proxy");
+
+    let parsedProxy: Record<string, unknown> | null = null;
+    if (proxyUrl) {
+      try {
+        const u = new URL(proxyUrl);
+        const proto = u.protocol.replace(":", "").toLowerCase();
+        if (!["http", "https", "socks5", "socks5h"].includes(proto) || !u.hostname) {
+          return bad(c, "Proxy URL must use http://, https://, or socks5://");
+        }
+        parsedProxy = {
+          type: proto === "socks5h" ? "socks5" : proto,
+          host: u.hostname,
+          port: u.port || (proto.startsWith("socks") ? "1080" : proto === "https" ? "443" : "8080"),
+          username: u.username ? decodeURIComponent(u.username) : "",
+          password: u.password ? decodeURIComponent(u.password) : "",
+          family: "auto",
+        };
+      } catch {
+        return bad(c, "Invalid proxy URL format");
+      }
+    }
+
+    await setProxyForLevel(level, level === "global" ? null : id ?? null, parsedProxy);
+    audit("proxyConfig.update", level === "global" ? "global" : `${level}:${id}`, {
+      cleared: parsedProxy === null,
+      host: parsedProxy?.host ?? null,
+    });
     return c.json({ success: true });
   });
 

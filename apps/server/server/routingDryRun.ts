@@ -43,13 +43,20 @@ export interface DryRunSimulationResult {
   steps: DryRunStepResult[];
 }
 
-function stepTargetString(step: unknown): string {
-  if (typeof step === "string") return step;
+function extractStepEntry(step: unknown): { rawTarget: string; stepTags: string[] } {
+  if (typeof step === "string") return { rawTarget: step, stepTags: [] };
   if (step && typeof step === "object") {
     const rec = step as Record<string, unknown>;
-    return String(rec.model ?? rec.comboName ?? rec.name ?? rec.id ?? "");
+    const rawTarget = String(rec.model ?? rec.comboName ?? rec.name ?? rec.id ?? "");
+    const stepTags = Array.isArray(rec.tags)
+      ? rec.tags
+          .filter((t): t is string => typeof t === "string")
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+    return { rawTarget, stepTags };
   }
-  return "";
+  return { rawTarget: "", stepTags: [] };
 }
 
 export async function simulateRoutingDryRun(input: {
@@ -64,9 +71,11 @@ export async function simulateRoutingDryRun(input: {
     models?: unknown[];
   } | null;
 
-  const stepStrings = combo
-    ? (Array.isArray(combo.models) ? combo.models : []).map(stepTargetString).filter(Boolean)
-    : [rawTarget];
+  const stepEntries = combo
+    ? (Array.isArray(combo.models) ? combo.models : [])
+        .map(extractStepEntry)
+        .filter((s) => Boolean(s.rawTarget))
+    : [{ rawTarget, stepTags: [] }];
 
   const [allConnections, allNodes] = await Promise.all([
     getProviderConnections({}) as Promise<Array<Record<string, unknown>>>,
@@ -83,7 +92,8 @@ export async function simulateRoutingDryRun(input: {
   const steps: DryRunStepResult[] = [];
   let winner: DryRunSimulationResult["winner"] = null;
 
-  for (const [idx, stepStr] of stepStrings.entries()) {
+  for (const [idx, stepEntry] of stepEntries.entries()) {
+    const stepStr = stepEntry.rawTarget;
     const parsed = parseModel(stepStr);
     const rawPrefix = stepStr.includes("/") ? stepStr.split("/")[0]! : "";
     const resolvedProvider =
@@ -184,12 +194,17 @@ export async function simulateRoutingDryRun(input: {
           priority: Number(c.priority ?? 0),
         };
       }
-      if (requiredTag && !tags.includes(requiredTag)) {
+      const requiredTags = [
+        ...(requiredTag ? [requiredTag] : []),
+        ...stepEntry.stepTags,
+      ];
+      const missingTag = requiredTags.find((t) => !tags.includes(t));
+      if (missingTag) {
         return {
           id,
           name,
           eligible: false,
-          reason: `missing required tag (${requiredTag})`,
+          reason: `missing required tag (${missingTag})`,
           tags,
           priority: Number(c.priority ?? 0),
         };

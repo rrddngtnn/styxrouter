@@ -14,7 +14,12 @@ import { useFetch } from "../lib/useFetch.ts";
 
 type Step = string | { id?: string; model?: string; comboName?: string; name?: string; [k: string]: unknown };
 
-const stepLabel = (s: Step) => (typeof s === "string" ? s : String(s.model ?? s.comboName ?? s.name ?? s.id ?? "step"));
+const stepLabel = (s: Step) => {
+  if (typeof s === "string") return s;
+  const base = String(s.model ?? s.comboName ?? s.name ?? s.id ?? "step");
+  const tags = Array.isArray(s.tags) && s.tags.length > 0 ? ` [${s.tags.join(", ")}]` : "";
+  return `${base}${tags}`;
+};
 
 interface ComboRow {
   id: string;
@@ -459,6 +464,7 @@ function StepsEditor({ row, onSaved, onClose }: { row: ComboRow; onSaved: () => 
   const { t } = usePreferences();
   const [steps, setSteps] = useState<Step[]>(row.models ?? []);
   const [added, setAdded] = useState("");
+  const [addedTag, setAddedTag] = useState("");
   const { busy, error, run } = useAction(onSaved);
 
   const move = (i: number, d: -1 | 1) =>
@@ -470,8 +476,13 @@ function StepsEditor({ row, onSaved, onClose }: { row: ComboRow; onSaved: () => 
   const add = () => {
     const m = added.trim();
     if (!m) return;
-    setSteps((cur) => [...cur, m]);
+    const tags = addedTag
+      .split(",")
+      .map((x) => x.trim().toLowerCase())
+      .filter(Boolean);
+    setSteps((cur) => [...cur, tags.length > 0 ? { model: m, tags } : m]);
     setAdded("");
+    setAddedTag("");
   };
 
   async function save() {
@@ -499,7 +510,7 @@ function StepsEditor({ row, onSaved, onClose }: { row: ComboRow; onSaved: () => 
           </li>
         ))}
       </ol>
-      <div className="inline-form" style={{ maxWidth: "100%" }}>
+      <div className="inline-form" style={{ maxWidth: "100%", flexWrap: "wrap", gap: 8 }}>
         <ModelPicker
           label={tr("Add fallback target")}
           value={added}
@@ -510,6 +521,14 @@ function StepsEditor({ row, onSaved, onClose }: { row: ComboRow; onSaved: () => 
               add();
             }
           }}
+        />
+        <input
+          type="text"
+          aria-label={tr("Required account tag (optional)")}
+          placeholder={tr("Tag restriction (e.g. @hermes)")}
+          value={addedTag}
+          onChange={(e) => setAddedTag(e.target.value)}
+          style={{ maxWidth: 210 }}
         />
         <button type="button" className="btn-ghost" disabled={!added.trim()} onClick={add}>
           {t("Add step")}

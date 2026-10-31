@@ -204,6 +204,7 @@ export function HealthAndVersionsView({
   onRefreshZcode = () => {},
   onPinAntigravity = () => {},
   onRefreshAntigravity = () => {},
+  onClearModelLocks,
   onReloadAll,
 }: {
   zcode: VersionStatus | null;
@@ -217,6 +218,7 @@ export function HealthAndVersionsView({
   onRefreshZcode?: () => void;
   onPinAntigravity?: (product: "ide" | "cli", version: string | null) => void;
   onRefreshAntigravity?: () => void;
+  onClearModelLocks?: () => void;
   onReloadAll?: () => void;
 }) {
   const tr = useTranslator();
@@ -271,12 +273,19 @@ export function HealthAndVersionsView({
               {tr("Process-local resource metrics, SQLite file footprint, and background OAuth token refresh scheduler status.")}
             </p>
           </div>
-          {onReloadAll && (
-            <button type="button" className="btn-ghost" disabled={busy} onClick={onReloadAll}>
-              <RefreshCw size={14} />
-              <span>{tr("Refresh metrics")}</span>
-            </button>
-          )}
+          <div className="row-actions" style={{ gap: 8 }}>
+            {onClearModelLocks && (
+              <button type="button" className="btn-ghost" disabled={busy} onClick={onClearModelLocks}>
+                <span>{tr("Clear all process model locks")}</span>
+              </button>
+            )}
+            {onReloadAll && (
+              <button type="button" className="btn-ghost" disabled={busy} onClick={onReloadAll}>
+                <RefreshCw size={14} />
+                <span>{tr("Refresh metrics")}</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="cards" style={{ marginBottom: 12 }}>
@@ -511,6 +520,19 @@ export function HealthAndVersionsSettings() {
     }
   }
 
+  async function clearModelLocks() {
+    setBusy(true);
+    try {
+      const res = await api.post<{ cleared: number }>("/api/process-health/clear-model-locks");
+      toast.success(`Cleared ${res.cleared} in-memory model lock(s)`);
+      trace.reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <HealthAndVersionsView
@@ -538,8 +560,10 @@ export function HealthAndVersionsSettings() {
         onRefreshZcode={refreshZcode}
         onPinAntigravity={pinAntigravity}
         onRefreshAntigravity={refreshAntigravity}
+        onClearModelLocks={clearModelLocks}
         onReloadAll={reloadAll}
       />
+      <OutboundProxyConfigSection />
       <WebhookAlertsSection />
     </div>
   );
@@ -562,12 +586,14 @@ export function WebhookAlertsCard({
   busy = false,
   onCreate = () => {},
   onToggle = () => {},
+  onTest = () => {},
   onDelete = () => {},
 }: {
   webhooks: WebhookSubscriptionRow[];
   busy?: boolean;
   onCreate?: (input: { url: string; kind: WebhookSubscriptionRow["kind"]; description: string; events: string[] }) => void;
   onToggle?: (id: string, enabled: boolean) => void;
+  onTest?: (id: string) => void;
   onDelete?: (id: string) => void;
 }) {
   const tr = useTranslator();
@@ -699,6 +725,14 @@ export function WebhookAlertsCard({
                         type="button"
                         className="btn-ghost"
                         disabled={busy}
+                        onClick={() => onTest(w.id)}
+                      >
+                        {tr("Test ping")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        disabled={busy}
                         onClick={() => onToggle(w.id, !w.enabled)}
                       >
                         {w.enabled ? tr("Disable") : tr("Enable")}
@@ -771,14 +805,201 @@ export function WebhookAlertsSection() {
     }
   }
 
+  async function testPing(id: string) {
+    setBusy(true);
+    try {
+      const res = await api.post<{ success: boolean; status: number; error?: string }>(
+        `/api/webhooks/${encodeURIComponent(id)}/test`,
+      );
+      if (res.success) toast.success(`Webhook ping succeeded (HTTP ${res.status})`);
+      else toast.error(res.error ?? `Webhook ping failed (HTTP ${res.status})`);
+      state.reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <WebhookAlertsCard
       webhooks={rows}
       busy={busy}
       onCreate={create}
       onToggle={toggle}
+      onTest={testPing}
       onDelete={remove}
     />
+  );
+}
+
+export interface RedactedProxyEntry {
+  type: string;
+  host: string;
+  port: string | number;
+  username?: string;
+  hasPassword?: boolean;
+}
+
+export function OutboundProxyConfigSection() {
+  const tr = useTranslator();
+  const state = useFetch<{
+    global: RedactedProxyEntry | null;
+    providers: Record<string, RedactedProxyEntry>;
+    keys: Record<string, RedactedProxyEntry>;
+  }>("/api/proxies/config");
+  const [level, setLevel] = useState<"global" | "provider" | "key">("provider");
+  const [targetId, setTargetId] = useState("");
+  const [proxyUrl, setProxyUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function saveProxy(e: React.FormEvent) {
+    e.preventDefault();
+    if (level !== "global" && !targetId.trim()) return;
+    setBusy(true);
+    try {
+      await api.put("/api/proxies/config", {
+        level,
+        id: level === "global" ? null : targetId.trim(),
+        proxyUrl: proxyUrl.trim() || null,
+      });
+      toast.success(proxyUrl.trim() ? "Outbound proxy updated" : "Outbound proxy cleared");
+      setProxyUrl("");
+      state.reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearScope(scopeLevel: "global" | "provider" | "key", id: string | null) {
+    setBusy(true);
+    try {
+      await api.put("/api/proxies/config", { level: scopeLevel, id, proxyUrl: null });
+      toast.success("Proxy binding removed");
+      state.reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const data = state.status === "ok" ? state.data : null;
+  const providerEntries = Object.entries(data?.providers ?? {});
+  const keyEntries = Object.entries(data?.keys ?? {});
+
+  return (
+    <section className="settings-card">
+      <div className="section-head" style={{ marginBottom: 12 }}>
+        <div>
+          <h2 style={{ marginBottom: 4 }}>{tr("Outbound Egress Proxy Binding")}</h2>
+          <p className="muted" style={{ margin: 0 }}>
+            {tr("Assign HTTP/HTTPS/SOCKS5 egress proxies globally, per provider, or per account ID to isolate upstream traffic IPs.")}
+          </p>
+        </div>
+      </div>
+
+      <form onSubmit={saveProxy} className="stack-form" style={{ marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+          <label>
+            {tr("Scope")}
+            <select
+              value={level}
+              onChange={(e) => setLevel(e.target.value as "global" | "provider" | "key")}
+              disabled={busy}
+            >
+              <option value="provider">{tr("Per provider (e.g. codebuddy-cn)")}</option>
+              <option value="key">{tr("Per account connection ID")}</option>
+              <option value="global">{tr("Global fallback proxy")}</option>
+            </select>
+          </label>
+          {level !== "global" && (
+            <label>
+              {level === "provider" ? tr("Provider ID") : tr("Account Connection ID")}
+              <input
+                type="text"
+                placeholder={level === "provider" ? "codebuddy-cn, antigravity, claude…" : "connection UUID"}
+                value={targetId}
+                onChange={(e) => setTargetId(e.target.value)}
+                disabled={busy}
+                required
+              />
+            </label>
+          )}
+          <label>
+            {tr("Proxy URL (http:// or socks5://)")}
+            <input
+              type="text"
+              placeholder="http://user:pass@host:8080 or socks5://host:1080"
+              value={proxyUrl}
+              onChange={(e) => setProxyUrl(e.target.value)}
+              disabled={busy}
+              required
+            />
+          </label>
+        </div>
+        <div>
+          <button
+            type="submit"
+            className="btn-add"
+            disabled={busy || !proxyUrl.trim() || (level !== "global" && !targetId.trim())}
+          >
+            <span>{tr("Assign proxy")}</span>
+          </button>
+        </div>
+      </form>
+
+      {(data?.global || providerEntries.length > 0 || keyEntries.length > 0) ? (
+        <div style={{ display: "grid", gap: 8, fontSize: 14 }}>
+          {data?.global && (
+            <div className="card" style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>
+                <strong>{tr("Global")}</strong>:{" "}
+                <code>
+                  {data.global.type}://{data.global.username ? `${data.global.username}:***@` : ""}
+                  {data.global.host}:{data.global.port}
+                </code>
+              </span>
+              <button type="button" className="btn-ghost" disabled={busy} onClick={() => void clearScope("global", null)}>
+                {tr("Remove")}
+              </button>
+            </div>
+          )}
+          {providerEntries.map(([provId, p]) => (
+            <div key={`prov-${provId}`} className="card" style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>
+                <strong>{tr("Provider")}</strong> <code>{provId}</code> →{" "}
+                <code>
+                  {p.type}://{p.username ? `${p.username}:***@` : ""}
+                  {p.host}:{p.port}
+                </code>
+              </span>
+              <button type="button" className="btn-ghost" disabled={busy} onClick={() => void clearScope("provider", provId)}>
+                {tr("Remove")}
+              </button>
+            </div>
+          ))}
+          {keyEntries.map(([connId, p]) => (
+            <div key={`key-${connId}`} className="card" style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>
+                <strong>{tr("Account")}</strong> <code>{connId}</code> →{" "}
+                <code>
+                  {p.type}://{p.username ? `${p.username}:***@` : ""}
+                  {p.host}:{p.port}
+                </code>
+              </span>
+              <button type="button" className="btn-ghost" disabled={busy} onClick={() => void clearScope("key", connId)}>
+                {tr("Remove")}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="muted" style={{ margin: 0 }}>{tr("No custom outbound proxies assigned (using direct host egress).")}</p>
+      )}
+    </section>
   );
 }
 
