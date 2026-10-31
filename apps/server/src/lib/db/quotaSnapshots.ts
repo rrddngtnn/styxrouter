@@ -163,7 +163,7 @@ export function getAggregatedSnapshots(opts: {
         ${selectKey},
         AVG(remaining_percentage) as remainingPct,
         MAX(is_exhausted) as isExhausted,
-        window_key
+        window_key as windowKey
       FROM quota_snapshots
       WHERE ${conditions.join(" AND ")}
       GROUP BY ${groupFields}
