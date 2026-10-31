@@ -264,11 +264,20 @@ export const zaiGlmProvider = {
     const res = await fetch(`${cfg.cliPollUrl}/${encodeURIComponent(flowId)}`, {
       headers: { Authorization: `Bearer ${pollToken}` },
     });
+    if (res.status === 429) {
+      return { ok: true, data: { error: "slow_down", error_description: "ZCode poll rate-limited (HTTP 429)" } };
+    }
+    if (res.status >= 500) {
+      return { ok: true, data: { error: "authorization_pending", error_description: `ZCode poll temporary error (HTTP ${res.status})` } };
+    }
     if (!res.ok) {
       return { ok: true, data: { error: "access_denied", error_description: `ZCode poll failed (HTTP ${res.status})` } };
     }
     const body = await res.json();
     if (!codeOk(body.code)) {
+      if (Number(body.code) === 429 || /rate|too many|频繁|限流/i.test(String(body.msg || ""))) {
+        return { ok: true, data: { error: "slow_down", error_description: body.msg || "ZCode poll rate-limited" } };
+      }
       return { ok: true, data: { error: "access_denied", error_description: body.msg || "ZCode poll failed" } };
     }
     const d = body.data || {};

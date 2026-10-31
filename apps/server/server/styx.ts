@@ -332,6 +332,8 @@ const deviceFlows = new Map<
     completed?: boolean;
     error?: string;
     polling?: boolean;
+    intervalMs?: number;
+    nextPollAt?: number;
   }
 >();
 
@@ -344,11 +346,24 @@ async function stepDeviceFlowPoll(providerId: string, state: string, name?: stri
   if (flow?.completed) return { status: 200 as const, body: { ok: true } };
   if (flow?.error) return { status: 400 as const, body: { error: flow.error } };
   if (flow?.polling) return { status: 200 as const, body: { pending: true } };
+  if (flow?.nextPollAt && Date.now() < flow.nextPollAt) {
+    return { status: 200 as const, body: { pending: true } };
+  }
   if (flow) flow.polling = true;
   try {
     const res = await mod.pollToken(mod.config, state, flow?.extras);
     const errCode = res?.data?.error;
-    if (!res?.ok || errCode === "authorization_pending" || errCode === "slow_down") {
+    if (errCode === "slow_down") {
+      if (flow) {
+        flow.intervalMs = (flow.intervalMs ?? 3000) + 5000;
+        flow.nextPollAt = Date.now() + flow.intervalMs;
+      }
+      return { status: 200 as const, body: { pending: true } };
+    }
+    if (!res?.ok || errCode === "authorization_pending") {
+      if (flow) {
+        flow.nextPollAt = Date.now() + (flow.intervalMs ?? 3000);
+      }
       return { status: 200 as const, body: { pending: true } };
     }
     if (errCode || !res?.data?.access_token) {
@@ -410,10 +425,12 @@ app.post("/api/oauth/:providerId/init", async (c) => {
     } = dc as Record<string, unknown>;
     const state = String(dc.device_code);
     const expiresInSec = Number(dc.expires_in) || 300;
-    const intervalSec = Math.max(2, Number(dc.interval) || 3);
+    const intervalSec = Math.max(3, Number(dc.interval) || 3);
     const expiresAt = Date.now() + expiresInSec * 1000;
     deviceFlows.set(state, {
       expiresAt,
+      intervalMs: intervalSec * 1000,
+      nextPollAt: Date.now() + intervalSec * 1000,
       extras: Object.keys(flowExtras).length > 0 ? flowExtras : undefined,
     });
     if (mod.pollToken && !process.env.BUN_TEST) {
