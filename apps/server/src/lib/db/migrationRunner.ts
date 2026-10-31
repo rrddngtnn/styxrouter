@@ -440,10 +440,24 @@ function isSchemaAlreadyApplied(
         hasColumn(db, "version_manager", "last_sync_at")
       );
     case "073":
-      // Plan 21 D27 fix: guard memory_vec migration. Without this case, an
-      // unmarked re-run of 073_memory_vec.sql would have its ALTER TABLE fail
-      // mid-file and skip the CREATE INDEX that follows, leaving the index
-      // missing on DBs that re-execute the script after a partial first run.
+      // Disk 073 is now `per_model_token_limits` (the memory_vec migration this
+      // slot ORIGINALLY held was renumbered to 083 — see 083_memory_vec.sql,
+      // whose header still reads "073_memory_vec.sql"). This guard must key on
+      // 073's REAL schema object, not memory_vec's `needs_reindex`: the stale
+      // check made the runner silently skip 073_per_model_token_limits (and mark
+      // it applied) on any DB where needs_reindex already exists — a back-filled
+      // gap after 083, or an upgrade from a build that applied memory_vec at 073
+      // — leaving api_key_token_limits & siblings missing with NO error. The .sql
+      // is fully CREATE … IF NOT EXISTS, so this check is purely a correctness
+      // guard for the collision slot, safe on both fresh and already-applied DBs.
+      return hasTable(db, "api_key_token_limits");
+    case "083":
+      // Relocated memory_vec idempotency guard (migration renumbered 073 -> 083).
+      // Without it, an unmarked re-run of 083_memory_vec.sql would have its bare
+      // `ALTER TABLE memories ADD COLUMN needs_reindex` abort mid-file, skipping
+      // the CREATE INDEX that follows and leaving the index missing on DBs that
+      // re-execute the script after a partial first run. needs_reindex present
+      // proves the migration already ran.
       return hasColumn(db, "memories", "needs_reindex");
     case "085":
       // Retroactive guard for quota_pools migration renumbered from 077 → 085
