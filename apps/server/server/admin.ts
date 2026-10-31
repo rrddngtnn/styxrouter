@@ -45,7 +45,7 @@ import {
   hashManagementPassword,
   verifyManagementPassword,
 } from "../src/lib/auth/managementPassword.ts";
-import { checkLoginGuard, clearLoginAttempts, recordLoginFailure } from "../src/server/auth/loginGuard.ts";
+import { checkLoginGuard, clearAllLoginAttempts, clearLoginAttempts, recordLoginFailure } from "../src/server/auth/loginGuard.ts";
 import { clientIp } from "./auth.ts";
 import { createKeySchema } from "../src/shared/validation/schemas/keys.ts";
 import { createComboSchema, reorderCombosSchema, updateComboSchema } from "../src/shared/validation/schemas/combo.ts";
@@ -581,6 +581,7 @@ export function createAdminApi() {
       return c.json({ error: "Current password is wrong" }, 401);
     }
     clearLoginAttempts(ip);
+    clearAllLoginAttempts();
     await updateSettings({ password: await hashManagementPassword(v.data.newPassword) });
     audit(c, "auth.password.change", "management");
     return c.json({ success: true });

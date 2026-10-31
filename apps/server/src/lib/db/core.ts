@@ -103,7 +103,7 @@ export const isBuildPhase = isNextBuildPhase();
 // Bun's test preload does not run for ad-hoc scripts. Refuse recognizable
 // scratch/probe entrypoints before resolving or creating any database path.
 // This is an accident guard, not a sandbox against malicious code.
-const entrypoint = (process.argv[1] || "").replace(/\\/g, "/");
+const entrypoint = (process.argv[1] || (globalThis as { Bun?: { main?: string } }).Bun?.main || "").replace(/\\/g, "/");
 const entryName = entrypoint.split("/").pop() || "";
 const parentName = entrypoint.split("/").at(-2) || "";
 // Resolve both sides so a symlink to a scratch entrypoint cannot evade the
@@ -119,7 +119,7 @@ if (entrypoint && process.env.TMPDIR) {
     // Preserve the existing name-based guard when paths cannot be resolved.
   }
 }
-if (entryInScratch || /^(?:scratch|experiments|tests?)$/i.test(parentName) ||
+if (entryInScratch || entryName === "[eval]" || /^(?:scratch|experiments|tests?)$/i.test(parentName) ||
     /(?:^|[._-])(?:probe|scratch)(?:[._-]|$)/i.test(entryName) ||
     /\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(entryName)) {
   if (process.env.STYX_ISOLATED_TEST !== "1") {

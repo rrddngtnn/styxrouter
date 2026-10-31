@@ -114,6 +114,10 @@ export function clearLoginAttempts(rawIp: string | null | undefined): void {
   attempts.delete(clientKey(rawIp));
 }
 
+export function clearAllLoginAttempts(): void {
+  attempts.clear();
+}
+
 export function resetLoginGuardForTests(): void {
   attempts.clear();
 }

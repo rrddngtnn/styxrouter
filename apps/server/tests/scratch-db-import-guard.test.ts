@@ -17,6 +17,10 @@ test("direct scratch probe cannot import the DB before isolation", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toContain("isolated test runner");
     expect(readFileSync(sentinel, "utf8")).toBe("sentinel");
+    const evalResult = Bun.spawnSync([process.execPath, "-e", `import { DATA_DIR } from ${JSON.stringify(core)}; console.log(DATA_DIR);`], { cwd: server, env: { ...process.env, HOME: root, DATA_DIR: data, NODE_ENV: "production", STYX_ISOLATED_TEST: "" }, stdout: "pipe", stderr: "pipe" });
+    expect(evalResult.exitCode).not.toBe(0);
+    expect(evalResult.stderr.toString()).toContain("isolated test runner");
+    expect(readFileSync(sentinel, "utf8")).toBe("sentinel");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
