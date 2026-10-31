@@ -53,6 +53,7 @@ interface Account {
   name: string | null;
   authType?: string;
   tags?: string[];
+  excludedModels?: string[];
   tokenExpiresAt?: string | null;
   rateLimitedUntil?: string | null;
   isActive: boolean;
@@ -503,6 +504,8 @@ export function ProviderDetail() {
   const [results, setResults] = useState<Record<string, string>>({});
   const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [newKey, setNewKey] = useState("");
+  const [editingRulesAccount, setEditingRulesAccount] = useState<Account | null>(null);
+  const [excludedModelsText, setExcludedModelsText] = useState("");
 
   const { busy, error: actionError, run } = useAction(refresh);
   const locked = busy !== null || bulkBusy;
@@ -838,6 +841,67 @@ export function ProviderDetail() {
         )}
       </Modal>
 
+      <Modal
+        open={editingRulesAccount !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingRulesAccount(null);
+            setExcludedModelsText("");
+          }
+        }}
+        title={tr("Account model rules — {0}", {
+          0: String(editingRulesAccount?.name ?? editingRulesAccount?.id.slice(0, 8) ?? ""),
+        })}
+        description={tr("Exclude specific models or wildcard patterns (e.g. claude-opus-*) from routing to this account.")}
+      >
+        {editingRulesAccount && (
+          <form
+            className="stack-form"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const list = excludedModelsText
+                .split(/[\n,]/)
+                .map((s) => s.trim())
+                .filter(Boolean);
+              const out = await run(`rules-${editingRulesAccount.id}`, () =>
+                api.patch(`/api/connections/${editingRulesAccount.id}`, { excludedModels: list }),
+              );
+              if (out) {
+                toast.success("Account model rules updated");
+                setEditingRulesAccount(null);
+                setExcludedModelsText("");
+              }
+            }}
+          >
+            <label>
+              {tr("Excluded model patterns (one per line or comma-separated)")}
+              <textarea
+                rows={4}
+                placeholder={"claude-opus-*\ngemini-4-argon-high"}
+                value={excludedModelsText}
+                onChange={(e) => setExcludedModelsText(e.target.value)}
+              />
+            </label>
+            {actionError && <div className="bad">{actionError}</div>}
+            <div className="row-actions">
+              <button type="submit" className="btn-add" disabled={locked}>
+                {busy === `rules-${editingRulesAccount.id}` ? "…" : tr("Save model rules")}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  setEditingRulesAccount(null);
+                  setExcludedModelsText("");
+                }}
+              >
+                {tr("Cancel")}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
       <nav className="provider-workspace-tabs" aria-label={tr("Provider workspace")}>
         {(
           !target.isCustomNode
@@ -983,11 +1047,17 @@ export function ProviderDetail() {
                     </td>
                     <td>
                       <div className="table-identity">{labelText}</div>
-                      {Array.isArray(a.tags) && a.tags.length > 0 && (
+                      {((Array.isArray(a.tags) && a.tags.length > 0) ||
+                        (Array.isArray(a.excludedModels) && a.excludedModels.length > 0)) && (
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
-                          {a.tags.map((tag) => (
+                          {(a.tags ?? []).map((tag) => (
                             <span key={tag} className="vendor-badge">
                               {tag}
+                            </span>
+                          ))}
+                          {(a.excludedModels ?? []).map((pat) => (
+                            <span key={`ex-${pat}`} className="vendor-badge" title={tr("Excluded model pattern")}>
+                              !{pat}
                             </span>
                           ))}
                         </div>
@@ -1009,6 +1079,17 @@ export function ProviderDetail() {
                     </td>
                     <td className="row-actions">
                       <button type="button" className="btn-ghost" disabled={locked} onClick={() => test(a.id)}>{tr("Test")}</button>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        disabled={locked}
+                        onClick={() => {
+                          setEditingRulesAccount(a);
+                          setExcludedModelsText((a.excludedModels ?? []).join("\n"));
+                        }}
+                      >
+                        {tr("Model rules")}
+                      </button>
                       {isApiKey && (
                         <button
                           type="button"

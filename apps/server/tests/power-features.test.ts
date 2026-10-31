@@ -75,3 +75,59 @@ test("PATCH /settings accepts and hot-reloads thinkingBudget, providerErrorRules
   expect(resilience.streamRecovery.continueMidStream).toBe(true);
   expect(resilience.streamRecovery.throughputWatchdog.enabled).toBe(true);
 });
+
+test("PATCH /connections/:id sets per-account excludedModels and dry-run skips excluded accounts", async () => {
+  const admin1 = createAdminApi();
+  const { createAdminApi2 } = await import("../server/admin2");
+  const admin2 = createAdminApi2();
+  const { createProviderConnection } = await import("../src/lib/db/providers");
+
+  const c1 = (await createProviderConnection({
+    provider: "anthropic",
+    authType: "oauth",
+    name: "claude-sonnet-only",
+    accessToken: "tok-1",
+    priority: 1,
+    isActive: true,
+  })) as { id: string };
+
+  const c2 = (await createProviderConnection({
+    provider: "anthropic",
+    authType: "oauth",
+    name: "claude-full-access",
+    accessToken: "tok-2",
+    priority: 2,
+    isActive: true,
+  })) as { id: string };
+
+  const patchRes = await admin1.request(`/connections/${c1.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      excludedModels: ["claude-opus-*"],
+    }),
+  });
+  expect(patchRes.status).toBe(200);
+
+  const listRes = await admin1.request("/connections");
+  const listData = (await listRes.json()) as {
+    connections: Array<{ id: string; excludedModels?: string[] }>;
+  };
+  const found = listData.connections.find((c) => c.id === c1.id);
+  expect(found?.excludedModels).toEqual(["claude-opus-*"]);
+
+  const dryRes = await admin2.request("/routing/dry-run", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ target: "anthropic/claude-opus-4-8" }),
+  });
+  expect(dryRes.status).toBe(200);
+  const dry = (await dryRes.json()) as {
+    winner: { accountId: string; accountName: string | null } | null;
+    steps: Array<{ candidates: Array<{ id: string; eligible: boolean; reason: string }> }>;
+  };
+  expect(dry.winner?.accountId).toBe(c2.id);
+  const c1Cand = dry.steps[0]?.candidates.find((c) => c.id === c1.id);
+  expect(c1Cand?.eligible).toBe(false);
+  expect(c1Cand?.reason).toContain("model rule");
+});

@@ -1,4 +1,5 @@
 import { isQuotaExhaustedForRequest } from "../src/domain/quotaCache.ts";
+import { isModelExcludedByConnection } from "../src/domain/connectionModelRules.ts";
 import { getConnectionRoutingTags } from "../src/domain/tagRouter.ts";
 import { getComboByName } from "../src/lib/db/combos.ts";
 import { getDbInstance } from "../src/lib/db/core.ts";
@@ -118,6 +119,16 @@ export async function simulateRoutingDryRun(input: {
 
       if (!isActive) {
         return { id, name, eligible: false, reason: "disabled", tags, priority: Number(c.priority ?? 0) };
+      }
+      if (isModelExcludedByConnection(resolvedModel, psd)) {
+        return {
+          id,
+          name,
+          eligible: false,
+          reason: "excluded by account model rule",
+          tags,
+          priority: Number(c.priority ?? 0),
+        };
       }
       if (testStatus === "expired") {
         return { id, name, eligible: false, reason: "token expired", tags, priority: Number(c.priority ?? 0) };

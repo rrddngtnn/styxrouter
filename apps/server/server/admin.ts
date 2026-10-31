@@ -3,6 +3,10 @@
 import { Hono, type Context } from "hono";
 import { getConnectionRoutingTags } from "../src/domain/tagRouter.ts";
 import {
+  getConnectionExcludedModels,
+  normalizeExcludedModelPatterns,
+} from "../src/domain/connectionModelRules.ts";
+import {
   createApiKey,
   deleteApiKey,
   regenerateApiKey,
@@ -303,6 +307,7 @@ export function createAdminApi() {
   const connectionView = (r: any) => ({
     id: r.id,
     tags: getConnectionRoutingTags(r.providerSpecificData ?? r.provider_specific_data),
+    excludedModels: getConnectionExcludedModels(r.providerSpecificData ?? r.provider_specific_data),
     provider: r.provider,
     authType: r.auth_type ?? r.authType,
     name: r.name || r.display_name || null,
@@ -479,6 +484,7 @@ export function createAdminApi() {
       isActive: z.boolean().optional(),
       name: z.string().trim().min(1).max(200).optional(),
       priority: z.number().int().min(0).max(100000).optional(),
+      excludedModels: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
     })
     .strict();
 
@@ -486,7 +492,21 @@ export function createAdminApi() {
     const id = c.req.param("id");
     const v = validateBody(patchConnectionSchema, await bodyOf(c));
     if (isValidationFailure(v)) return bad(c, v.error);
-    if (!(await updateProviderConnection(id, v.data))) return notFound(c, "Connection");
+    const { excludedModels, ...rest } = v.data;
+    const updatePayload: Record<string, unknown> = { ...rest };
+    if (excludedModels !== undefined) {
+      const existing = (await getProviderConnectionById(id)) as any;
+      if (!existing) return notFound(c, "Connection");
+      const prevPsd =
+        existing.providerSpecificData && typeof existing.providerSpecificData === "object"
+          ? existing.providerSpecificData
+          : {};
+      updatePayload.providerSpecificData = {
+        ...prevPsd,
+        excludedModels: normalizeExcludedModelPatterns(excludedModels),
+      };
+    }
+    if (!(await updateProviderConnection(id, updatePayload))) return notFound(c, "Connection");
     audit(c, "connection.update", id, v.data);
     return c.json({ success: true });
   });
