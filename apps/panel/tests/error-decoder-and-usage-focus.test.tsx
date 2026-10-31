@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { decodeUpstreamError } from "../src/lib/error-decoder.ts";
+import { buildActivityReplayCurl } from "../src/pages/Activity.tsx";
 import { UsageFocusBar } from "../src/pages/Usage.tsx";
 
 test("decodeUpstreamError classifies known upstream error signatures and returns actionable advice", () => {
@@ -77,4 +78,22 @@ test("UsageFocusBar renders All providers reset pill and selectable provider foc
   expect(html).toContain("Alpha Provider");
   expect(html).toContain("Beta Provider");
   expect(html).toContain("98.5%");
+});
+
+test("buildActivityReplayCurl generates a sanitized cURL snippet for chat, messages, and responses endpoints", () => {
+  const chatCurl = buildActivityReplayCurl(
+    { path: "/v1/chat/completions", provider: "glm", model: "glm-5.3" },
+    "https://router.example.com",
+  );
+  expect(chatCurl).toContain("https://router.example.com/v1/chat/completions");
+  expect(chatCurl).toContain("$STYX_API_KEY");
+  expect(chatCurl).toContain('"model":"glm/glm-5.3"');
+
+  const responsesCurl = buildActivityReplayCurl(
+    { path: "/v1/responses", comboName: "coding-primary", model: "gpt-5.3-codex" },
+    "https://router.example.com",
+  );
+  expect(responsesCurl).toContain("https://router.example.com/v1/responses");
+  expect(responsesCurl).toContain('"model":"coding-primary"');
+  expect(responsesCurl).toContain('"input":"ping"');
 });

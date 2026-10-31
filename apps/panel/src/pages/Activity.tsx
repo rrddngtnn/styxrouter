@@ -1,16 +1,40 @@
 import { useTranslator } from "../lib/useTranslator.ts";
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Radio, RefreshCw } from "lucide-react";
+import { Copy, Play, Radio, RefreshCw, Terminal } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { EmptyState, LoadingState } from "../components/PageStates.tsx";
 import { TableScroll } from "../components/TableScroll.tsx";
 import { Pagination } from "../components/Pagination.tsx";
 import { Modal } from "../lib/actions.tsx";
+import { api } from "../lib/api.ts";
 import { decodeUpstreamError } from "../lib/error-decoder.ts";
 import { DASH, int, ms, when } from "../lib/format.ts";
 import { paginationState } from "../lib/pagination.ts";
 import { useFetch } from "../lib/useFetch.ts";
+
+export function buildActivityReplayCurl(row: {
+  path?: string;
+  model?: string;
+  provider?: string;
+  comboName?: string | null;
+}, origin = "http://127.0.0.1:20128"): string {
+  const endpoint = row.path?.startsWith("/v1/") ? row.path : "/v1/chat/completions";
+  const modelTarget = row.comboName
+    ? row.comboName
+    : row.provider && row.model && !row.model.includes("/")
+      ? `${row.provider}/${row.model}`
+      : row.model ?? "glm/glm-5.3";
+  const payload =
+    endpoint === "/v1/responses"
+      ? { model: modelTarget, input: "ping" }
+      : {
+          model: modelTarget,
+          max_tokens: 64,
+          messages: [{ role: "user", content: "ping" }],
+        };
+  return `curl -sS ${origin}${endpoint} \\\n  -H "Authorization: Bearer $STYX_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(payload)}'`;
+}
 
 export interface CallLog {
   id: string;
@@ -39,6 +63,8 @@ export function Activity() {
   const [pageSize, setPageSize] = useState(20);
   const [selected, setSelected] = useState<CallLog | null>(null);
   const [liveTail, setLiveTail] = useState(false);
+  const [dryRunNote, setDryRunNote] = useState<string | null>(null);
+  const [dryRunBusy, setDryRunBusy] = useState(false);
 
   const toggleErrors = (checked: boolean) => {
     setOnlyErrors(checked);
@@ -249,7 +275,10 @@ export function Activity() {
       <Modal
         open={selected !== null}
         onOpenChange={(open) => {
-          if (!open) setSelected(null);
+          if (!open) {
+            setSelected(null);
+            setDryRunNote(null);
+          }
         }}
         title={tr("Request detail — HTTP {0}", {0: String(selected?.status ?? "—")})}
         description={selected ? `${when(selected.timestamp)} · ${selected.method ?? "POST"} ${selected.path ?? "/v1/chat/completions"}` : ""}
@@ -339,8 +368,60 @@ export function Activity() {
             ) : (
               <p className="muted" style={{ margin: 0 }}>{tr("Completed without upstream errors.")}</p>
             )}
-            <div className="row-actions">
-              <button type="button" className="btn-ghost" onClick={() => setSelected(null)}>{tr("Close")}</button>
+            {dryRunNote && (
+              <div className="card" style={{ padding: 10, fontSize: 14 }} role="status">
+                {dryRunNote}
+              </div>
+            )}
+            <div className="row-actions" style={{ flexWrap: "wrap", gap: 8 }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  const origin = typeof location !== "undefined" ? location.origin : "http://127.0.0.1:20128";
+                  const cmd = buildActivityReplayCurl(selected, origin);
+                  navigator.clipboard?.writeText(cmd).then(() => toast.success("Copied cURL command"));
+                }}
+              >
+                <Terminal size={13} />
+                <span>{tr("Copy cURL")}</span>
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={dryRunBusy}
+                onClick={async () => {
+                  const target = selected.comboName
+                    ? selected.comboName
+                    : selected.provider && selected.model && !selected.model.includes("/")
+                      ? `${selected.provider}/${selected.model}`
+                      : selected.model ?? "";
+                  if (!target) return;
+                  setDryRunBusy(true);
+                  setDryRunNote(null);
+                  try {
+                    const res = await api.post<{
+                      winner: { provider: string; model: string; accountName: string | null; accountId: string } | null;
+                      steps: Array<{ eligibleCount: number; candidates: unknown[] }>;
+                    }>("/api/routing/dry-run", { target });
+                    if (res.winner) {
+                      setDryRunNote(
+                        `Dry-run winner for ${target}: ${res.winner.provider}/${res.winner.model} → ${res.winner.accountName ?? res.winner.accountId.slice(0, 8)}`,
+                      );
+                    } else {
+                      setDryRunNote(`Dry-run for ${target}: 0 eligible accounts currently available.`);
+                    }
+                  } catch (e) {
+                    setDryRunNote(`Dry-run error: ${e instanceof Error ? e.message : String(e)}`);
+                  } finally {
+                    setDryRunBusy(false);
+                  }
+                }}
+              >
+                <Play size={13} />
+                <span>{dryRunBusy ? "…" : tr("Dry-run route")}</span>
+              </button>
+              <button type="button" className="btn-ghost" onClick={() => { setSelected(null); setDryRunNote(null); }}>{tr("Close")}</button>
             </div>
           </div>
         )}

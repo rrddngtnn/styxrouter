@@ -205,6 +205,7 @@ export function HealthAndVersionsView({
   onPinAntigravity = () => {},
   onRefreshAntigravity = () => {},
   onClearModelLocks,
+  onRunTokenHealthPass,
   onReloadAll,
 }: {
   zcode: VersionStatus | null;
@@ -219,6 +220,7 @@ export function HealthAndVersionsView({
   onPinAntigravity?: (product: "ide" | "cli", version: string | null) => void;
   onRefreshAntigravity?: () => void;
   onClearModelLocks?: () => void;
+  onRunTokenHealthPass?: () => void;
   onReloadAll?: () => void;
 }) {
   const tr = useTranslator();
@@ -273,7 +275,12 @@ export function HealthAndVersionsView({
               {tr("Process-local resource metrics, SQLite file footprint, and background OAuth token refresh scheduler status.")}
             </p>
           </div>
-          <div className="row-actions" style={{ gap: 8 }}>
+          <div className="row-actions" style={{ gap: 8, flexWrap: "wrap" }}>
+            {onRunTokenHealthPass && (
+              <button type="button" className="btn-ghost" disabled={busy} onClick={onRunTokenHealthPass}>
+                <span>{tr("Run token health pass now")}</span>
+              </button>
+            )}
             {onClearModelLocks && (
               <button type="button" className="btn-ghost" disabled={busy} onClick={onClearModelLocks}>
                 <span>{tr("Clear all process model locks")}</span>
@@ -533,6 +540,21 @@ export function HealthAndVersionsSettings() {
     }
   }
 
+  async function runTokenHealthPassNow() {
+    setBusy(true);
+    try {
+      const res = await api.post<{ checked: number; refreshed: number }>(
+        "/api/process-health/token-scheduler/run",
+      );
+      toast.success(`Token health pass finished: ${res.checked} due, ${res.refreshed} refreshed`);
+      sched.reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <HealthAndVersionsView
@@ -561,6 +583,7 @@ export function HealthAndVersionsSettings() {
         onPinAntigravity={pinAntigravity}
         onRefreshAntigravity={refreshAntigravity}
         onClearModelLocks={clearModelLocks}
+        onRunTokenHealthPass={runTokenHealthPassNow}
         onReloadAll={reloadAll}
       />
       <OutboundProxyConfigSection />

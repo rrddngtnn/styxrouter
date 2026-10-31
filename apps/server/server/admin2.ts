@@ -31,6 +31,7 @@ import { WEBHOOK_EVENT_VALUES } from "../src/lib/webhooks/eventDescriptions.ts";
 import { deliverStoredWebhook } from "../src/lib/webhookDispatcher.ts";
 import { clearAllModelLockouts, getModelLockoutSize } from "../open-sse/services/accountFallback.ts";
 import { getProxyConfig, setProxyForLevel } from "../src/lib/db/settings.ts";
+import { executeTokenHealthPass } from "./tokenSchedulerHealth.ts";
 
 const audit = (action: string, target: string, details?: unknown) =>
   logAuditEvent({ action, actor: "admin", target, details, resourceType: "admin_api", status: "success" });
@@ -428,6 +429,13 @@ export function createAdminApi2() {
     clearAllModelLockouts();
     audit("processHealth.clearModelLocks", "process", { cleared });
     return c.json({ success: true, cleared });
+  });
+
+  api.post("/process-health/token-scheduler/run", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const res = await executeTokenHealthPass({ allowInTestMode: true });
+    audit("processHealth.tokenSchedulerRun", "process", res);
+    return c.json({ success: true, ...res });
   });
 
   // ── Outbound proxy configuration (global, provider, account) ─────────────

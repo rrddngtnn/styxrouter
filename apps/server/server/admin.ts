@@ -170,6 +170,11 @@ export function createAdminApi() {
       name: z.string().trim().min(1).max(100),
       isActive: z.boolean(),
       allowedModels: z.array(z.string().min(1).max(200)).max(200),
+      allowedConnections: z.array(z.string().min(1).max(200)).max(200),
+      noLog: z.boolean(),
+      usageLimitEnabled: z.boolean(),
+      dailyUsageLimitUsd: z.number().positive().max(1_000_000).nullable(),
+      weeklyUsageLimitUsd: z.number().positive().max(1_000_000).nullable(),
       // Recovery only: the reserved marker denies access and cannot grant it.
       allowedQuotas: z.array(z.literal("__quota_access_revoked__")).length(1),
       maxRequestsPerDay: z.number().int().positive().nullable(),

@@ -20,6 +20,11 @@ interface KeyRow {
   lastUsedAt?: string | null;
   modelRestrictions?: string[] | null;
   allowedModels?: string[];
+  allowedConnections?: string[];
+  noLog?: boolean;
+  usageLimitEnabled?: boolean;
+  dailyUsageLimitUsd?: number | null;
+  weeklyUsageLimitUsd?: number | null;
   maxRequestsPerDay?: number | null;
   maxRequestsPerMinute?: number | null;
   isActive?: boolean;
@@ -314,6 +319,11 @@ function KeyEditor({ row, onSaved, onClose }: { row: KeyRow; onSaved: () => void
   const [name, setName] = useState(row.name ?? "");
   const [perDay, setPerDay] = useState(row.maxRequestsPerDay ? String(row.maxRequestsPerDay) : "");
   const [perMinute, setPerMinute] = useState(row.maxRequestsPerMinute ? String(row.maxRequestsPerMinute) : "");
+  const [noLog, setNoLog] = useState<boolean>(Boolean(row.noLog));
+  const [usageLimitEnabled, setUsageLimitEnabled] = useState<boolean>(Boolean(row.usageLimitEnabled));
+  const [dailyUsd, setDailyUsd] = useState(row.dailyUsageLimitUsd != null ? String(row.dailyUsageLimitUsd) : "");
+  const [weeklyUsd, setWeeklyUsd] = useState(row.weeklyUsageLimitUsd != null ? String(row.weeklyUsageLimitUsd) : "");
+  const [connections, setConnections] = useState((row.allowedConnections ?? []).join("\n"));
   const [models, setModels] = useState((row.allowedModels ?? []).join("\n"));
   const [addedModel, setAddedModel] = useState("");
   const { busy, error, run } = useAction(onSaved);
@@ -325,6 +335,11 @@ function KeyEditor({ row, onSaved, onClose }: { row: KeyRow; onSaved: () => void
         name: name.trim(),
         maxRequestsPerDay: toLimit(perDay),
         maxRequestsPerMinute: toLimit(perMinute),
+        noLog,
+        usageLimitEnabled,
+        dailyUsageLimitUsd: toLimit(dailyUsd),
+        weeklyUsageLimitUsd: toLimit(weeklyUsd),
+        allowedConnections: connections.split("\n").map((c) => c.trim()).filter(Boolean),
         allowedModels: models.split("\n").map((m) => m.trim()).filter(Boolean),
       }),
     );
@@ -343,6 +358,32 @@ function KeyEditor({ row, onSaved, onClose }: { row: KeyRow; onSaved: () => void
         <label>{tr("Max requests / minute")}<input type="number" min={1} step={1} placeholder={tr("unlimited")} value={perMinute} onChange={(e) => setPerMinute(e.target.value)} />
         </label>
       </div>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        <label className="check">
+          <input type="checkbox" checked={noLog} onChange={(e) => setNoLog(e.target.checked)} />
+          <span>{tr("No-log mode (do not store prompt/response payloads)")}</span>
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={usageLimitEnabled} onChange={(e) => setUsageLimitEnabled(e.target.checked)} />
+          <span>{tr("Enforce USD spend budget")}</span>
+        </label>
+      </div>
+      {usageLimitEnabled && (
+        <div className="two-col" style={{ gap: 12 }}>
+          <label>
+            {tr("Daily USD limit")}
+            <input type="number" min={0.01} step={0.01} placeholder={tr("unlimited")} value={dailyUsd} onChange={(e) => setDailyUsd(e.target.value)} />
+          </label>
+          <label>
+            {tr("Weekly USD limit")}
+            <input type="number" min={0.01} step={0.01} placeholder={tr("unlimited")} value={weeklyUsd} onChange={(e) => setWeeklyUsd(e.target.value)} />
+          </label>
+        </div>
+      )}
+      <label>
+        {tr("Pinned account connection IDs (one per line, empty = all accounts)")}
+        <textarea rows={2} placeholder={tr("Optional connection UUIDs")} value={connections} onChange={(e) => setConnections(e.target.value)} />
+      </label>
       <div className="inline-form" style={{ alignItems: "start" }}>
         <ModelPicker label={tr("Find allowed model")} value={addedModel} onChange={setAddedModel} onKeyDown={(event) => {
           if (event.key === "Enter") {

@@ -31,7 +31,7 @@ import { startSessionAccountAffinityCleanup } from "../src/lib/db/sessionAccount
 import { createModelSyncApi } from "./modelSync.ts";
 import { createProviderModelsApi } from "./providerModels.ts";
 import { createRoutingTraceApi } from "./routingTrace.ts";
-import { tokenSchedulerHealth } from "./tokenSchedulerHealth";
+import { executeTokenHealthPass, tokenSchedulerHealth } from "./tokenSchedulerHealth";
 import { createProcessHealthApi } from "./processHealth.ts";
 import { createStorageHealthApi } from "./storageHealth.ts";
 import { startModelSyncScheduler } from "../src/shared/services/modelSyncScheduler.ts";
@@ -169,6 +169,11 @@ app.get("/api/keys", async (c) => {
         lastUsedAt: k.lastUsedAt ?? null,
         modelRestrictions: k.allowedModels ?? null,
         allowedModels: k.allowedModels ?? [],
+        allowedConnections: k.allowedConnections ?? [],
+        noLog: Boolean(k.noLog),
+        usageLimitEnabled: Boolean(k.usageLimitEnabled),
+        dailyUsageLimitUsd: k.dailyUsageLimitUsd ?? null,
+        weeklyUsageLimitUsd: k.weeklyUsageLimitUsd ?? null,
         maxRequestsPerDay: k.maxRequestsPerDay ?? null,
         maxRequestsPerMinute: k.maxRequestsPerMinute ?? null,
         isActive: k.isActive !== false && !k.revokedAt,
@@ -538,84 +543,9 @@ const tokenHealthDisabled =
   process.env.STYX_TEST_MODE === "1" ||
   Boolean(process.env.BUN_TEST);
 
-let tokenHealthPassGeneration = 0;
-let activeTokenHealthPasses = 0;
 async function runTokenHealthPass(): Promise<void> {
   if (tokenHealthDisabled) return;
-  const generation = ++tokenHealthPassGeneration;
-  activeTokenHealthPasses++;
-  tokenSchedulerHealth.running = true;
-  tokenSchedulerHealth.lastStartedAt = Date.now();
-  tokenSchedulerHealth.lastFinishedAt = null;
-  tokenSchedulerHealth.lastOutcome = null;
-  tokenSchedulerHealth.lastDueCount = null;
-  tokenSchedulerHealth.lastRefreshedCount = null;
-  try {
-    const { getProviderConnections } = await import(
-      "../src/lib/db/providers.ts"
-    );
-    const { getAccessToken, getRefreshLeadMs, TOKEN_EXPIRY_BUFFER_MS } = await import(
-      "../open-sse/services/tokenRefresh.ts"
-    );
-    const { updateProviderCredentials } = await import(
-      "../src/sse/services/tokenRefresh.ts"
-    );
-
-    const connections = await getProviderConnections({ authType: "oauth", isActive: true }, 500, 0);
-    let checked = 0;
-    let refreshed = 0;
-
-    for (const conn of connections as any[]) {
-      const rawExp = conn.tokenExpiresAt ?? conn.expiresAt ?? null;
-      const expiresAt = rawExp ? new Date(rawExp).getTime() : null;
-      if (!expiresAt) continue; // non-expiring credentials (api keys, plan keys)
-      const lead = getRefreshLeadMs(conn.provider);
-      if (Date.now() < expiresAt - lead - TOKEN_EXPIRY_BUFFER_MS) continue;
-
-      checked++;
-      // getAccessToken runs the full pipeline: per-connection mutex, staleness
-      // check, provider-specific refresh switch (Google device for antigravity,
-      // OpenAI token endpoint for codex, AWS refresh for kiro), and the
-      // circuit-breaker retry wrapper. updateProviderCredentials writes the
-      // rotated tokens AND computes the new expiresAt + tokenExpiresAt ISO timestamp.
-      const result = await getAccessToken(
-        conn.provider,
-        {
-          refreshToken: conn.refreshToken,
-          connectionId: conn.id,
-          accessToken: conn.accessToken,
-          expiresAt: rawExp,
-          providerSpecificData: conn.providerSpecificData,
-        },
-        {
-          warn: () => console.warn("[TOKEN-HEALTH] refresh warning"),
-          error: () => console.error("[TOKEN-HEALTH] refresh error"),
-        },
-        null,
-        async (persisted) => {
-          if (!(await updateProviderCredentials(conn.id, persisted as Record<string, unknown>))) throw new Error("Secure credential persistence failed");
-        },
-      );
-      if (result?.accessToken) refreshed++;
-    }
-    if (generation === tokenHealthPassGeneration) {
-      tokenSchedulerHealth.lastOutcome = "completed";
-      tokenSchedulerHealth.lastDueCount = checked;
-      tokenSchedulerHealth.lastRefreshedCount = refreshed;
-    }
-    if (checked > 0) {
-      console.log(`[TOKEN-HEALTH] pass: ${checked} due, ${refreshed} refreshed`);
-    }
-  } catch {
-    if (generation === tokenHealthPassGeneration) tokenSchedulerHealth.lastOutcome = "failed";
-    console.warn("[TOKEN-HEALTH] pass failed");
-  } finally {
-    activeTokenHealthPasses--;
-    tokenSchedulerHealth.running = activeTokenHealthPasses > 0;
-    if (generation === tokenHealthPassGeneration) {
-      tokenSchedulerHealth.lastFinishedAt = Date.now();
-    }
-  }
+  await executeTokenHealthPass();
 }
 
 if (!tokenHealthDisabled) {
