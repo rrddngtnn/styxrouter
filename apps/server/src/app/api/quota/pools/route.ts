@@ -25,8 +25,20 @@ export async function GET(request: Request): Promise<Response> {
 
   try {
     const { searchParams } = new URL(request.url);
-    const limit = searchParams.has("limit") ? Number(searchParams.get("limit")) : undefined;
-    const offset = searchParams.has("offset") ? Number(searchParams.get("offset")) : 0;
+    let limit: number | undefined;
+    if (searchParams.has("limit")) {
+      limit = Number(searchParams.get("limit"));
+      if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+        return Response.json(buildErrorBody(400, "limit must be an integer between 1 and 200"), { status: 400 });
+      }
+    }
+    let offset = 0;
+    if (searchParams.has("offset")) {
+      offset = Number(searchParams.get("offset"));
+      if (!Number.isInteger(offset) || offset < 0) {
+        return Response.json(buildErrorBody(400, "offset must be a non-negative integer"), { status: 400 });
+      }
+    }
     const result = listPools(limit !== undefined ? { limit, offset } : undefined);
     return Response.json({ pools: result.items, total: result.total });
   } catch (err) {
