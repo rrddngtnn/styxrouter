@@ -5,6 +5,36 @@ import { api } from "../../lib/api.ts";
 import { useFetch } from "../../lib/useFetch.ts";
 import { when } from "../../lib/format.ts";
 import { useTranslator } from "../../lib/useTranslator.ts";
+import { TableScroll } from "../TableScroll.tsx";
+
+export interface ProviderDispatchHealthRow {
+  provider: string;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  hour: { requests: number; failures: number };
+  day: { requests: number; failures: number };
+}
+
+export interface RoutingTraceEvent {
+  time: number;
+  kind: "selection" | "outcome";
+  provider: string;
+  account: string;
+  reason: string;
+  requestId?: string;
+  cooldownMs?: number;
+  status?: number;
+}
+
+export interface RoutingTracePayload {
+  scope?: {
+    storage?: string;
+    retention?: string;
+    maxEvents?: number;
+    instanceId?: string;
+  };
+  events: RoutingTraceEvent[];
+}
 
 export interface VersionStatus {
   cachedVersion: string | null;
@@ -167,6 +197,8 @@ export function HealthAndVersionsView({
   antigravityIde,
   antigravityCli,
   processHealth,
+  dispatchHealth = [],
+  routingTrace = null,
   busy = false,
   onPinZcode = () => {},
   onRefreshZcode = () => {},
@@ -178,6 +210,8 @@ export function HealthAndVersionsView({
   antigravityIde: VersionStatus | null;
   antigravityCli: VersionStatus | null;
   processHealth: ProcessHealthSnapshot;
+  dispatchHealth?: ProviderDispatchHealthRow[];
+  routingTrace?: RoutingTracePayload | null;
   busy?: boolean;
   onPinZcode?: (version: string | null) => void;
   onRefreshZcode?: () => void;
@@ -187,6 +221,7 @@ export function HealthAndVersionsView({
 }) {
   const tr = useTranslator();
   const sched = processHealth.tokenScheduler;
+  const recentTraceEvents = (routingTrace?.events ?? []).slice(-25).reverse();
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -290,6 +325,99 @@ export function HealthAndVersionsView({
             )}
           </div>
         </div>
+
+        {dispatchHealth.length > 0 && (
+          <div className="card" style={{ padding: 0, overflow: "hidden", marginTop: 12 }}>
+            <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
+              <strong style={{ fontSize: 15 }}>{tr("Outbound provider dispatch health (1h / 24h)")}</strong>
+            </div>
+            <TableScroll label={tr("Provider dispatch health table")} stickyPrimary>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>{tr("Provider")}</th>
+                    <th>{tr("1h failures / reqs")}</th>
+                    <th>{tr("24h failures / reqs")}</th>
+                    <th>{tr("Last success")}</th>
+                    <th>{tr("Last failure")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dispatchHealth.map((row) => (
+                    <tr key={row.provider}>
+                      <td>
+                        <code>{row.provider}</code>
+                      </td>
+                      <td>
+                        {row.hour.failures} / {row.hour.requests}
+                      </td>
+                      <td>
+                        {row.day.failures} / {row.day.requests}
+                      </td>
+                      <td className="muted">{row.lastSuccessAt ? when(row.lastSuccessAt) : "—"}</td>
+                      <td className="muted">{row.lastFailureAt ? when(row.lastFailureAt) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableScroll>
+          </div>
+        )}
+      </section>
+
+      <section className="settings-card">
+        <div className="section-head" style={{ marginBottom: 12 }}>
+          <div>
+            <h2 style={{ marginBottom: 4 }}>{tr("Routing Decision Trace")}</h2>
+            <p className="muted" style={{ margin: 0 }}>
+              {tr("Process-local, bounded routing and fallback trace (secret-free pseudonymous provider/account tokens).")}
+            </p>
+          </div>
+        </div>
+        {recentTraceEvents.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>{tr("No routing trace events recorded in this process yet.")}</p>
+        ) : (
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <TableScroll label={tr("Routing decision trace table")} stickyPrimary>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>{tr("Time")}</th>
+                    <th>{tr("Kind")}</th>
+                    <th>{tr("Reason")}</th>
+                    <th>{tr("Status")}</th>
+                    <th>{tr("Cooldown")}</th>
+                    <th>{tr("Request ID")}</th>
+                    <th>{tr("Provider / Account")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentTraceEvents.map((ev, idx) => (
+                    <tr key={`${ev.time}-${idx}`}>
+                      <td className="muted">{formatObservedTime(ev.time)}</td>
+                      <td>
+                        <span className="vendor-badge">{ev.kind}</span>
+                      </td>
+                      <td>
+                        <code>{ev.reason}</code>
+                      </td>
+                      <td>{ev.status ?? "—"}</td>
+                      <td>{ev.cooldownMs != null ? `${Math.round(ev.cooldownMs / 1000)}s` : "—"}</td>
+                      <td>
+                        <code>{ev.requestId ?? "—"}</code>
+                      </td>
+                      <td>
+                        <code>
+                          {ev.provider.slice(0, 8)} / {ev.account.slice(0, 8)}
+                        </code>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableScroll>
+          </div>
+        )}
       </section>
     </div>
   );
@@ -304,6 +432,8 @@ export function HealthAndVersionsSettings() {
   const cpu = useFetch<{ userMicroseconds: number; systemMicroseconds: number }>("/api/process-health/cpu");
   const threads = useFetch<{ threadCount: number | null }>("/api/process-health/threads");
   const sched = useFetch<TokenSchedulerSnapshot>("/api/process-health/token-scheduler");
+  const dispatch = useFetch<{ providers?: ProviderDispatchHealthRow[] }>("/api/process-health/dispatch");
+  const trace = useFetch<RoutingTracePayload>("/api/routing/trace");
   const storage = useFetch<{ databaseBytes: number | null; walBytes: number | null }>("/api/storage-health");
   const vacuum = useFetch<{ lastSuccessfulSchedulerVacuumAt: number | null }>("/api/storage-health/vacuum");
   const [busy, setBusy] = useState(false);
@@ -317,6 +447,8 @@ export function HealthAndVersionsSettings() {
     cpu.reload();
     threads.reload();
     sched.reload();
+    dispatch.reload();
+    trace.reload();
     storage.reload();
     vacuum.reload();
   };
@@ -398,6 +530,8 @@ export function HealthAndVersionsSettings() {
             vacuum.status === "ok" ? vacuum.data.lastSuccessfulSchedulerVacuumAt : null,
         },
       }}
+      dispatchHealth={dispatch.status === "ok" ? dispatch.data.providers ?? [] : []}
+      routingTrace={trace.status === "ok" ? trace.data : null}
       busy={busy}
       onPinZcode={pinZcode}
       onRefreshZcode={refreshZcode}

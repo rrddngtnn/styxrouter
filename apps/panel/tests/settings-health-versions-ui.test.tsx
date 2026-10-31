@@ -61,6 +61,35 @@ test("HealthAndVersionsView renders ZCode and Antigravity version drift, pin con
           lastSuccessfulSchedulerVacuumAt: 1761800000000,
         },
       }}
+      dispatchHealth={[
+        {
+          provider: "antigravity",
+          lastSuccessAt: "2026-10-31T07:25:00.000Z",
+          lastFailureAt: "2026-10-31T06:10:00.000Z",
+          hour: { requests: 40, failures: 2 },
+          day: { requests: 400, failures: 10 },
+        },
+      ]}
+      routingTrace={{
+        scope: {
+          storage: "process-local",
+          retention: "volatile",
+          maxEvents: 1000,
+          instanceId: "inst-1234",
+        },
+        events: [
+          {
+            time: 1761868800000,
+            kind: "selection",
+            provider: "a1b2c3d4e5f60718",
+            account: "9988776655443322",
+            reason: "rateLimited",
+            requestId: "req-corr-001",
+            cooldownMs: 30000,
+            status: 429,
+          },
+        ],
+      }}
     />,
   );
 
@@ -75,6 +104,11 @@ test("HealthAndVersionsView renders ZCode and Antigravity version drift, pin con
   expect(html).toContain("50.00 MB");
   expect(html).toContain("4.00 MB");
   expect(html).toContain("completed");
+  expect(html).toContain("antigravity");
+  expect(html).toContain("2 / 40");
+  expect(html).toContain("10 / 400");
+  expect(html).toContain("rateLimited");
+  expect(html).toContain("req-corr-001");
 });
 
 test("EmergencyDispatchPauseCard displays active account counts and emergency pause controls", () => {
