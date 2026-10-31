@@ -127,7 +127,13 @@ export function mergeProviderLimitsCacheEntry(
         : previous?.windowFetchedAt?.[key] ?? previous!.fetchedAt;
     }
     const staleWindows = Object.keys(windows).filter(key => !Object.hasOwn(observed, key));
-    next = { ...next, quotas: windows, windowFetchedAt, staleWindows };
+    next = {
+      ...next,
+      plan: next.plan ?? previous?.plan ?? null,
+      quotas: windows,
+      windowFetchedAt,
+      staleWindows,
+    };
   }
   if (!previous) return next;
   if (provider !== GROK_CLI_PROVIDER) return next;

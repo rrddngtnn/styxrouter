@@ -1199,7 +1199,7 @@ export async function handleChatCore({
     stream: !!stream,
     reqLogger,
     effectiveServiceTier,
-    connectionId,
+    connectionId: pendingConnId,
     startTime,
     log,
     persistAttemptLogs,
@@ -1238,7 +1238,7 @@ export async function handleChatCore({
       }
     );
     if (policy.incompatibleReasoning) {
-      trackPendingRequest(model, provider, connectionId, false);
+      trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
       return createErrorResult(
         HTTP_STATUS.BAD_REQUEST,
         "Reasoning continuation is not compatible with the selected target"
@@ -2110,7 +2110,7 @@ export async function handleChatCore({
       `estimated ${outputBudget.estimatedInputTokens} input tokens, ${exceededInputCap ? `max input ${outputBudget.maxInputTokens}` : `limit ${outputBudget.contextLimit}`}. ` +
       `Reduce the prompt or route to a model with a larger ${exceededInputCap ? "input limit" : "context window"}.`;
     log?.warn?.("CONTEXT", message);
-    trackPendingRequest(model, provider, connectionId, false);
+    trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
     return createErrorResult(
       HTTP_STATUS.BAD_REQUEST,
       message,
@@ -2456,7 +2456,7 @@ export async function handleChatCore({
     log?.warn?.("TRANSLATE", `Request translation failed: ${message}`);
 
     if (errorType) {
-      trackPendingRequest(model, provider, connectionId, false);
+      trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
       return {
         success: false,
         status: statusCode,
@@ -2479,7 +2479,7 @@ export async function handleChatCore({
       };
     }
 
-    trackPendingRequest(model, provider, connectionId, false);
+    trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
     return createErrorResult(statusCode, message);
   }
 
@@ -2750,7 +2750,7 @@ export async function handleChatCore({
     model
   );
   if (toolCallingCheck.blocked) {
-    trackPendingRequest(model, provider, connectionId, false);
+    trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
     return createErrorResult(400, toolCallingCheck.message!, null, "tool_calling_not_supported");
   }
 
@@ -2938,7 +2938,7 @@ export async function handleChatCore({
     if (!fit.compatible) {
       const msg = buildCapabilityMismatchMessage(fit.terminalReason!, provider, effectiveModel);
       log?.warn?.("CAPABILITY", msg);
-      trackPendingRequest(model, provider, connectionId, false);
+      trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
       return createErrorResult(400, msg, null, fit.terminalReason, "invalid_request_error");
     }
   }
@@ -3650,7 +3650,7 @@ export async function handleChatCore({
             : `${tokenBreach.scopeType} "${tokenBreach.scopeValue}"`;
         // FIX 6: clear the pending request marker before the early return so we do
         // not leak a phantom pending request (start was tracked at line ~1847).
-        trackPendingRequest(model, provider, connectionId, false);
+        trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
         // FIX 5: tag this as a per-API-key token-limit breach (errorCode
         // TOKEN_LIMIT_EXCEEDED) so the combo loop can distinguish it from an
         // upstream 429 and NOT cool shared accounts / retry it transiently.
@@ -3674,7 +3674,7 @@ export async function handleChatCore({
   if (provider === "gemini") {
     try {
       if (isTpmExhausted(effectiveModel)) {
-        trackPendingRequest(model, provider, connectionId, false);
+        trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
         return createErrorResult(
           HTTP_STATUS.RATE_LIMITED,
           `Gemini TPM rate limit reached for ${effectiveModel}. Please try again later.`,
@@ -3738,7 +3738,7 @@ export async function handleChatCore({
       // fail-open: saturation signal is best-effort
     }
   } catch (error) {
-    trackPendingRequest(model, provider, connectionId, false);
+    trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
     if (isManagedLeaseFenceError(error)) return managedLeaseFenceErrorResult(error);
     if (isSemaphoreCapacityError(error)) {
       appendRequestLog({
@@ -3884,7 +3884,7 @@ export async function handleChatCore({
     (!credentials?.refreshToken || credentials?.providerSpecificData?.autoRefreshDisabled) &&
     (providerResponse.status === HTTP_STATUS.FORBIDDEN || !(await shouldIsolateProbeFailures()))
   ) {
-    trackPendingRequest(model, provider, connectionId, false);
+    trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
     if (providerResponse.status === HTTP_STATUS.FORBIDDEN) {
       return createErrorResult(
         HTTP_STATUS.FORBIDDEN,
@@ -4069,7 +4069,7 @@ export async function handleChatCore({
 
   // Check provider response - return error info for fallback handling
   providerFailure: if (!providerResponse.ok) {
-    trackPendingRequest(model, provider, connectionId, false);
+    trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
 
     let statusCode = providerResponse.status;
     let message = "";
@@ -4753,7 +4753,7 @@ export async function handleChatCore({
         cacheSource: "upstream",
       });
       persistFailureUsage(HTTP_STATUS.BAD_GATEWAY, "invalid_sse_payload");
-      trackPendingRequest(model, provider, pendingConnId, false);
+      trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
       return createErrorResult(HTTP_STATUS.BAD_GATEWAY, invalidSseMessage);
     }
 
@@ -4775,7 +4775,7 @@ export async function handleChatCore({
         cacheSource: "upstream",
       });
       persistFailureUsage(HTTP_STATUS.BAD_GATEWAY, "invalid_json_payload");
-      trackPendingRequest(model, provider, connectionId, false);
+      trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
       return createErrorResult(HTTP_STATUS.BAD_GATEWAY, invalidJsonMessage);
     }
 
@@ -4833,13 +4833,13 @@ export async function handleChatCore({
           status: `FAILED ${HTTP_STATUS.BAD_GATEWAY}`,
         }).catch(() => {});
         persistFailureUsage(HTTP_STATUS.BAD_GATEWAY, "clinepass_envelope_error");
-        trackPendingRequest(model, provider, connectionId, false);
+        trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
         return createErrorResult(HTTP_STATUS.BAD_GATEWAY, envError.message);
       }
       if (!isJsonRecord(unwrapped)) {
         const invalidEnvelopeMessage = "Invalid JSON response from provider";
         persistFailureUsage(HTTP_STATUS.BAD_GATEWAY, "clinepass_envelope_error");
-        trackPendingRequest(model, provider, connectionId, false);
+        trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
         return createErrorResult(HTTP_STATUS.BAD_GATEWAY, invalidEnvelopeMessage);
       }
       responseBody = unwrapped;
@@ -4891,19 +4891,19 @@ export async function handleChatCore({
               );
               // Fall through — continue processing with the new responseBody
             } catch {
-              trackPendingRequest(model, provider, connectionId, false);
+              trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
               return createErrorResult(HTTP_STATUS.BAD_GATEWAY, emptyContentMessage);
             }
           } else {
-            trackPendingRequest(model, provider, connectionId, false);
+            trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
             return createErrorResult(HTTP_STATUS.BAD_GATEWAY, emptyContentMessage);
           }
         } catch {
-          trackPendingRequest(model, provider, connectionId, false);
+          trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
           return createErrorResult(HTTP_STATUS.BAD_GATEWAY, emptyContentMessage);
         }
       } else {
-        trackPendingRequest(model, provider, connectionId, false);
+        trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
         return createErrorResult(HTTP_STATUS.BAD_GATEWAY, emptyContentMessage);
       }
     }
@@ -5240,7 +5240,7 @@ export async function handleChatCore({
         cacheSource: "upstream",
       });
       persistFailureUsage(HTTP_STATUS.BAD_GATEWAY, "malformed_translated_response");
-      trackPendingRequest(model, provider, pendingConnId, false);
+      trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
       // Routing event (feedback foundation) — record the malformed outcome so
       // the quality tracker de-prioritizes this model over time.
       void emitRoutingEvent(
@@ -5436,7 +5436,7 @@ export async function handleChatCore({
   if (streamReadiness.ok === false) {
     const { response: failureResponse, reason } = streamReadiness;
     const { classificationReason, upstreamDiagnostic } = streamReadiness;
-    trackPendingRequest(model, provider, connectionId, false);
+    trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingScope.id);
     appendRequestLog({
       model,
       provider,

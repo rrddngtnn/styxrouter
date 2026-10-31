@@ -171,7 +171,16 @@ function sanitizeProviderLimitsCacheForConnection(
   connection: ProviderConnectionLike | null | undefined,
   entry: ProviderLimitsCacheEntry | null
 ): ProviderLimitsCacheEntry | null {
-  if (!connection || !entry || !entry.quotas) return entry;
+  if (!entry) return entry;
+  if (
+    typeof entry.message === "string" &&
+    entry.message.includes("Usage API requires admin permissions") &&
+    (!connection || (connection.provider === "claude" && connection.authType === "oauth"))
+  ) {
+    const { refreshFailed: _rf, ...rest } = entry;
+    entry = { ...rest, message: null };
+  }
+  if (!connection || !entry.quotas) return entry;
   if (connection.provider !== "antigravity" && connection.provider !== "agy") return entry;
 
   const sanitizedQuotas = normalizeUsageQuotasForProvider(connection.provider, entry.quotas);
@@ -833,7 +842,10 @@ export async function getSanitizedCachedProviderLimitsMap(): Promise<
       provider: "agy",
     })) as unknown as ProviderConnectionLike[]),
   ];
-  if (sanitizableConnections.length === 0) {
+  const hasBogusClaudeMessage = Object.values(caches).some(
+    (e) => typeof e?.message === "string" && e.message.includes("Usage API requires admin permissions")
+  );
+  if (sanitizableConnections.length === 0 && !hasBogusClaudeMessage) {
     // No connection can change the cache → return the raw entries unchanged.
     return { ...caches };
   }
@@ -887,7 +899,7 @@ async function fetchLiveProviderLimitsWithOptions(
         getUsageForProvider(connection as unknown as JsonRecord, options)
       )) as JsonRecord
     );
-    if (isRecord(usage.quotas)) {
+    if (isRecord(usage.quotas) && Object.keys(usage.quotas).length > 0) {
       setQuotaCache(connectionId, connection.provider, usage.quotas);
     }
     connection = await syncExpiredStatusIfNeeded(connection, usage);
@@ -1002,7 +1014,7 @@ async function fetchLiveProviderLimitsWithOptions(
     result = await fetchUsageWithContext(null);
   }
 
-  if (isRecord(result.usage.quotas)) {
+  if (isRecord(result.usage.quotas) && Object.keys(result.usage.quotas).length > 0) {
     setQuotaCache(connectionId, connection.provider, result.usage.quotas);
   }
   connection = await syncExpiredStatusIfNeeded(connection, result.usage);

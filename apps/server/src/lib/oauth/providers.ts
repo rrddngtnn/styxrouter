@@ -286,7 +286,7 @@ export async function pollForToken(providerName, deviceCode, codeVerifier, extra
           success: false,
           error: result.data.error,
           errorDescription: result.data.error_description || result.data.message,
-          pending: result.data.error === "authorization_pending",
+          pending: true,
         };
       } else {
         return {

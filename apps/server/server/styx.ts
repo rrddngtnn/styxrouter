@@ -430,7 +430,7 @@ app.post("/api/oauth/:providerId/init", async (c) => {
     deviceFlows.set(state, {
       expiresAt,
       intervalMs: intervalSec * 1000,
-      nextPollAt: Date.now() + intervalSec * 1000,
+      nextPollAt: 0,
       extras: Object.keys(flowExtras).length > 0 ? flowExtras : undefined,
     });
     if (mod.pollToken && !process.env.BUN_TEST) {

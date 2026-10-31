@@ -266,7 +266,8 @@ export function trackPendingRequest(
   provider: string,
   connectionId: string | null,
   started: boolean,
-  metadata?: PendingRequestMetadata
+  metadata?: PendingRequestMetadata,
+  requestId?: string | null
 ) {
   const modelKey = provider ? `${model} (${provider})` : model;
   if (!isSafeKey(modelKey)) return;
@@ -324,7 +325,9 @@ export function trackPendingRequest(
       return newDetail.id;
     } else if (!started && nextCount >= 0) {
       if (pendingRequests.details[connectionId]?.[modelKey]?.length) {
-        const removed = pendingRequests.details[connectionId][modelKey].shift();
+        const list = pendingRequests.details[connectionId][modelKey];
+        const idx = requestId ? list.findIndex((entry) => entry.id === requestId) : -1;
+        const removed = idx >= 0 ? list.splice(idx, 1)[0] : list.shift();
         if (removed) pendingById.delete(removed.id);
       }
       if (!pendingRequests.details[connectionId]?.[modelKey]?.length) {

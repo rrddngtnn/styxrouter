@@ -252,9 +252,16 @@ export const zaiGlmProvider = {
     };
   },
 
-  async pollToken(config: ZaiOAuthConfig = ZAI_GLM_CONFIG, deviceCode: string, state?: { _zcodePollToken?: string }) {
-    // Sibling convention: (config, deviceCode). `state` carries the
-    // per-session poll token when the caller preserved our init response.
+  async pollToken(
+    config: ZaiOAuthConfig = ZAI_GLM_CONFIG,
+    deviceCode: string,
+    stateOrVerifier?: { _zcodePollToken?: string } | string,
+    extraData?: { _zcodePollToken?: string }
+  ) {
+    // Sibling convention: (config, deviceCode, codeVerifier?, extraData?).
+    // Direct callers pass `state` in arg #3; `pollForToken` passes `codeVerifier` in arg #3 and `extraData` in arg #4.
+    const state =
+      typeof stateOrVerifier === "object" && stateOrVerifier !== null ? stateOrVerifier : extraData;
     const pollToken = state?._zcodePollToken ?? (deviceCode as any)?._zcodePollToken;
     const flowId = typeof deviceCode === "string" ? deviceCode : (deviceCode as any)?.device_code;
     if (!pollToken || !flowId) {
@@ -273,7 +280,10 @@ export const zaiGlmProvider = {
     if (!res.ok) {
       return { ok: true, data: { error: "access_denied", error_description: `ZCode poll failed (HTTP ${res.status})` } };
     }
-    const body = await res.json();
+    const body = await res.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return { ok: true, data: { error: "authorization_pending", error_description: "ZCode poll returned non-JSON body" } };
+    }
     if (!codeOk(body.code)) {
       if (Number(body.code) === 429 || /rate|too many|频繁|限流/i.test(String(body.msg || ""))) {
         return { ok: true, data: { error: "slow_down", error_description: body.msg || "ZCode poll rate-limited" } };
