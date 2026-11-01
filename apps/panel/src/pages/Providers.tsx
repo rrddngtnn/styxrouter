@@ -614,6 +614,16 @@ export function ProviderDetail() {
     }
   }
 
+  async function refreshToken(id: string) {
+    const out = await run(`refresh-tok-${id}`, () =>
+      api.post<{ ok: boolean; tokenExpiresAt?: string | null; error?: string }>(`/api/connections/${id}/refresh-token`),
+    );
+    if (out && out.ok) {
+      setResults((r) => ({ ...r, [id]: "token refreshed ✓" }));
+      toast.success("OAuth token refreshed and rotated");
+    }
+  }
+
   async function rotate(e: React.FormEvent, id: string) {
     e.preventDefault();
     const out = await run(`rot-${id}`, () => api.post(`/api/connections/${id}/rotate-key`, { apiKey: newKey.trim() }));
@@ -1088,7 +1098,10 @@ export function ProviderDetail() {
                       {a.backoffLevel > 0 ? ` · backoff ${a.backoffLevel}` : ""}
                       {(() => {
                         const expHint = formatCredentialExpiryHint(a.tokenExpiresAt);
-                        return expHint ? ` · ${expHint}` : "";
+                        if (!expHint) return "";
+                        return !isApiKey && expHint.startsWith("expires in")
+                          ? ` · ${expHint} (auto-refresh)`
+                          : ` · ${expHint}`;
                       })()}
                     </td>
                     <td className="cell-error" title={a.lastError ?? undefined}>
@@ -1096,6 +1109,17 @@ export function ProviderDetail() {
                     </td>
                     <td className="row-actions">
                       <button type="button" className="btn-ghost" disabled={locked} onClick={() => test(a.id)}>{tr("Test")}</button>
+                      {!isApiKey && (
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          disabled={locked}
+                          title={tr("Force an immediate OAuth refresh_token exchange and extend access_token expiry")}
+                          onClick={() => refreshToken(a.id)}
+                        >
+                          {busy === `refresh-tok-${a.id}` ? "…" : tr("Refresh token")}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn-ghost"

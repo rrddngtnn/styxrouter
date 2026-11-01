@@ -43,7 +43,10 @@ import { getSettings, updateSettings } from "../src/lib/db/settings.ts";
 import { updateSettingsSchema } from "../src/shared/validation/settingsSchemas.ts";
 import { validateProviderApiKey } from "../src/lib/providers/validation.ts";
 import { TOKEN_EXPIRY_BUFFER_MS, getAccessToken, getRefreshLeadMs } from "../open-sse/services/tokenRefresh.ts";
-import { updateProviderCredentials } from "../src/sse/services/tokenRefresh.ts";
+import {
+  getAccessToken as getAccessTokenWithProxy,
+  updateProviderCredentials,
+} from "../src/sse/services/tokenRefresh.ts";
 import {
   getStoredManagementPassword,
   hashManagementPassword,
@@ -569,6 +572,57 @@ export function createAdminApi() {
     await updateProviderConnection(id, { testStatus: ok ? "active" : error === "Token expired; re-import or re-authenticate" ? "expired" : "error", lastTested: new Date().toISOString() });
     audit(c, "connection.test", id, { ok });
     return c.json({ ok, error });
+  });
+
+  // Explicit manual OAuth token renewal requested by the operator from the panel.
+  api.post("/connections/:id/refresh-token", async (c) => {
+    const id = c.req.param("id");
+    const conn = (await getProviderConnectionById(id)) as any;
+    if (!conn) return notFound(c, "Connection");
+    if (conn.authType !== "oauth") {
+      return bad(c, "Only OAuth accounts support token refresh.");
+    }
+    if (!conn.refreshToken || typeof conn.refreshToken !== "string") {
+      return bad(c, "No refresh token stored for this account; re-authenticate via OAuth.");
+    }
+    if (conn.providerSpecificData?.importedToken) {
+      return bad(c, "Imported static token refresh is disabled; re-authenticate via OAuth.");
+    }
+    try {
+      const r: any = await getAccessTokenWithProxy(
+        conn.provider,
+        {
+          refreshToken: conn.refreshToken,
+          connectionId: id,
+          accessToken: conn.accessToken,
+          expiresAt: conn.tokenExpiresAt ?? conn.expiresAt ?? null,
+          providerSpecificData: conn.providerSpecificData,
+        },
+        async (persisted) => {
+          if (!(await updateProviderCredentials(id, persisted as Record<string, unknown>))) {
+            throw new Error("Secure credential persistence failed");
+          }
+        },
+      );
+      if (!r?.accessToken) {
+        const errMsg = r?.code ? `Refresh rejected (${r.code})` : "OAuth token refresh failed";
+        await updateProviderConnection(id, {
+          testStatus: "error",
+          lastError: errMsg,
+          lastTested: new Date().toISOString(),
+        });
+        audit(c, "connection.refresh_token", id, { ok: false, error: errMsg });
+        return c.json({ ok: false, error: errMsg }, 400);
+      }
+      const updated = (await getProviderConnectionById(id)) as any;
+      const tokenExpiresAt = updated?.tokenExpiresAt ?? updated?.expiresAt ?? null;
+      audit(c, "connection.refresh_token", id, { ok: true, tokenExpiresAt });
+      return c.json({ ok: true, tokenExpiresAt });
+    } catch (e) {
+      const error = (e instanceof Error ? e.message : "OAuth token refresh failed").slice(0, 200);
+      audit(c, "connection.refresh_token", id, { ok: false, error });
+      return c.json({ ok: false, error }, 400);
+    }
   });
 
   // ── Settings and the management password ─────────────────────────────────
