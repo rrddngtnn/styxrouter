@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Pagination } from "../components/Pagination.tsx";
 import { ProviderIcon } from "../components/ProviderIcon.tsx";
+import { Modal } from "../lib/actions.tsx";
 import { paginationState } from "../lib/pagination.ts";
 import { api } from "../lib/api.ts";
 import { Meter } from "../lib/charts.tsx";
@@ -19,6 +20,7 @@ const quotaId: Record<string, string> = {
   "Updated": "Diperbarui", "Time unknown": "Waktu tidak diketahui", "Quota unavailable": "Kuota tidak tersedia", "More quota windows": "Jendela kuota lainnya",
   "Token": "Token", "valid": "valid", "expired": "kedaluwarsa", "expiring": "akan kedaluwarsa", "refreshing": "sedang diperbarui", "refreshable": "dapat diperbarui",
   "Credit": "Kredit", "Unknown": "Tidak diketahui", "Observed": "Teramati", "Account cooldown": "Jeda akun", "Model cooldowns (this process only)": "Jeda model (hanya proses ini)",
+  "Banked reset credits": "Kredit reset tersimpan", "Redeem reset": "Gunakan reset", "Reset credits": "Kredit reset",
 };
 function useQuotaTranslator() {
   const { t, language } = usePreferences();
@@ -62,6 +64,84 @@ export function Quota() {
   const [live, setLive] = useState<Record<string, Live>>({});
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncSummary, setSyncSummary] = useState<string | null>(null);
+  const [resetCreditTarget, setResetCreditTarget] = useState<QuotaRow | null>(null);
+  const [resetCreditState, setResetCreditState] = useState<{
+    loading: boolean;
+    redeeming: boolean;
+    availableCount: number;
+    credits: Array<{
+      selectionToken: string;
+      resetType?: string;
+      status?: string;
+      grantedAt?: string;
+      expiresAt?: string | null;
+      title?: string;
+      description?: string;
+    }>;
+    error: string | null;
+  }>({ loading: false, redeeming: false, availableCount: 0, credits: [], error: null });
+
+  async function openResetCredits(row: QuotaRow) {
+    setResetCreditTarget(row);
+    setResetCreditState({ loading: true, redeeming: false, availableCount: row.bankedResetCredits ?? 0, credits: [], error: null });
+    try {
+      const res = await api.get<{
+        ok: boolean;
+        availableCount?: number;
+        credits?: Array<{
+          selectionToken: string;
+          resetType?: string;
+          status?: string;
+          grantedAt?: string;
+          expiresAt?: string | null;
+          title?: string;
+          description?: string;
+        }>;
+      }>(`/api/usage/codex-reset-credit?connectionId=${encodeURIComponent(row.connectionId)}`);
+      setResetCreditState({
+        loading: false,
+        redeeming: false,
+        availableCount: res.availableCount ?? 0,
+        credits: res.credits ?? [],
+        error: null,
+      });
+    } catch (e) {
+      setResetCreditState({
+        loading: false,
+        redeeming: false,
+        availableCount: row.bankedResetCredits ?? 0,
+        credits: [],
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  async function redeemResetCredit(creditId?: string) {
+    if (!resetCreditTarget) return;
+    setResetCreditState((s) => ({ ...s, redeeming: true, error: null }));
+    try {
+      const idempotencyKey =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `styx-reset-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const res = await api.post<{ ok: boolean; outcome: string; usage?: unknown }>("/api/usage/codex-reset-credit", {
+        connectionId: resetCreditTarget.connectionId,
+        idempotencyKey,
+        ...(creditId ? { creditId } : {}),
+      });
+      toast.success(
+        res.outcome === "alreadyRedeemed"
+          ? tr("Reset credit was already redeemed; quota refreshed.")
+          : tr("Codex banked reset credit redeemed! Quota window reset."),
+      );
+      setResetCreditTarget(null);
+      await refresh(resetCreditTarget.connectionId);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setResetCreditState((s) => ({ ...s, redeeming: false, error: msg }));
+      toast.error(msg);
+    }
+  }
 
   const names = useMemo(() => {
     const m = new Map<string, string>();
@@ -142,8 +222,87 @@ export function Quota() {
       {state.status === "loading" && <p>{tr("Loading...")}</p>}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
       {state.status === "ok" && !state.data.providers?.length && <p className="muted">{tag ? tr("No matching accounts.") : tr("No accounts connected.")}</p>}
-      {state.status === "ok" && <QuotaBrowser rows={state.data.providers ?? []} names={names} live={live} syncingAll={syncingAll} onRefresh={refresh} onCheckGroup={checkGroup} selectedProvider={selectedProvider} onSelectProvider={setSelectedProvider} />}
+      {state.status === "ok" && <QuotaBrowser rows={state.data.providers ?? []} names={names} live={live} syncingAll={syncingAll} onRefresh={refresh} onCheckGroup={checkGroup} selectedProvider={selectedProvider} onSelectProvider={setSelectedProvider} onOpenResetCredits={openResetCredits} />}
       <QuotaPoolsSection connections={state.status === "ok" ? state.data.providers ?? [] : []} />
+      <Modal
+        open={resetCreditTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setResetCreditTarget(null);
+        }}
+        title={tr("Codex Banked Reset Credits")}
+        description={
+          resetCreditTarget
+            ? `${resetCreditTarget.name} (${resetCreditTarget.connectionId.slice(0, 8)})`
+            : ""
+        }
+      >
+        {resetCreditTarget && (
+          <div className="stack-form">
+            <p className="muted" style={{ margin: 0 }}>
+              {tr("ChatGPT Plus/Pro/Team accounts occasionally bank extra rate-limit reset credits. Redeeming one immediately resets an exhausted Codex 5h/weekly quota window upstream.")}
+            </p>
+            <div className="card" style={{ padding: 12 }}>
+              <div>
+                {tr("Available banked resets")}: <strong>{resetCreditState.availableCount}</strong>
+              </div>
+              {resetCreditState.loading && (
+                <p className="muted" style={{ margin: "8px 0 0" }}>{tr("Querying upstream reset-credit inventory…")}</p>
+              )}
+              {resetCreditState.error && (
+                <p className="bad" style={{ margin: "8px 0 0" }}>{resetCreditState.error}</p>
+              )}
+              {!resetCreditState.loading && resetCreditState.credits.length > 0 && (
+                <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                  {resetCreditState.credits.map((c) => (
+                    <div
+                      key={c.selectionToken}
+                      className="card"
+                      style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}
+                    >
+                      <div>
+                        <strong>{c.title ?? c.resetType ?? tr("Rate-limit reset credit")}</strong>
+                        {c.description && <div className="muted">{c.description}</div>}
+                        <small className="muted">
+                          {c.expiresAt ? `${tr("Expires")}: ${when(c.expiresAt)}` : tr("No expiration reported")}
+                        </small>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-add"
+                        disabled={resetCreditState.redeeming}
+                        onClick={() => void redeemResetCredit(c.selectionToken)}
+                      >
+                        {resetCreditState.redeeming ? tr("Redeeming…") : tr("Redeem this credit")}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="row-actions">
+              <button
+                type="button"
+                className="btn-add"
+                disabled={resetCreditState.loading || resetCreditState.redeeming || resetCreditState.availableCount <= 0}
+                onClick={() => void redeemResetCredit()}
+              >
+                {resetCreditState.redeeming ? tr("Redeeming…") : tr("Redeem earliest expiring credit")}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={resetCreditState.loading || resetCreditState.redeeming}
+                onClick={() => void openResetCredits(resetCreditTarget)}
+              >
+                {tr("Refresh inventory")}
+              </button>
+              <button type="button" className="btn-ghost" onClick={() => setResetCreditTarget(null)}>
+                {tr("Close")}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -263,10 +422,11 @@ export function quotaPage(rows: QuotaRow[], search: string, requestedPage: numbe
   return { rows: filtered.slice((page - 1) * size, page * size), total, pages, page };
 }
 
-export function QuotaBrowser({ rows, names, live, syncingAll, onRefresh, onCheckGroup, selectedProvider, onSelectProvider }: {
+export function QuotaBrowser({ rows, names, live, syncingAll, onRefresh, onCheckGroup, selectedProvider, onSelectProvider, onOpenResetCredits }: {
   rows: QuotaRow[]; names: Map<string, string>; now?: number; live: Record<string, Live>; syncingAll: boolean;
   onRefresh: (id: string) => void; onCheckGroup: (rows: QuotaRow[]) => void;
   selectedProvider?: string; onSelectProvider?: (provider: string) => void;
+  onOpenResetCredits?: (row: QuotaRow) => void;
 }) {
   const tr = useQuotaTranslator();
   const [localSelected, setLocalSelected] = useState(rows[0]?.provider ?? "");
@@ -324,6 +484,10 @@ export function QuotaBrowser({ rows, names, live, syncingAll, onRefresh, onCheck
         const stale = (!cachedNewer && response?._stale === true) || !!status?.error;
         const warning = status?.error ?? (typeof response?._staleReason === "string" ? response._staleReason : null) ?? (typeof response?.message === "string" ? response.message : null) ?? row.message;
         const plan = !cachedNewer && typeof response?.plan === "string" ? response.plan : row.plan;
+        const bankedResetCredits =
+          !cachedNewer && typeof response?.bankedResetCredits === "number" && Number.isFinite(response.bankedResetCredits)
+            ? response.bankedResetCredits
+            : row.bankedResetCredits;
         const fetched = stale ? (typeof response?._staleSince === "string" ? response._staleSince : row.fetchedAt) : (!cachedNewer && fresh.length && status?.checkedAt ? status.checkedAt : row.fetchedAt);
         const renderWindow = (w: QuotaWindow) => {
           const isFresh = !stale && !cachedNewer && w.stale !== true && fresh.includes(w);
@@ -338,6 +502,24 @@ export function QuotaBrowser({ rows, names, live, syncingAll, onRefresh, onCheck
         return <article className="quota-account" key={row.connectionId}>
           <header><div><h3>{row.name}</h3><span className="vendor-badge">{plan ?? tr("Plan unknown")}</span></div><button type="button" className="btn-ghost" disabled={busy || row.isActive === false || row.quotaSupported === false} onClick={() => onRefresh(row.connectionId)}>{status?.busy ? tr("Checking…") : tr("Check now")}</button></header>
           <div className={row.isActive === false ? "muted" : tokenTone(row.tokenStatus)}>{row.isActive === false && <>{tr("Disabled ·")} </>}{tr("Token")}: {tr(row.tokenStatus)}</div>
+          {row.provider === "codex" && (bankedResetCredits != null || onOpenResetCredits) && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <span>
+                {tr("Banked reset credits")}: <strong>{bankedResetCredits != null ? bankedResetCredits : DASH}</strong>
+              </span>
+              {onOpenResetCredits && row.isActive !== false && (
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  style={{ padding: "2px 8px" }}
+                  disabled={busy}
+                  onClick={() => onOpenResetCredits(row)}
+                >
+                  {bankedResetCredits != null && bankedResetCredits > 0 ? tr("Redeem reset") : tr("Reset credits")}
+                </button>
+              )}
+            </div>
+          )}
           {row.provider === "codebuddy-cn" && <>
             <div>{tr("Credit")}: {tr(row.creditStatus === "observed" ? (stale ? "Stale" : "Observed") : row.creditStatus === "stale" ? "Stale" : "Unknown")}</div>
             {row.accountCooldownUntil && <div>{tr("Account cooldown")}: {when(row.accountCooldownUntil)}</div>}

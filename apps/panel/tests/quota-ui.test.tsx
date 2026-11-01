@@ -149,3 +149,21 @@ test("provider cards show only the selected pool, capped at eight account cards"
   expect(html).toContain("Not synced yet");
   expect(html).not.toContain("100%");
 });
+
+test("Codex quota card surfaces banked reset credits and Redeem reset trigger when callback is provided", () => {
+  const codexRow: QuotaRow = { ...account("codex-1", "codex"), bankedResetCredits: 2 };
+  const html = renderToStaticMarkup(
+    <QuotaBrowser
+      rows={[codexRow]}
+      names={new Map()}
+      live={{}}
+      syncingAll={false}
+      onRefresh={() => {}}
+      onCheckGroup={() => {}}
+      onOpenResetCredits={() => {}}
+    />,
+  );
+  expect(html).toContain("Banked reset credits");
+  expect(html).toContain("<strong>2</strong>");
+  expect(html).toContain("Redeem reset");
+});

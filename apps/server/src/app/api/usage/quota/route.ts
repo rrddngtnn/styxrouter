@@ -282,6 +282,7 @@ function applyCachedLimits(
         plan?: unknown;
         fetchedAt?: string | null;
         message?: unknown;
+        bankedResetCredits?: unknown;
       }
     | undefined
 ): QuotaProviderEntry {
@@ -302,6 +303,12 @@ function applyCachedLimits(
     : typeof cached.message === "string" && cached.message.trim()
       ? cached.message.trim()
       : entry.message;
+  const bankedResetCredits =
+    typeof cached.bankedResetCredits === "number" &&
+    Number.isFinite(cached.bankedResetCredits) &&
+    cached.bankedResetCredits >= 0
+      ? Math.trunc(cached.bankedResetCredits)
+      : entry.bankedResetCredits;
 
   let best: QuotaWindowEntry | null = null;
   for (const w of windows) {
@@ -319,6 +326,7 @@ function applyCachedLimits(
       fetchedAt,
       message,
       windows,
+      ...(bankedResetCredits !== undefined ? { bankedResetCredits } : {}),
     };
   }
 
@@ -329,6 +337,7 @@ function applyCachedLimits(
     fetchedAt,
     message,
     windows,
+    ...(bankedResetCredits !== undefined ? { bankedResetCredits } : {}),
     quotaTotal: best.total ?? 100,
     quotaUsed: best.used ?? Math.max(0, Math.round(100 - pct)),
     percentRemaining: pct,
