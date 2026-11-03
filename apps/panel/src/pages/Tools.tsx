@@ -79,19 +79,19 @@ export const EXTRA_TOOLS: ToolSpec<ExtraToolId>[] = [
     id: "hermes-agent",
     name: "Hermes Agent",
     badge: "Autonomous Agent",
-    summary: "Wire Nous Research's Hermes Agent (~/.hermes/config.yaml & .env) to StyxRouter's OpenAI or Anthropic endpoints.",
+    summary: "Wire Nous Research's Hermes Agent (~/.hermes/config.yaml & .env) to StyxRouter's OpenAI-compatible endpoint.",
   },
   {
     id: "factory-droid",
     name: "Factory Droid",
     badge: "BYOK Agent",
-    summary: "Configure ~/.factory/config.json custom models for Droid CLI with OpenAI or Anthropic wire format.",
+    summary: "Configure ~/.factory/settings.json custom models for Droid CLI with OpenAI or Anthropic wire format.",
   },
   {
     id: "goose",
-    name: "Goose / OpenHands",
+    name: "Goose",
     badge: "Agent Harness",
-    summary: "Configure Block Goose CLI or OpenHands agent containers against StyxRouter's /v1 gateway.",
+    summary: "Configure Block Goose CLI against StyxRouter's /v1 gateway.",
   },
 ];
 
@@ -124,14 +124,14 @@ export const TUNNEL_MODES: TunnelModeSpec[] = [
     id: "cloudflared",
     name: "Cloudflare Tunnel (cloudflared)",
     badge: "Public HTTPS",
-    summary: "Expose local or VPS StyxRouter over HTTPS without opening firewall ports (required for Cursor IDE cloud relay).",
+    summary: "Public HTTPS via a named tunnel. Quick Tunnels do not support SSE streaming.",
     recommendedBase: (_port, host) => `https://${host}`,
   },
   {
     id: "tailscale",
     name: "Tailscale Mesh / Serve",
     badge: "Private WireGuard",
-    summary: "Access StyxRouter across your personal tailnet via MagicDNS HTTPS or Tailscale Funnel.",
+    summary: "Private Serve and public Funnel are different exposure modes. Use the actual tailnet HTTPS URL.",
     recommendedBase: (_port, host) => `https://${host}`,
   },
   {
@@ -143,19 +143,33 @@ export const TUNNEL_MODES: TunnelModeSpec[] = [
   },
 ];
 
+// Quote values for POSIX shells; never interpolate user text into executable syntax.
+const shellQuote = (value: string) => "'" + value.replace(/'/g, "'\"'\"'") + "'";
+const literal = (value: string) => JSON.stringify(value);
+
+export function normalizeRouterBase(value: string): string {
+  if (/[\x00-\x20\x7f]/.test(value.trim())) throw new Error("Base URL must not contain whitespace or controls.");
+  const url = new URL(value.trim());
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    throw new Error("Use an HTTP(S) base URL without credentials, query, or fragment.");
+  }
+  return url.href.replace(/\/+$/, "").replace(/\/v1$/, "");
+}
+
 export function buildSnippets(
   tool: AnyToolId,
   base: string,
   key: string,
   model: string,
 ): { title: string; file: string; body: string }[] {
+  base = normalizeRouterBase(base);
   switch (tool) {
     case "claude-code":
       return [
         {
           title: "Shell environment & launch",
           file: "bash / zsh",
-          body: `export ANTHROPIC_BASE_URL="${base}"\nexport ANTHROPIC_AUTH_TOKEN="${key}"\nexport ANTHROPIC_MODEL="${model}"\nclaude`,
+          body: `export ANTHROPIC_BASE_URL=${shellQuote(base)}\nexport ANTHROPIC_AUTH_TOKEN=${shellQuote(key)}\nexport ANTHROPIC_MODEL=${shellQuote(model)}\nclaude`,
         },
         {
           title: "Persistent settings (never type export again)",
@@ -166,7 +180,7 @@ export function buildSnippets(
                 ANTHROPIC_BASE_URL: base,
                 ANTHROPIC_AUTH_TOKEN: key,
                 ANTHROPIC_MODEL: model,
-                ANTHROPIC_SMALL_FAST_MODEL: model,
+                ANTHROPIC_DEFAULT_HAIKU_MODEL: model,
                 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
               },
             },
@@ -180,12 +194,12 @@ export function buildSnippets(
         {
           title: "Provider configuration",
           file: "~/.codex/config.toml",
-          body: `model = "${model}"\nmodel_provider = "styx"\n\n[model_providers.styx]\nname = "StyxRouter"\nbase_url = "${base}/v1"\nenv_key = "STYX_API_KEY"\nwire_api = "responses"`,
+          body: `model = ${literal(model)}\nmodel_provider = "styx"\n\n[model_providers.styx]\nname = "StyxRouter"\nbase_url = "${base}/v1"\nenv_key = "STYX_API_KEY"\nwire_api = "responses"`,
         },
         {
           title: "Export key & launch",
           file: "bash / zsh",
-          body: `export STYX_API_KEY="${key}"\ncodex`,
+          body: `export STYX_API_KEY=${shellQuote(key)}\ncodex`,
         },
       ];
     case "opencode":
@@ -216,29 +230,28 @@ export function buildSnippets(
         {
           title: "Hermes Agent configuration",
           file: "~/.hermes/config.yaml",
-          body: `model:\n  provider: custom\n  name: "${model}"\n  base_url: "${base}/v1"\n  api_key_env: STYX_API_KEY`,
+          body: `model:\n  provider: custom\n  default: ${literal(model)}\n  base_url: "${base}/v1"\n  key_env: STYX_API_KEY`,
         },
         {
-          title: "Environment secret & CLI launch",
-          file: "~/.hermes/.env",
-          body: `echo 'STYX_API_KEY=${key}' >> ~/.hermes/.env\nexport OPENAI_BASE_URL="${base}/v1"\nexport OPENAI_API_KEY="${key}"\nhermes --model "${model}"`,
+          title: "Apply settings to the active Hermes profile & launch",
+          file: "bash / zsh",
+          body: `# Reference above: merge only; do not replace an existing config.\n# These commands use the active HERMES_HOME/profile.\nexport STYX_API_KEY=${shellQuote(key)}\nhermes config set model.provider custom\nhermes config set model.default ${shellQuote(model)}\nhermes config set model.base_url ${shellQuote(base + "/v1")}\nhermes config set model.key_env STYX_API_KEY\nhermes`,
         },
       ];
     case "factory-droid":
       return [
         {
           title: "Factory Droid BYOK configuration",
-          file: "~/.factory/config.json",
+          file: "~/.factory/settings.json",
           body: JSON.stringify(
             {
-              custom_models: [
+              customModels: [
                 {
-                  model_display_name: `Styx (${model})`,
+                  displayName: `Styx (${model})`,
                   model,
-                  base_url: `${base}/v1`,
-                  api_key: key,
+                  baseUrl: `${base}/v1`,
+                  apiKey: "${STYX_API_KEY}",
                   provider: "generic-chat-completion-api",
-                  max_tokens: 32000,
                 },
               ],
             },
@@ -246,26 +259,26 @@ export function buildSnippets(
             2,
           ),
         },
+        { title: "Export key; launch and select the custom model with /model", file: "bash / zsh", body: `export STYX_API_KEY=${shellQuote(key)}\ndroid` },
       ];
-    case "goose":
-      return [
-        {
-          title: "Block Goose / OpenHands environment",
-          file: "bash / zsh",
-          body: `export GOOSE_PROVIDER="openai"\nexport OPENAI_HOST="${base}"\nexport OPENAI_BASE_URL="${base}/v1"\nexport OPENAI_API_KEY="${key}"\nexport GOOSE_MODEL="${model}"\ngoose session`,
-        },
-      ];
+    case "goose": {
+      const url = new URL(base);
+      return [{
+        title: "Block Goose OpenAI-compatible environment", file: "bash / zsh",
+        body: `export GOOSE_PROVIDER='openai'\nexport OPENAI_HOST=${shellQuote(url.origin)}\nexport OPENAI_BASE_PATH=${shellQuote(url.pathname.replace(/^\//, "").replace(/\/$/, "") + (url.pathname === "/" ? "" : "/") + "v1/chat/completions")}\nexport OPENAI_API_KEY=${shellQuote(key)}\nexport GOOSE_MODEL=${shellQuote(model)}\ngoose session`,
+      }];
+    }
     case "python":
       return [
         {
           title: "OpenAI Python SDK",
           file: "main.py",
-          body: `from openai import OpenAI\n\nclient = OpenAI(\n    base_url="${base}/v1",\n    api_key="${key}",\n)\n\nresp = client.chat.completions.create(\n    model="${model}",\n    messages=[{"role": "user", "content": "Hello!"}],\n)\nprint(resp.choices[0].message.content)`,
+          body: `from openai import OpenAI\n\nclient = OpenAI(\n    base_url="${base}/v1",\n    api_key=${literal(key)},\n)\n\nresp = client.chat.completions.create(\n    model=${literal(model)},\n    messages=[{"role": "user", "content": "Hello!"}],\n)\nprint(resp.choices[0].message.content)`,
         },
         {
           title: "OpenAI TypeScript / Bun SDK",
           file: "index.ts",
-          body: `import OpenAI from "openai";\n\nconst client = new OpenAI({\n  baseURL: "${base}/v1",\n  apiKey: "${key}",\n});\n\nconst res = await client.chat.completions.create({\n  model: "${model}",\n  messages: [{ role: "user", content: "Hello!" }],\n});\nconsole.log(res.choices[0]?.message?.content);`,
+          body: `import OpenAI from "openai";\n\nconst client = new OpenAI({\n  baseURL: "${base}/v1",\n  apiKey: ${literal(key)},\n});\n\nconst res = await client.chat.completions.create({\n  model: ${literal(model)},\n  messages: [{ role: "user", content: "Hello!" }],\n});\nconsole.log(res.choices[0]?.message?.content);`,
         },
       ];
     case "aider":
@@ -273,12 +286,12 @@ export function buildSnippets(
         {
           title: "Launch command",
           file: "bash / zsh",
-          body: `aider \\\n  --openai-api-base "${base}/v1" \\\n  --openai-api-key "${key}" \\\n  --model "openai/${model}"`,
+          body: `aider \\\n  --openai-api-base ${shellQuote(base + "/v1")} \\\n  --openai-api-key ${shellQuote(key)} \\\n  --model ${shellQuote("openai/" + model)}`,
         },
         {
           title: "Persistent Aider config",
           file: "~/.aider.conf.yml",
-          body: `openai-api-base: ${base}/v1\nopenai-api-key: ${key}\nmodel: openai/${model}\nauto-commits: false`,
+          body: `openai-api-base: ${literal(base + "/v1")}\nopenai-api-key: ${literal(key)}\nmodel: ${literal("openai/" + model)}\nauto-commits: false`,
         },
       ];
     case "ide":
@@ -291,27 +304,18 @@ export function buildSnippets(
         {
           title: "Cursor IDE Cloud-Relay Note",
           file: "Cursor Override Base URL",
-          body: `# IMPORTANT: Cursor routes OpenAI-Compatible requests through Cursor's cloud servers.\n# Therefore, Cursor CANNOT reach http://127.0.0.1 or a local SSH forward.\n# Switch to the "Tunnels & Network Exposure" tab above and start a Cloudflare Tunnel\n# (cloudflared), Tailscale Funnel, or Caddy HTTPS domain, then paste https://<your-tunnel>/v1.`,
+          body: `# IMPORTANT: Cursor routes OpenAI-Compatible requests through Cursor's cloud servers.\n# Therefore, Cursor CANNOT reach http://127.0.0.1 or a local SSH forward.\n# Use a reviewed public HTTPS endpoint: a named Cloudflare Tunnel (not a Quick Tunnel),\n# Tailscale Funnel, or a TLS reverse proxy. Protect admin routes before exposure.\n# Private Tailscale Serve is not reachable by a public cloud relay.`,
         },
       ];
     case "curl":
       return [
-        {
-          title: "Chat completions probe",
-          file: "bash / zsh",
-          body: `curl -sS ${base}/v1/chat/completions \\\n  -H "Authorization: Bearer ${key}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "model": "${model}",\n    "messages": [{"role": "user", "content": "Reply with the word ok."}],\n    "max_tokens": 16\n  }'`,
-        },
-        {
-          title: "Anthropic Messages probe (Claude Code wire)",
-          file: "bash / zsh",
-          body: `curl -sS ${base}/v1/messages \\\n  -H "x-api-key: ${key}" \\\n  -H "anthropic-version: 2023-06-01" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "model": "${model}",\n    "max_tokens": 32,\n    "messages": [{"role": "user", "content": "Reply with ok."}]\n  }'`,
-        },
-        {
-          title: "OpenAI Responses probe (Codex wire)",
-          file: "bash / zsh",
-          body: `curl -sS ${base}/v1/responses \\\n  -H "Authorization: Bearer ${key}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "model": "${model}",\n    "input": "Reply with the word ok."\n  }'`,
-        },
-      ];
+        ["Chat completions probe", "chat/completions", { model, messages: [{ role: "user", content: "Reply with ok." }], max_tokens: 16 }],
+        ["Anthropic Messages probe (Claude Code wire)", "messages", { model, messages: [{ role: "user", content: "Reply with ok." }], max_tokens: 32 }],
+        ["OpenAI Responses probe (Codex wire)", "responses", { model, input: "Reply with ok." }],
+      ].map(([title, path, payload]) => ({
+        title: String(title), file: "bash / zsh",
+        body: `curl --fail-with-body -sS ${shellQuote(`${base}/v1/${path}`)} -H ${shellQuote(path === "messages" ? `x-api-key: ${key}` : `Authorization: Bearer ${key}`)} -H 'Content-Type: application/json' ${path === "messages" ? "-H 'anthropic-version: 2023-06-01' " : ""}--data-raw ${shellQuote(JSON.stringify(payload, null, 2))}`,
+      }));
   }
 }
 
@@ -324,6 +328,10 @@ export function buildTunnelSnippets(
   const port = localPort.trim() || "20128";
   const host = publicHost.trim() || "styx.example.com";
   const ssh = sshTarget.trim() || "user@your-vps-ip";
+  if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) throw new Error("Port must be an integer from 1 to 65535.");
+  const hostname = /^(?=.{1,253}$)[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?$/;
+  if (["cloudflared", "tailscale", "caddy"].includes(mode) && (!hostname.test(host) || host.split(".").some(label => !label || label.length > 63 || label.startsWith("-") || label.endsWith("-")))) throw new Error("Enter a DNS hostname only (no scheme, port, or path).");
+  if (mode === "ssh" && !/^(?:[a-zA-Z0-9_][a-zA-Z0-9_.-]*@)?[a-zA-Z0-9][a-zA-Z0-9.-]*$/.test(ssh)) throw new Error("SSH target must be [user@]hostname; configure IPv6 or advanced options in SSH config.");
 
   switch (mode) {
     case "local":
@@ -334,35 +342,35 @@ export function buildTunnelSnippets(
           body: `curl -sS http://127.0.0.1:${port}/api/health\n# Harnesses on this machine connect directly to: http://127.0.0.1:${port}`,
         },
         {
-          title: "Lock server bind address to loopback only",
-          file: "apps/server/.env",
-          body: `HOST=127.0.0.1\nPORT=${port}`,
+          title: "Confirm loopback binding before network exposure",
+          file: "operator checklist",
+          body: `# Confirm the actual StyxRouter listener is bound to 127.0.0.1:${port}.\n# Check your launcher and deployment configuration; do not assume HOST is honored.\n# Inspect listeners with: ss -ltn\n# Do not expose admin routes or disable authentication to make a tunnel work.`,
         },
       ];
     case "ssh":
       return [
         {
-          title: "Background SSH local port-forward (run on your laptop)",
+          title: "Foreground SSH local port-forward (run on your laptop; Ctrl-C to stop)",
           file: "bash / zsh",
-          body: `ssh -fN -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L ${port}:127.0.0.1:${port} ${ssh}\n\n# Now point local Claude Code / Codex / OpenCode at:\n# http://127.0.0.1:${port}`,
+          body: `ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 127.0.0.1:${port}:127.0.0.1:${port} ${ssh}\n\n# Now point local Claude Code / Codex / OpenCode at:\n# http://127.0.0.1:${port}`,
         },
         {
           title: "Persistent SSH config profile",
           file: "~/.ssh/config",
-          body: `Host styx-tunnel\n  HostName ${ssh.includes("@") ? ssh.split("@")[1] : ssh}\n  User ${ssh.includes("@") ? ssh.split("@")[0] : "root"}\n  LocalForward ${port} 127.0.0.1:${port}\n  ServerAliveInterval 30\n  ServerAliveCountMax 3\n\n# Connect anytime with: ssh -fN styx-tunnel`,
+          body: `Host styx-tunnel\n  HostName ${ssh.includes("@") ? ssh.split("@")[1] : ssh}\n${ssh.includes("@") ? `  User ${ssh.split("@")[0]}\n` : ""}  ExitOnForwardFailure yes\n  LocalForward 127.0.0.1:${port} 127.0.0.1:${port}\n  ServerAliveInterval 30\n  ServerAliveCountMax 3\n\n# Connect with: ssh -N styx-tunnel (Ctrl-C to stop)`,
         },
       ];
     case "cloudflared":
       return [
         {
-          title: "Quick ephemeral HTTPS tunnel (zero config, works with Cursor IDE)",
+          title: "Quick Tunnel: non-streaming development only",
           file: "bash / zsh",
-          body: `cloudflared tunnel --url http://127.0.0.1:${port}\n# Copy the generated https://*.trycloudflare.com URL into "Router base URL" above.`,
+          body: `# WARNING: Quick Tunnels do not support SSE; do not use for streaming agents.\n# PUBLIC: authenticate API traffic and protect the admin panel first.\ncloudflared tunnel --url http://127.0.0.1:${port}\n# Copy the generated https://*.trycloudflare.com URL into "Router base URL" above.`,
         },
         {
           title: "Named persistent Cloudflare Tunnel config",
           file: "~/.cloudflared/config.yml",
-          body: `tunnel: styxrouter\ncredentials-file: /root/.cloudflared/styxrouter.json\n\ningress:\n  - hostname: ${host}\n    service: http://127.0.0.1:${port}\n    originRequest:\n      noHappyEyeballs: true\n      keepAliveTimeout: 120s\n  - service: http_status:404`,
+          body: `# Prerequisites: Cloudflare-managed DNS, an already-created named tunnel,\n# and its actual UUID/credentials path (replace placeholders; never copy secrets).\n# PUBLIC: protect admin routes; API-key auth alone does not hide the panel.\ntunnel: TUNNEL_UUID\ncredentials-file: /absolute/path/to/TUNNEL_UUID.json\n\ningress:\n  - hostname: ${host}\n    service: http://127.0.0.1:${port}\n  - service: http_status:404\n\n# After saving and replacing placeholders, operator commands:\n# cloudflared tunnel ingress validate\n# cloudflared tunnel route dns TUNNEL_UUID ${host}\n# cloudflared tunnel run TUNNEL_UUID\n# DNS routing is a write; review before running.`,
         },
       ];
     case "tailscale":
@@ -370,12 +378,12 @@ export function buildTunnelSnippets(
         {
           title: "Tailscale Serve (private HTTPS inside your tailnet)",
           file: "bash / zsh",
-          body: `tailscale serve --bg ${port}\n# Accessible from any device on your tailnet via https://${host}`,
+          body: `# Requires an authenticated node, MagicDNS and tailnet HTTPS certificates.\n# Private to permitted tailnet clients; not reachable by a public cloud relay.\ntailscale serve --bg http://127.0.0.1:${port}\ntailscale serve status\n# Use the actual *.ts.net URL reported by status, not an arbitrary custom domain.\n# Stop with: tailscale serve --https=443 off`,
         },
         {
           title: "Tailscale Funnel (public HTTPS for Cursor cloud relay / webhooks)",
           file: "bash / zsh",
-          body: `tailscale funnel --bg ${port}`,
+          body: `# PUBLIC internet exposure, NOT private Serve. Requires HTTPS, MagicDNS,\n# Funnel policy permission and a supported Tailscale client.\n# Protect admin routes and require scoped API keys before enabling.\ntailscale funnel --bg http://127.0.0.1:${port}\ntailscale funnel status\n# Use the actual *.ts.net URL shown; stop with: tailscale funnel --https=443 off`,
         },
       ];
     case "caddy":
@@ -383,12 +391,12 @@ export function buildTunnelSnippets(
         {
           title: "Caddyfile with unbuffered SSE streaming",
           file: "/etc/caddy/Caddyfile",
-          body: `${host} {\n  reverse_proxy 127.0.0.1:${port} {\n    flush_interval -1\n    transport http {\n      read_timeout 600s\n      write_timeout 600s\n    }\n  }\n}`,
+          body: `# Requires DNS A/AAAA pointing to this host and reachable ports 80/443\n# for default automatic HTTPS. Protect admin routes before public exposure.\n# Validate before applying: caddy validate --config /etc/caddy/Caddyfile\n${host} {\n  reverse_proxy 127.0.0.1:${port} {\n    flush_interval -1\n    transport http {\n      read_timeout 600s\n      write_timeout 600s\n    }\n  }\n}`,
         },
         {
           title: "Nginx TLS reverse proxy with proxy_buffering off",
           file: "/etc/nginx/conf.d/styxrouter.conf",
-          body: `server {\n  listen 443 ssl http2;\n  server_name ${host};\n\n  location / {\n    proxy_pass http://127.0.0.1:${port};\n    proxy_http_version 1.1;\n    proxy_set_header Host $host;\n    proxy_set_header X-Real-IP $remote_addr;\n    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n    proxy_set_header X-Forwarded-Proto $scheme;\n    proxy_buffering off;\n    proxy_cache off;\n    proxy_read_timeout 600s;\n  }\n}`,
+          body: `# First provision a trusted certificate and renewal process for this hostname.\n# Replace these certificate paths; restrict private-key permissions.\n# Protect admin routes before exposure. Validate before applying: nginx -t\nserver {\n  listen 443 ssl;\n  server_name ${host};\n  ssl_certificate /absolute/path/to/fullchain.pem;\n  ssl_certificate_key /absolute/path/to/privkey.pem;\n\n  location / {\n    proxy_pass http://127.0.0.1:${port};\n    proxy_http_version 1.1;\n    proxy_set_header Host $host;\n    proxy_set_header X-Real-IP $remote_addr;\n    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n    proxy_set_header X-Forwarded-Proto $scheme;\n    proxy_buffering off;\n    proxy_cache off;\n    proxy_read_timeout 600s;\n  }\n}`,
         },
       ];
   }
@@ -453,7 +461,7 @@ export function Tools() {
     setProbeResult(null);
     const started = performance.now();
     try {
-      const res = await fetch(`${shownBase}/v1/chat/completions`, {
+      const res = await fetch(`${normalizeRouterBase(shownBase)}/v1/chat/completions`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${key.trim()}`,
@@ -489,8 +497,15 @@ export function Tools() {
     }
   }
 
-  const snippets = buildSnippets(tool, shownBase, shownKey, shownModel);
-  const tunnelSnippets = buildTunnelSnippets(tunnelMode, localPort, publicHost, sshTarget);
+  // Invalid intermediate input must not crash the page while the user edits.
+  let snippets: ReturnType<typeof buildSnippets> = [];
+  let tunnelSnippets: ReturnType<typeof buildTunnelSnippets> = [];
+  let snippetError = "";
+  let tunnelError = "";
+  try { snippets = buildSnippets(tool, shownBase, shownKey, shownModel); }
+  catch (e) { snippetError = e instanceof Error ? e.message : "Invalid connection settings."; }
+  try { tunnelSnippets = buildTunnelSnippets(tunnelMode, localPort, publicHost, sshTarget); }
+  catch (e) { tunnelError = e instanceof Error ? e.message : "Invalid tunnel settings."; }
 
   return (
     <div className="page tools-page">
@@ -506,7 +521,7 @@ export function Tools() {
             <KeyRound size={14} />
             <span>{busy === "key" ? tr("Generating…") : tr("Generate key for {0}", {0: String(activeSpec.name)})}</span>
           </button>
-          <button type="button" className="btn-add" disabled={probing} onClick={runLiveProbe}>
+          <button type="button" className="btn-add" disabled={probing || !!snippetError} onClick={runLiveProbe}>
             <Play size={14} />
             <span>{probing ? tr("Testing…") : tr("Test connection")}</span>
           </button>
@@ -646,6 +661,7 @@ export function Tools() {
                 </span>
               </div>
             )}
+            {snippetError && <p className="bad" role="alert">{snippetError}</p>}
             {snippets.map((s, i) => (
               <SnippetCard key={`${tool}-${i}`} title={s.title} file={s.file} body={s.body} />
             ))}
@@ -712,6 +728,7 @@ export function Tools() {
                 <button
                   type="button"
                   className="btn-add"
+                  disabled={!!tunnelError}
                   onClick={() => {
                     const nextBase = activeTunnel.recommendedBase(localPort || "20128", publicHost || "styx.yourdomain.com");
                     setBase(nextBase);
@@ -725,6 +742,7 @@ export function Tools() {
               </div>
             </section>
 
+            {tunnelError && <p className="bad" role="alert">{tunnelError}</p>}
             {tunnelSnippets.map((s, i) => (
               <SnippetCard key={`${tunnelMode}-${i}`} title={s.title} file={s.file} body={s.body} />
             ))}
