@@ -85,3 +85,28 @@ end-to-end fixture skipped. Explicit synthetic private-overlay, history path
 isolation, content drift, schema rejection and exact bundled-match coverage tests
 ran successfully. No application runtime suite or authenticated live endpoint
 coverage is asserted by these scanner tests. `git diff --check` passed.
+
+## Canonical release invocation and CI hand-off
+
+Use the current checkout's scanner and keep the operator catalog and reviewed
+overlay outside the repository. `PRIVATE_CATALOG` and `PRIVATE_REVIEW` below
+are private local paths; do not copy either file into the candidate or replace
+the public allowlist with either one.
+
+```sh
+python3 scripts/public-hygiene-gate.py \
+  --repo-root . \
+  --panel-dist-dir apps/panel/dist \
+  --runtime-url "$HYGIENE_RUNTIME_URL" \
+  --auth-token "$HYGIENE_RUNTIME_TOKEN" \
+  --allowlist scripts/hygiene_allowlist.json \
+  --private-patterns "$PRIVATE_CATALOG" \
+  --private-allowlist "$PRIVATE_REVIEW"
+```
+
+`bun run panel:build` must precede this command. The exit code is authoritative:
+zero requires every gate, including the authenticated isolated runtime, to pass.
+Do not treat a zero-fatal static/history result with a skipped runtime as release
+clearance. The workflow in `.github/workflows/publication-hygiene.yml` implements
+the same contract from protected secrets; it creates the private files only in
+runner scratch and fails closed when any required input is absent.

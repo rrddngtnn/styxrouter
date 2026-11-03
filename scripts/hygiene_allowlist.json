@@ -856,5 +856,137 @@
     ],
     "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
     "blob": "4dd20904e96ef04fe480887f885a2acf5cb62f50"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "c4fd8607f0440ff3ee521e5568ad3d1fc2cfc4cfb7c897a376f0ae0090d808ba",
+    "lines": [
+      22,
+      22
+    ],
+    "reason": "Reviewed public upstream attribution or lineage; exact historical blob and line only.",
+    "blob": "cad7b495f3c5b531979fbc212a5b72497ca73d95"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "c4fd8607f0440ff3ee521e5568ad3d1fc2cfc4cfb7c897a376f0ae0090d808ba",
+    "lines": [
+      24,
+      24
+    ],
+    "reason": "Reviewed public upstream attribution or lineage; exact historical blob and line only.",
+    "blob": "cad7b495f3c5b531979fbc212a5b72497ca73d95"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "c4fd8607f0440ff3ee521e5568ad3d1fc2cfc4cfb7c897a376f0ae0090d808ba",
+    "lines": [
+      35,
+      35
+    ],
+    "reason": "Reviewed public upstream attribution or lineage; exact historical blob and line only.",
+    "blob": "cad7b495f3c5b531979fbc212a5b72497ca73d95"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "ead212881d7339322e7f7d83f49aec81ae85d252f6a4e006b2f514aa98d10d8d",
+    "lines": [
+      20,
+      20
+    ],
+    "reason": "Reviewed public upstream attribution or lineage; exact historical blob and line only.",
+    "blob": "bf70294cf5fe8730b489bbcc2615c78434b48752"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "ead212881d7339322e7f7d83f49aec81ae85d252f6a4e006b2f514aa98d10d8d",
+    "lines": [
+      22,
+      22
+    ],
+    "reason": "Reviewed public upstream attribution or lineage; exact historical blob and line only.",
+    "blob": "bf70294cf5fe8730b489bbcc2615c78434b48752"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "ead212881d7339322e7f7d83f49aec81ae85d252f6a4e006b2f514aa98d10d8d",
+    "lines": [
+      33,
+      33
+    ],
+    "reason": "Reviewed public upstream attribution or lineage; exact historical blob and line only.",
+    "blob": "bf70294cf5fe8730b489bbcc2615c78434b48752"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "17549648446a01982b8f52197555ad6e981f8eda88ed168386ccceb452c90da4",
+    "lines": [
+      90,
+      90
+    ],
+    "reason": "Reviewed public upstream attribution or lineage; exact historical blob and line only.",
+    "blob": "f751c87afff0685e56a7bf280957f8a86c2aa1c4"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "17549648446a01982b8f52197555ad6e981f8eda88ed168386ccceb452c90da4",
+    "lines": [
+      92,
+      92
+    ],
+    "reason": "Reviewed public upstream attribution or lineage; exact historical blob and line only.",
+    "blob": "f751c87afff0685e56a7bf280957f8a86c2aa1c4"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "docs/release-readiness-audit.md",
+    "surface": "historical_file",
+    "sha256": "6bdcea0ae46c090375264fbb733443622b9b843ddf31417500dfe679847a6756",
+    "lines": [
+      169,
+      169
+    ],
+    "reason": "Reviewed public upstream attribution or lineage; exact historical blob and line only.",
+    "blob": "e281bf866f1a8e6e21422b840c6f79644a1241a3"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "docs/release-readiness-audit.md",
+    "surface": "historical_file",
+    "sha256": "6bdcea0ae46c090375264fbb733443622b9b843ddf31417500dfe679847a6756",
+    "lines": [
+      236,
+      236
+    ],
+    "reason": "Reviewed public upstream attribution or lineage; exact historical blob and line only.",
+    "blob": "e281bf866f1a8e6e21422b840c6f79644a1241a3"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "docs/release-readiness-audit.md",
+    "surface": "historical_file",
+    "sha256": "6bdcea0ae46c090375264fbb733443622b9b843ddf31417500dfe679847a6756",
+    "lines": [
+      290,
+      290
+    ],
+    "reason": "Reviewed public upstream attribution or lineage; exact historical blob and line only.",
+    "blob": "e281bf866f1a8e6e21422b840c6f79644a1241a3"
   }
 ]
