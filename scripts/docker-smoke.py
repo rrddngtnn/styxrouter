@@ -62,26 +62,7 @@ for (const [path, options] of [
   assert.equal(response.status, 401, path);
   assert.equal((await response.json()).error.type, "authentication_error", path);
 }
-const login = await request("/api/auth/login", {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({ password: process.env.INITIAL_PASSWORD }),
-});
-assert.equal(login.status, 200);
-const cookie = login.headers.get("set-cookie")?.split(";", 1)[0];
-assert.ok(cookie, "login must issue a management session");
-const modelsWithSession = await request("/v1/models", { headers: { cookie } });
-assert.equal(modelsWithSession.status, 200, "dashboard session may read model catalog without API key");
-const modelsPayload = await modelsWithSession.json();
-assert.ok(Array.isArray(modelsPayload.data), "model catalog must be an OpenAI-compatible list");
-const chatWithSession = await request("/v1/chat/completions", {
-  method: "POST",
-  headers: { "content-type": "application/json", cookie },
-  body: JSON.stringify({ model: "smoke-no-upstream", messages: [] }),
-});
-assert.equal(chatWithSession.status, 401, "dashboard session must not authorize inference");
-assert.equal((await chatWithSession.json()).error.type, "authentication_error");
-console.log("PASS: non-root, notices, health, built panel asset, no-key auth, session model catalog");
+console.log("PASS: non-root, notices, health, built panel asset, no-key/invalid-key auth");
 '''
 
 

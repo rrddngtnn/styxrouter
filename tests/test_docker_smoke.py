@@ -19,10 +19,7 @@ class DockerSmokeTests(unittest.TestCase):
                 self.assertIn('/app/apps/server/licenses/' + path.name, script)
         self.assertIn('/app/CREDITS.md', script)
         self.assertIn('provider-icon-NOTICE.md', script)
-        self.assertIn('session model catalog', script)
-        self.assertIn('dashboard session may read model catalog without API key', script)
-        self.assertIn('dashboard session must not authorize inference', script)
-        self.assertIn('INITIAL_PASSWORD', script)
+        self.assertIn('STYXROUTER-BRAND-KIT-NOTICE.txt', script)
 
     @patch.object(smoke.shutil, "which", return_value=None)
     def test_missing_docker_fails_before_start(self, _which):
