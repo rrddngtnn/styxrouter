@@ -2,6 +2,12 @@ name: Publication hygiene
 
 on:
   workflow_dispatch:
+    inputs:
+      run_runtime:
+        description: 'Run the separately-authorized runtime hygiene gate'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,7 +42,17 @@ jobs:
           umask 077
           printf '%s' "$PRIVATE_CATALOG_B64" | base64 --decode > "$RUNNER_TEMP/hygiene_private.py"
           printf '%s' "$PRIVATE_ALLOWLIST_B64" | base64 --decode > "$RUNNER_TEMP/hygiene_private_allowlist.json"
-      - name: Run complete isolated hygiene gate
+      - name: Run authoritative offline hygiene gates
+        run: |
+          set -euo pipefail
+          python3 scripts/public-hygiene-gate.py \
+            --repo-root . \
+            --panel-dist-dir apps/panel/dist \
+            --allowlist scripts/hygiene_allowlist.json \
+            --private-patterns "$RUNNER_TEMP/hygiene_private.py" \
+            --private-allowlist "$RUNNER_TEMP/hygiene_private_allowlist.json"
+      - name: Run separately-authorized runtime hygiene gate
+        if: inputs.run_runtime
         env:
           HYGIENE_RUNTIME_URL: ${{ secrets.HYGIENE_RUNTIME_URL }}
           HYGIENE_RUNTIME_TOKEN: ${{ secrets.HYGIENE_RUNTIME_TOKEN }}
@@ -52,3 +68,7 @@ jobs:
             --allowlist scripts/hygiene_allowlist.json \
             --private-patterns "$RUNNER_TEMP/hygiene_private.py" \
             --private-allowlist "$RUNNER_TEMP/hygiene_private_allowlist.json"
+      - name: Report runtime hygiene state
+        if: ${{ !inputs.run_runtime }}
+        run: |
+          printf '%s\n' 'Runtime hygiene: SKIPPED — no runtime endpoint or token was supplied; this workflow cleared only the authoritative offline static, history, bundle, and private-catalog gates.' >> "$GITHUB_STEP_SUMMARY"

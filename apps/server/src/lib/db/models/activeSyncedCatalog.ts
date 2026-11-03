@@ -89,23 +89,32 @@ export async function getActiveSyncedCatalog(providerId: string): Promise<Active
     return { authoritative: false, models: [] };
   }
 
+  const sharedAntigravityCatalog = providerId === "antigravity" || providerId === "agy";
+  const providerIds = sharedAntigravityCatalog
+    ? Array.from(new Set([storedProviderId, providerId === "antigravity" ? "agy" : "antigravity"]))
+    : [storedProviderId];
+
   try {
-    const [connections, modelsByConnection] = await Promise.all([
-      getRawProviderConnections(
-        { provider: storedProviderId, isActive: true },
-        undefined,
-        undefined,
-        ["id", "provider"]
-      ),
-      getSyncedAvailableModelsByConnection(storedProviderId),
-    ]);
-
-    const activeConnectionIds = connections
-      .map(readConnectionRef)
-      .filter((connection): connection is ProviderConnectionRef => connection !== null)
-      .map((connection) => connection.id);
-
-    const models = collectModelsForConnections(modelsByConnection, activeConnectionIds);
+    const catalogStates = await Promise.all(
+      providerIds.map(async (id) => ({
+        connections: await getRawProviderConnections(
+          { provider: id, isActive: true },
+          undefined,
+          undefined,
+          ["id", "provider"]
+        ),
+        modelsByConnection: await getSyncedAvailableModelsByConnection(id),
+      }))
+    );
+    const models = collectModelsForConnections(
+      Object.assign({}, ...catalogStates.map((state) => state.modelsByConnection)),
+      catalogStates.flatMap((state) =>
+        state.connections
+          .map(readConnectionRef)
+          .filter((connection): connection is ProviderConnectionRef => connection !== null)
+          .map((connection) => connection.id)
+      )
+    );
     if (models.length > 0) {
       return {
         authoritative: providerUsesAuthoritativeLiveCatalog(providerId),

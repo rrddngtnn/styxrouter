@@ -109,6 +109,26 @@ test("quota and authentication failures do not use the unsupported-model classif
   expect(authResult.reason).not.toBe("account_model_unsupported");
 });
 
+test("Antigravity catalog availability includes an active AGY legacy account and selection dispatches exact Claude 4.6", async () => {
+  const { createProviderConnection } = await import("../src/lib/db/providers.ts");
+  const { getActiveSyncedCatalog } = await import("../src/lib/db/models/activeSyncedCatalog.ts");
+  const newer = await createProviderConnection({ provider: "antigravity", authType: "oauth", accessToken: "synthetic-5-5", projectId: "new-project", isActive: true, name: "5.5 engine" } as any);
+  const legacy = await createProviderConnection({ provider: "agy", authType: "oauth", accessToken: "synthetic-4-6", projectId: "legacy-project", isActive: true, name: "4.6 engine" } as any);
+  await replaceSyncedAvailableModelsForConnection("antigravity", newer.id, [
+    { id: "claude-opus-5-5-medium", name: "Claude Opus 5.5 (Medium)" },
+  ]);
+  await replaceSyncedAvailableModelsForConnection("agy", legacy.id, [
+    { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6 (Thinking)" },
+  ]);
+
+  const catalog = await getActiveSyncedCatalog("antigravity");
+  const selected = await getProviderCredentials("antigravity", newer.id, [newer.id, legacy.id], "claude-opus-4-6-thinking");
+
+  expect(catalog.models.map((model) => model.id)).toContain("claude-opus-4-6-thinking");
+  expect(selected?.connectionId).toBe(legacy.id);
+  expect(selected?.accessToken).toBe("synthetic-4-6");
+});
+
 test("Claude 4.6 remains eligible on both known compatible Antigravity engines", () => {
   const olderCatalog = new Set(["claude-opus-4-6-thinking", "claude-sonnet-4-6"]);
   const newerCatalog = new Set([
