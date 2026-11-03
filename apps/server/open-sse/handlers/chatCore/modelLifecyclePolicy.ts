@@ -6,6 +6,15 @@ import {
 import { resolveModelAlias } from "../../services/modelDeprecation.ts";
 import { createErrorResult } from "../../utils/error.ts";
 
+function resolveLifecycleModelAlias(provider: string, model: string): string {
+  // Antigravity account catalogs carry the authoritative upstream IDs and may
+  // legitimately retain a legacy engine after a global alias was configured.
+  // Preserve that exact ID so credential selection can use its per-account
+  // catalog; other providers retain the existing deprecation-alias behavior.
+  if (provider === "antigravity" || provider === "agy") return model;
+  return resolveModelAlias(model);
+}
+
 type LifecycleLogger = {
   info?: (tag: string, message: string) => unknown;
   warn?: (tag: string, message: string) => unknown;
@@ -40,13 +49,13 @@ function getModelLifecycleError({
 export function checkLifecycle(provider: string, model: string, log?: LifecycleLogger) {
   return getModelLifecycleError({
     provider,
-    model: resolveModelAlias(model),
+    model: resolveLifecycleModelAlias(provider, model),
     log,
   });
 }
 
 export function resolveLifecycle(provider: string, model: string, log?: LifecycleLogger) {
-  const resolvedModel = resolveModelAlias(model);
+  const resolvedModel = resolveLifecycleModelAlias(provider, model);
   if (resolvedModel !== model) {
     log?.info?.("ALIAS", `Model alias applied: ${model} → ${resolvedModel}`);
   }

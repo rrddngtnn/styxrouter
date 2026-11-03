@@ -1,3 +1,4 @@
+import "./helpers/test-secrets";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,9 +14,11 @@ const { clearAllModelLockouts, isModelLocked } = await import("../open-sse/servi
 const { AntigravityExecutor } = await import("../open-sse/executors/antigravity.ts");
 const originalFetch = globalThis.fetch;
 
-afterEach(() => {
+afterEach(async () => {
   globalThis.fetch = originalFetch;
   clearAllModelLockouts();
+  const { setCustomAliases } = await import("../open-sse/services/modelDeprecation.ts");
+  setCustomAliases({});
 });
 
 function executorInput(model: string) {
@@ -97,16 +100,19 @@ test("unsupported upstream model rejection locks only that account-model tuple a
   expect(selected?.connectionId).toBe(eligible.id);
 });
 
-test("quota and authentication failures do not use the unsupported-model classifier", async () => {
+test("quota and 401/403 authentication failures do not use the unsupported-model classifier", async () => {
   const { createProviderConnection } = await import("../src/lib/db/providers.ts");
   const quota = await createProviderConnection({ provider: "antigravity", authType: "oauth", accessToken: "synthetic-quota", projectId: "quota-project", isActive: true, name: "Quota" } as any);
   const auth = await createProviderConnection({ provider: "antigravity", authType: "oauth", accessToken: "synthetic-auth", projectId: "auth-project", isActive: true, name: "Auth" } as any);
+  const forbidden = await createProviderConnection({ provider: "antigravity", authType: "oauth", accessToken: "synthetic-forbidden", projectId: "forbidden-project", isActive: true, name: "Forbidden" } as any);
 
   const quotaResult = await markAccountUnavailable(quota.id, 429, "Resource has been exhausted (e.g. check quota).", "antigravity", "claude-opus-5-5-medium");
   const authResult = await markAccountUnavailable(auth.id, 401, "Invalid authentication credentials.", "antigravity", "claude-opus-5-5-medium");
+  const forbiddenResult = await markAccountUnavailable(forbidden.id, 403, "Permission denied.", "antigravity", "claude-opus-5-5-medium");
 
   expect(quotaResult.reason).not.toBe("account_model_unsupported");
   expect(authResult.reason).not.toBe("account_model_unsupported");
+  expect(forbiddenResult.reason).not.toBe("account_model_unsupported");
 });
 
 test("Antigravity catalog availability includes an active AGY legacy account and selection dispatches exact Claude 4.6", async () => {
@@ -153,4 +159,83 @@ test("unknown or empty Antigravity catalogs retain the existing fail-open select
   expect(selected?.connectionId).toBe(unknown.id);
   expect(isModelAdvertisedByConnection("gemini-4-argon-medium", undefined, "antigravity")).toBe(true);
   expect(isModelAdvertisedByConnection("gemini-4-argon-medium", new Set(), "antigravity")).toBe(true);
+});
+
+test("HTTP dispatch keeps Claude 4.6 on an explicitly pinned legacy account advertising only Claude 4.6", async () => {
+  const { createProviderConnection } = await import("../src/lib/db/providers.ts");
+  const { createApiKey } = await import("../src/lib/db/apiKeys.ts");
+  const legacy = await createProviderConnection({
+    provider: "antigravity",
+    authType: "oauth",
+    accessToken: "synthetic-http-legacy",
+    projectId: "legacy-project",
+    isActive: true,
+    name: "HTTP legacy only",
+  } as any);
+  await replaceSyncedAvailableModelsForConnection("antigravity", legacy.id, [
+    { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6 (Thinking)" },
+  ]);
+  const key = await createApiKey("antigravity-legacy-http", "test");
+  const dispatched: string[] = [];
+  globalThis.fetch = (async (url, init) => {
+    if (String(url).includes("auto-updater")) return Response.json([{ version: "1.0.0" }]);
+    dispatched.push(JSON.parse(await new Response(init?.body as BodyInit).text()).model);
+    return new Response(
+      'data: {"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}}\n\n',
+      { status: 200, headers: { "content-type": "text/event-stream" } }
+    );
+  }) as typeof fetch;
+
+  const { handleChat } = await import("../src/sse/handlers/chat.ts");
+  const response = await handleChat(new Request("http://localhost/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${key.key}`,
+      "x-styx-connection": legacy.id,
+    },
+    body: JSON.stringify({
+      model: "antigravity/claude-opus-4-6-thinking",
+      messages: [{ role: "user", content: "hello" }],
+      stream: true,
+    }),
+  }));
+
+  expect(response.status).toBe(200);
+  await response.text();
+  expect(dispatched).toEqual(["claude-opus-4-6-thinking"]);
+});
+
+test("Antigravity catalog evidence overrides a stale global deprecation alias without changing other providers", async () => {
+  const { setCustomAliases } = await import("../open-sse/services/modelDeprecation.ts");
+  const { resolveLifecycle } = await import("../open-sse/handlers/chatCore/modelLifecyclePolicy.ts");
+  const { handleChatCore } = await import("../open-sse/handlers/chatCore.ts");
+  setCustomAliases({ "claude-opus-4-6-thinking": "claude-opus-5-5-medium" });
+  expect(resolveLifecycle("antigravity", "claude-opus-4-6-thinking")[0]).toBe("claude-opus-4-6-thinking");
+  expect(resolveLifecycle("claude", "claude-opus-4-6-thinking")[0]).toBe("claude-opus-5-5-medium");
+  const seen: string[] = [];
+  globalThis.fetch = (async (url, init) => {
+    if (String(url).includes("auto-updater")) return Response.json([{ version: "1.0.0" }]);
+    seen.push(JSON.parse(await new Response(init?.body as BodyInit).text()).model);
+    return new Response(
+      'data: {"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}}\n\n',
+      { status: 200, headers: { "content-type": "text/event-stream" } }
+    );
+  }) as typeof fetch;
+
+  const result = await handleChatCore({
+    modelInfo: { provider: "antigravity", model: "claude-opus-4-6-thinking", extendedContext: false },
+    body: { contents: [{ role: "user", parts: [{ text: "hello" }] }] },
+    stream: true,
+    credentials: {
+      accessToken: "synthetic-legacy",
+      projectId: "legacy-project",
+      connectionId: "synthetic-legacy",
+    },
+    log: { debug() {}, info() {}, warn() {}, error() {} },
+  } as any);
+
+  expect(result.response.status).toBe(200);
+  await result.response.text();
+  expect(seen).toEqual(["claude-opus-4-6-thinking"]);
 });
