@@ -988,5 +988,41 @@
     ],
     "reason": "Reviewed public upstream attribution or lineage; exact historical blob and line only.",
     "blob": "e281bf866f1a8e6e21422b840c6f79644a1241a3"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "e9326be940aa545c57ebd26dbfe79a7e76267eb2ac1889b4ef8961f06df5b672",
+    "lines": [
+      22,
+      22
+    ],
+    "blob": "a2595581a24b0ea0fa405fc079526259ffc138c5",
+    "reason": "Required upstream attribution and licence reference; exact historical blob and line only."
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "e9326be940aa545c57ebd26dbfe79a7e76267eb2ac1889b4ef8961f06df5b672",
+    "lines": [
+      24,
+      24
+    ],
+    "blob": "a2595581a24b0ea0fa405fc079526259ffc138c5",
+    "reason": "Required upstream attribution and licence reference; exact historical blob and line only."
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "e9326be940aa545c57ebd26dbfe79a7e76267eb2ac1889b4ef8961f06df5b672",
+    "lines": [
+      35,
+      35
+    ],
+    "blob": "a2595581a24b0ea0fa405fc079526259ffc138c5",
+    "reason": "Required upstream attribution and licence reference; exact historical blob and line only."
   }
 ]
