@@ -12,10 +12,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      # Python fixtures require an explicit writable scratch root.
-      TMPDIR: ${{ runner.temp }}
     steps:
+      - name: Configure runner scratch directory
+        # The runner context is available in steps, not job-level env.
+        run: printf 'TMPDIR=%s\n' '${{ runner.temp }}' >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
