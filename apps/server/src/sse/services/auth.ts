@@ -53,6 +53,7 @@ import {
   isModelLocked,
   getModelLockoutInfo,
   lockModel,
+  lockExactModel,
   hasPerModelQuota,
   getRuntimeProviderProfile,
   recordModelLockoutFailure,
@@ -1177,9 +1178,9 @@ function materializeConnection(
  * providers so connection selection can drop hosts that never advertised the
  * requested model.
  *
- * Scoped to self-hosted chat providers and Codex. Codex OAuth accounts can
- * have different model entitlements even under the same provider ID.
- * Last-good catalogs remain restrictive regardless of age until refreshed;
+ * Scoped to self-hosted chat providers, Codex, and Antigravity/AGY. These
+ * OAuth accounts can have different model entitlements even under the same
+ * provider ID. Last-good catalogs remain restrictive regardless of age until refreshed;
  * missing/empty inventories fail open, rather than claiming absence.
  *
  * Returns an empty map (= no filtering) when there is no model to match, when
@@ -1196,7 +1197,10 @@ export async function loadAdvertisedModelsForSelfHostedConnections(
   const selfHostedProviders = new Set(
     connections
       .map((c) => c.provider)
-      .filter((p): p is string => typeof p === "string" && (p === "codex" || isSelfHostedChatProvider(p)))
+      .filter((p): p is string =>
+        typeof p === "string" &&
+        (p === "codex" || p === "antigravity" || p === "agy" || isSelfHostedChatProvider(p))
+      )
   );
   if (selfHostedProviders.size === 0) return advertised;
 
@@ -2673,6 +2677,25 @@ export async function markAccountUnavailable(
     // entitlement gap (PRO vs free tier) rather than a provider-wide unsupported
     // model — those must keep rotating to other accounts normally.
     if (isProviderModelUnsupported400(status, errorText)) {
+      // Antigravity/AGY account catalogs can differ by engine/version. Do not
+      // downgrade the requested model: keep its exact canonical ID and exclude
+      // only this account/model tuple so selection can try another account that
+      // advertises it. Other providers retain the established combo behavior.
+      if (
+        (provider === "antigravity" || provider === "agy") &&
+        conn &&
+        typeof model === "string" &&
+        model.trim().length > 0
+      ) {
+        const unsupportedLockSettings = resolveModelLockoutSettings(await getCachedSettings());
+        const cooldownMs = unsupportedLockSettings.baseCooldownMs;
+        lockExactModel(provider, connectionId, model, "model_unsupported", cooldownMs);
+        log.info(
+          "AUTH",
+          `${connectionId.slice(0, 8)} model_unsupported exact lock (${provider}/${model}) for ${Math.ceil(cooldownMs / 1000)}s; retrying the same model on another eligible account`
+        );
+        return { shouldFallback: true, cooldownMs, reason: "account_model_unsupported" };
+      }
       log.info(
         "AUTH",
         `${connectionId.slice(0, 8)} provider_model_unsupported 400 (${provider}/${model ?? "n/a"}) — skipping account cooldown, letting combo advance`

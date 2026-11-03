@@ -98,9 +98,15 @@ Two distinct verification levels exist. Never conflate them.
 | **Catalog 200** | `/v1/models` succeeded; inspect its response to see whether the model is listed. Listing does not prove live dispatch. | `GET /v1/models` |
 | **Live dispatch 200** | A completion request successfully routes upstream and returns tokens. | `POST /v1/chat/completions` |
 
-A model can appear in the catalog and still fail at dispatch. Before shipping
-a new model, always verify live dispatch returns HTTP 200 with actual output
-tokens — not just `response.created`.
+- For providers with account-scoped synchronized model catalogs (including Codex and
+  Antigravity/AGY), a nonempty last-good catalog excludes that account when it
+  lacks the exact requested canonical model ID. This is account selection, not a
+  model downgrade: an unavailable `claude-opus-5-5-medium`,
+  `claude-sonnet-5-5-medium`, or `gemini-4-argon-medium` is retried only on a
+  different eligible account that advertises that same ID. `claude-opus-4-6-thinking`
+  and `claude-sonnet-4-6` remain separate IDs and are never automatic fallback
+  targets. Missing, empty, or malformed inventories remain unknown and fail open;
+  a stale nonempty last-good inventory stays restrictive until a successful refresh.
 
 For `codex/gpt-6.1-terra` and its effort aliases, internal context budgeting
 uses the Codex catalog's 500,000-token default client context when no discovery
