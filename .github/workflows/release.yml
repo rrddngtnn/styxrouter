@@ -1,4 +1,4 @@
-name: Docker verify & publish (private GHCR only)
+name: Docker verify & publish GHCR
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publish the verified image to private GHCR (main only)'
+        description: 'Publish the verified image to GHCR (main only)'
         type: boolean
         default: false
 
@@ -57,10 +57,10 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish verified image to private GHCR
+    name: Publish verified image to GHCR
     needs: verify
-    # Owner explicitly authorized Docker only. This is not licence clearance;
-    # retained provenance limitations/notices remain. No npm job or npm token.
+    # Docker publication is intentionally independent from npm publication.
+    # Package visibility is never changed by this workflow.
     if: >-
       github.repository == 'rrddngtnn/styxrouter' &&
       ((github.event_name == 'push' &&
@@ -75,21 +75,12 @@ jobs:
       IMAGE: ghcr.io/rrddngtnn/styxrouter
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Require private repository and absent-or-private package
+      - name: Check repository visibility
         env:
           GH_REPO: rrddngtnn/styxrouter
         run: |
           set -euo pipefail
-          test "$(gh api repos/rrddngtnn/styxrouter --jq '.private')" = true
-          status=$(curl --silent --show-error --output "$RUNNER_TEMP/package.json" \
-            --write-out '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'Accept: application/vnd.github+json' \
-            https://api.github.com/users/rrddngtnn/packages/container/styxrouter)
-          case "$status" in
-            200) test "$(jq -r '.visibility' "$RUNNER_TEMP/package.json")" = private ;;
-            404) ;; # First GHCR publication defaults to private; verify again below.
-            *) printf 'Cannot establish package privacy (HTTP %s)\n' "$status" >&2; exit 1 ;;
-          esac
+          test "$(gh api repos/rrddngtnn/styxrouter --jq '.visibility')" = public
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: verified-docker-image
@@ -125,9 +116,17 @@ jobs:
             test "$(docker image inspect --format '{{.Id}}' "$tag")" = \
               "$(docker image inspect --format '{{.Id}}' styxrouter:verify)"
           done < "$RUNNER_TEMP/image-tags"
-      - name: Verify package remains private (never change visibility)
+      - name: Report package visibility without changing it
         run: |
           set -euo pipefail
-          test "$(gh api users/rrddngtnn/packages/container/styxrouter --jq '.visibility')" = private
-          printf 'Published verified linux/amd64 image to private GHCR; npm disabled.\n' >> "$GITHUB_STEP_SUMMARY"
+          status=$(curl --silent --show-error --output "$RUNNER_TEMP/package.json" \
+            --write-out '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            https://api.github.com/users/rrddngtnn/packages/container/styxrouter)
+          case "$status" in
+            200) visibility=$(jq -r '.visibility' "$RUNNER_TEMP/package.json") ;;
+            403) visibility=unavailable-with-actions-token ;;
+            *) printf 'Cannot read package visibility (HTTP %s)\n' "$status" >&2; exit 1 ;;
+          esac
+          printf 'Published verified linux/amd64 image to GHCR; package visibility remains %s; npm disabled.\n' "$visibility" >> "$GITHUB_STEP_SUMMARY"
           while IFS= read -r tag; do printf -- '- `%s`\n' "$tag" >> "$GITHUB_STEP_SUMMARY"; done < "$RUNNER_TEMP/image-tags"
