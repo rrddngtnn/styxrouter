@@ -19,6 +19,11 @@ jobs:
           bun-version: '1.4.3'
       - name: Install locked workspace dependencies
         run: bun install --frozen-lockfile
+      - name: Install Caddy for reverse-proxy integration tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends caddy
+          caddy version
       - name: Server tests (isolated)
         run: bun run server:test
       - name: Server Python tests
