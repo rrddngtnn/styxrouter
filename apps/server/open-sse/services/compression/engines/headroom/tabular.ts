@@ -1,38 +1,10 @@
-/**
- * tabular.ts — GCF-powered encoder + backward-compatible omni-tabular decoder.
- *
- * Encoding now uses GCF (Graph Compact Format) generic profile, which handles:
- *   - Homogeneous AND heterogeneous arrays of objects
- *   - Mixed-type columns (nullable, number/string mix)
- *   - Nested objects and arrays (first-class, not JSON-stringified)
- *   - Tabular layout with inline schemas for repeated structures
- *
- * Decoding supports BOTH formats for backward compatibility:
- *   - ```gcf-generic ... ``` (new GCF format)
- *   - ```omni-tabular ... ``` (legacy format, still decoded correctly)
- *
- * The legacy omni-tabular encoder is preserved as encodeTabularBlockLegacy
- * for backward-compat decoding and benchmark comparison.
- */
+/** TOON encoding and historical omni-tabular decoding. GCF is excluded from this candidate. */
+import { TOON_FENCE_OPEN, decodeToon, encodeToonBlock, wrapToon } from "./toon.ts";
 
-import { encodeGeneric, decodeGeneric } from "./gcf/index.ts";
-import { TOON_FENCE_OPEN, decodeToon } from "./toon.ts";
-
-// ─── fence markers ───────────────────────────────────────────────────────────
-
-/** New GCF fence marker. */
-export const GCF_FENCE_OPEN = "```gcf-generic";
-export const GCF_FENCE_CLOSE = "```";
-
-/** Legacy fence markers (kept for backward-compat decoding). */
 export const TABULAR_FENCE_OPEN = "```omni-tabular";
 export const TABULAR_FENCE_CLOSE = "```";
-export const TABULAR_MARKER_RE = /```(?:gcf-generic|omni-tabular)\n([\s\S]*?)\n```/g;
-
-// ─── legacy types (for backward-compat decoder) ─────────────────────────────
-
+export const TABULAR_MARKER_RE = /```omni-tabular\n([\s\S]*?)\n```/g;
 type CellKind = "s" | "n" | "b" | "null" | "j";
-
 export function kindOf(val: unknown): CellKind {
   if (val === null) return "null";
   if (typeof val === "number") return "n";
@@ -40,45 +12,15 @@ export function kindOf(val: unknown): CellKind {
   if (typeof val === "object") return "j";
   return "s";
 }
-
-// ─── GCF encoder (replaces old encodeTabularBlock) ───────────────────────────
-
-/**
- * Encode an array of objects using GCF generic profile.
- * Returns the GCF text (without fence markers).
- */
-export function encodeGcfBlock(arr: Record<string, unknown>[]): string {
-  return encodeGeneric(arr);
-}
-
-/**
- * Wrap a GCF block in the gcf-generic fence.
- */
-export function wrapGcf(blockContent: string): string {
-  return `${GCF_FENCE_OPEN}\n${blockContent}\n${GCF_FENCE_CLOSE}`;
-}
-
-/**
- * Public API — encode an array to a fenced GCF string.
- * This is the new default encoder (replaces encodeTabular for new content).
- */
-export function encodeTabular(arr: Record<string, unknown>[]): string {
-  return wrapGcf(encodeGcfBlock(arr));
-}
-
-/**
- * Alias kept for SmartCrusher: encode block content (without fence).
- * Now delegates to GCF.
- */
+/** Candidate excludes GCF; retain the independently packaged TOON encoder. */
 export function encodeTabularBlock(arr: Record<string, unknown>[]): string {
-  return encodeGcfBlock(arr);
+  const block = encodeToonBlock(arr);
+  if (block === null) throw new Error("TOON encoding unavailable");
+  return block;
 }
-
-/**
- * Wrap content in fence markers. Now uses GCF fence.
- */
-export function wrapTabular(blockContent: string): string {
-  return wrapGcf(blockContent);
+export const wrapTabular = wrapToon;
+export function encodeTabular(arr: Record<string, unknown>[]): string {
+  return wrapTabular(encodeTabularBlock(arr));
 }
 
 // ─── legacy omni-tabular encoder (preserved for tests/benchmarks) ────────────
@@ -223,31 +165,11 @@ export function decodeTabularBlockLegacy(block: string): Record<string, unknown>
 }
 
 /**
- * Public API — decode a fenced block (either GCF or legacy omni-tabular).
+ * Public API — decode a fenced block (either TOON or legacy omni-tabular).
  * Auto-detects format from the fence marker.
  */
 export function decodeTabular(text: string): Record<string, unknown>[] {
   if (text.startsWith(TOON_FENCE_OPEN + "\n")) return decodeToon(text);
-
-  // Detect format from fence marker.
-  if (text.startsWith(GCF_FENCE_OPEN + "\n") || text.startsWith("GCF ")) {
-    // GCF format: strip fence if present, decode via GCF decoder.
-    let inner = text;
-    const hadFence = inner.startsWith(GCF_FENCE_OPEN + "\n");
-    if (hadFence) {
-      inner = inner.slice(GCF_FENCE_OPEN.length + 1);
-      if (inner.endsWith("\n" + GCF_FENCE_CLOSE)) {
-        inner = inner.slice(0, inner.length - GCF_FENCE_CLOSE.length - 1);
-      } else if (inner.endsWith(GCF_FENCE_CLOSE)) {
-        inner = inner.slice(0, inner.length - GCF_FENCE_CLOSE.length);
-      }
-    }
-    const result = decodeGeneric(inner);
-    // decodeGeneric returns the decoded value; for arrays, return directly.
-    if (Array.isArray(result)) return result as Record<string, unknown>[];
-    // If it decoded to a single object, wrap it.
-    return [result as Record<string, unknown>];
-  }
 
   // Legacy omni-tabular format.
   let inner = text;

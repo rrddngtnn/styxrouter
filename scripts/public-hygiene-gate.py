@@ -13,7 +13,9 @@ untracked files are outside the candidate set; force-added files must be rerun.
 History is limited to HEAD-reachable commits (not other refs or reflogs), at most
 200,000 changes, 8 MiB per text blob and 512 MiB total; limits fail closed.
 Binary extensions and NUL-sniffed blobs are not content-scanned. Gate sources and
-fixtures are excluded. Historical content does not use current-file allowlists.
+fixtures are excluded. Historical content accepts only object/path/content-bound
+exceptions, never legacy current-file allowlists. Explicit private inputs stay
+outside the publication tree; bundle exceptions require exact match offsets.
 
 The raw matched substring is NEVER written to the report or stdout -- a hit
 records only its pattern name, path, and line, with a redacted context marker.
@@ -22,6 +24,7 @@ That keeps the report safe to paste even when it catches a credential.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -129,7 +132,7 @@ def utc_timestamp() -> str:
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
 
 
-def load_patterns() -> Any:
+def load_patterns(private_path: Path | None = None) -> Any:
     """Load the hygiene_patterns module (PATTERNS + INTERNAL_DOC_PATHS)."""
     import importlib.util
 
@@ -144,7 +147,10 @@ def load_patterns() -> Any:
     # contain them. Absent on a fresh clone or in CI: the public catalog still runs and the report says
     # that operator identifiers were NOT checked. HYGIENE_SKIP_PRIVATE=1 forces public-only mode.
     module.PRIVATE_LOADED = False
-    private_path = SCRIPTS_DIR / "hygiene_private.py"
+    explicit = private_path is not None
+    private_path = private_path or SCRIPTS_DIR / "hygiene_private.py"
+    if explicit and (not private_path.is_file() or os.environ.get("HYGIENE_SKIP_PRIVATE")):
+        raise ValueError("explicit private catalog unavailable")
     if private_path.is_file() and not os.environ.get("HYGIENE_SKIP_PRIVATE"):
         pspec = importlib.util.spec_from_file_location("hygiene_private", private_path)
         if pspec is not None and pspec.loader is not None:
@@ -174,6 +180,8 @@ def load_allowlist(path: Path, known_patterns: set[str]) -> list[dict]:
         return []
     entries = json.loads(path.read_text(encoding="utf-8"))
     for e in entries:
+        if "sha256" in e:
+            _validate_bound_entries([e], known_patterns)
         if e.get("pattern") not in known_patterns:
             raise ValueError(f"allowlist references unknown pattern: {e.get('pattern')}")
         if e.get("file", "").startswith("/"):
@@ -181,6 +189,43 @@ def load_allowlist(path: Path, known_patterns: set[str]) -> list[dict]:
         rng = e.get("lines")
         if rng and rng[0] > rng[1]:
             raise ValueError(f"allowlist bad line range: {rng}")
+    return entries
+
+
+def load_bound_allowlist(path: Path, known_patterns: set[str]) -> list[dict]:
+    if not path.is_file():
+        raise ValueError("explicit exception file unavailable")
+    entries = json.loads(path.read_text(encoding="utf-8"))
+    return _validate_bound_entries(entries, known_patterns)
+
+
+def _validate_bound_entries(entries, known_patterns):
+    if not isinstance(entries, list):
+        raise ValueError("exceptions must be a list")
+    required = {"pattern", "file", "surface", "sha256", "lines", "reason"}
+    for e in entries:
+        if not isinstance(e, dict) or set(e) != (required | ({"blob"} if e.get("surface") == "historical_file" else {"offsets"} if e.get("surface") == "panel_bundle" else set())):
+            raise ValueError("bound exception fields invalid")
+        if e["pattern"] not in known_patterns:
+            raise ValueError("unknown exception pattern")
+        f = e["file"]
+        if not isinstance(f, str) or not f or f.startswith("/") or any(c in f for c in "*?[]\\") or ".." in f.split("/"):
+            raise ValueError("exception requires literal relative path")
+        if e["surface"] not in {"tracked_file", "historical_file", "panel_bundle"}:
+            raise ValueError("unsupported exception surface")
+        if e["surface"] == "historical_file" and not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", str(e["blob"])):
+            raise ValueError("historical exception requires full object ID")
+        if not isinstance(e["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", e["sha256"]):
+            raise ValueError("exception requires SHA-256")
+        rng = e["lines"]
+        if not isinstance(rng, list) or len(rng) != 2 or any(type(n) is not int for n in rng) or not 1 <= rng[0] <= rng[1]:
+            raise ValueError("exception requires bounded lines")
+        if e["surface"] == "panel_bundle":
+            offsets = e["offsets"]
+            if not isinstance(offsets, list) or len(offsets) != 2 or any(type(n) is not int for n in offsets) or not 0 <= offsets[0] < offsets[1]:
+                raise ValueError("bundle requires exact character offsets")
+        if not isinstance(e["reason"], str) or not e["reason"].strip():
+            raise ValueError("exception requires review reason")
     return entries
 
 
@@ -199,11 +244,19 @@ def _section_span(text: str, section: str) -> tuple[int, int] | None:
     return None
 
 
-def _is_allowlisted(allowlist, pattern, path, line, text) -> bool:
+def _is_allowlisted(allowlist, pattern, path, line, text, surface="tracked_file", blob=None, end_line=None, offsets=None) -> bool:
     for e in allowlist:
         if e["pattern"] != pattern or e["file"] != path:
             continue
-        if "section" in e:
+        if "sha256" in e:
+            if (e["surface"] == surface and e.get("blob") == blob
+                    and (surface != "panel_bundle" or e["offsets"] == offsets)
+                    and hashlib.sha256(text.encode("utf-8")).hexdigest() == e["sha256"]
+                    and e["lines"][0] <= line <= (end_line or line) <= e["lines"][1]):
+                return True
+        elif surface == "historical_file":
+            continue
+        elif "section" in e:
             span = _section_span(text, e["section"])
             if span and span[0] <= line <= span[1]:
                 return True
@@ -215,7 +268,7 @@ def _is_allowlisted(allowlist, pattern, path, line, text) -> bool:
     return False
 
 
-def _scan_text(text, path, surface, compiled, allowlist) -> list[Hit]:
+def _scan_text(text, path, surface, compiled, allowlist, *, exception_path=None, blob=None) -> list[Hit]:
     hits: list[Hit] = []
     safe_path = None
     for pdef, rx in compiled:
@@ -223,7 +276,9 @@ def _scan_text(text, path, surface, compiled, allowlist) -> list[Hit]:
             continue
         for m in rx.finditer(text):
             line = text.count("\n", 0, m.start()) + 1
-            if _is_allowlisted(allowlist, pdef.name, path, line, text):
+            end_line = text.count("\n", 0, max(m.start(), m.end() - 1)) + 1
+            if _is_allowlisted(allowlist, pdef.name, exception_path or path, line, text,
+                               "historical_file" if blob else surface, blob, end_line, [m.start(), m.end()]):
                 continue
             if safe_path is None:
                 safe_path = _redact_path(path, compiled)
@@ -433,11 +488,11 @@ def gate_historical_files(repo_root, compiled, internal_doc_paths, allowlist) ->
                 result.hits.append(Hit(surface="filename", path=path_label, pattern="P-INTERNAL-DOC"))
             result.hits.extend(_scan_text(path, path_label, "filename", compiled, []))
             oid = fields[3].decode("ascii")
-            if set(oid) == {"0"} or oid in seen:
+            if set(oid) == {"0"} or (oid, path) in seen:
                 continue
             if Path(path).suffix.lower() in _BINARY_EXT:
                 continue
-            seen.add(oid)
+            seen.add((oid, path))
             cat.stdin.write(oid.encode("ascii") + b"\n")
             cat.stdin.flush()
             meta = cat.stdout.readline().split()
@@ -452,9 +507,10 @@ def gate_historical_files(repo_root, compiled, internal_doc_paths, allowlist) ->
             total_bytes += size
             result.scanned += 1
             if b"\0" not in raw[:1024]:
-                # Do not apply current-tree allowlists to old versions.
+                # Only object/path/content-bound historical exceptions apply here.
                 result.hits.extend(_scan_text(raw.decode("utf-8", errors="replace"),
-                                              f"history:blob:{oid[:12]}", "tracked_file", compiled, []))
+                                              f"history:blob:{oid[:12]}", "tracked_file", compiled, allowlist,
+                                              exception_path=path, blob=oid))
         if log.wait() != 0:
             raise ValueError("git history unavailable")
     except (OSError, ValueError, StopIteration):
@@ -537,16 +593,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runtime-url", type=str, default=None)
     parser.add_argument("--auth-token", type=str, default=None)
     parser.add_argument("--allowlist", type=Path, default=ALLOWLIST_DEFAULT)
+    parser.add_argument("--private-patterns", type=Path, default=None)
+    parser.add_argument("--private-allowlist", type=Path, default=None)
     parser.add_argument(
         "--evidence-dir", type=Path, default=None,
         help="override evidence output dir; defaults to <repo-root>/evidence",
     )
     args = parser.parse_args(argv)
 
-    mod = load_patterns()
+    mod = load_patterns(args.private_patterns)
     compiled = compile_patterns(mod.PATTERNS)
     known = {p.name for p in mod.PATTERNS}
     allowlist = load_allowlist(args.allowlist, known)
+    if args.private_allowlist is not None:
+        if not mod.PRIVATE_LOADED:
+            raise ValueError("private overlay requires private catalog")
+        allowlist += load_bound_allowlist(args.private_allowlist, known)
     internal_doc_paths = getattr(mod, "INTERNAL_DOC_PATHS", [])
 
     report = Report(timestamp=utc_timestamp(), private_loaded=bool(getattr(mod, "PRIVATE_LOADED", False)))

@@ -337,44 +337,6 @@ export const CREDENTIAL_HEALTH_CACHE_TTL = (() => {
 })();
 
 /**
- * Stream-recovery tuning (opt-in, see ResilienceSettings.streamRecovery).
- *
- * Ported from free-claude-code's always-on recovery (`core/anthropic/stream_recovery.py`).
- * In StyxRouter the holdback is disabled by default because buffering the opening
- * window adds up to HOLDBACK_MS of time-to-first-token latency on every stream;
- * operators opt in via STREAM_RECOVERY_ENABLED / the resilience settings.
- *
- * - HOLDBACK_MS: how long the opening SSE window is held so an early truncation
- *   can be retried transparently before any byte reaches the client.
- * - BUFFER_MAX_BYTES: hard cap on the held window — commit (flush + passthrough)
- *   as soon as this many bytes accumulate, regardless of the timer.
- * - EARLY_RETRY_MAX: max transparent re-opens of the upstream stream while the
- *   holdback is still uncommitted (free-claude-code uses 5 total attempts = 4 retries).
- */
-export const STREAM_RECOVERY = {
-  HOLDBACK_MS: 750,
-  BUFFER_MAX_BYTES: 65536,
-  EARLY_RETRY_MAX: 4,
-  /**
-   * Minimum character overlap `trimContinuationOverlap` must find between the
-   * already-emitted text and a mid-stream continuation for the continuation to be
-   * accepted as a real resume, rather than an unrelated restart the model produced after
-   * ignoring the assistant-prefill.
-   *
-   * This is a DOCUMENTED TRADE-OFF, not a solved distinction: a model that continues
-   * cleanly with fewer than this many echoed characters (a legitimate, even preferred,
-   * outcome — there was nothing to de-duplicate) is indistinguishable, from string data
-   * alone, from a model that silently restarted on an unrelated sentence. Both produce a
-   * low/zero overlap. Rejecting below this threshold trades some false-positive rejections
-   * of legitimate low-overlap continuations (bounded retry, then a clean close — no data
-   * loss beyond that retry) against not silently gluing two unrelated fragments into one
-   * corrupted, unrecoverable answer. It does not eliminate the residual false negative
-   * either (an accidental coincidence at or above this many characters is still accepted).
-   */
-  MIN_CONTINUATION_OVERLAP_CHARS: 8,
-} as const;
-
-/**
  * Active-stream quality watchdog defaults (#9709). This is separate from the
  * idle timeout (no chunks) and the absolute upstream-attempt deadline: it only
  * evaluates useful assistant output after warm-up plus one complete window.

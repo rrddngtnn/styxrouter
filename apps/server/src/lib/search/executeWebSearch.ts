@@ -213,10 +213,6 @@ export async function executeWebSearch(
 
       for (const fallbackProvider of fallbackProviders) {
         providerConfig = fallbackProvider;
-        if (fallbackProvider.id === "duckduckgo-free") {
-          credentials = {};
-          break;
-        }
         const fallbackCredentials = await resolveSearchCredentials(fallbackProvider.id);
         if (fallbackCredentials) {
           credentials = fallbackCredentials;

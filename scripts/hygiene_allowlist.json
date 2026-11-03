@@ -81,5 +81,780 @@
       121
     ],
     "reason": "Upstream licence provenance row or pinned licence reference; preserve attribution, exact reviewed line only."
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "docs/release-readiness-audit.md",
+    "surface": "tracked_file",
+    "sha256": "2e2719eabc9b42381b5afa3f098e14a7dee657e25869f8ca1d89b9c8fa105ae5",
+    "lines": [
+      67,
+      67
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references."
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "docs/release-readiness-audit.md",
+    "surface": "tracked_file",
+    "sha256": "2e2719eabc9b42381b5afa3f098e14a7dee657e25869f8ca1d89b9c8fa105ae5",
+    "lines": [
+      121,
+      121
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references."
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "docs/release-readiness-audit.md",
+    "surface": "tracked_file",
+    "sha256": "6bdcea0ae46c090375264fbb733443622b9b843ddf31417500dfe679847a6756",
+    "lines": [
+      169,
+      169
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references."
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "docs/release-readiness-audit.md",
+    "surface": "tracked_file",
+    "sha256": "6bdcea0ae46c090375264fbb733443622b9b843ddf31417500dfe679847a6756",
+    "lines": [
+      236,
+      236
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references."
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "docs/release-readiness-audit.md",
+    "surface": "tracked_file",
+    "sha256": "6bdcea0ae46c090375264fbb733443622b9b843ddf31417500dfe679847a6756",
+    "lines": [
+      290,
+      290
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references."
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "ef9a64c8ae50472c9ed465151d5b9f354425939bd79e07345e52dede7e208470",
+    "lines": [
+      19,
+      19
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "77dedad6b8cf7670656a5495e086eb3887689f95"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "ef9a64c8ae50472c9ed465151d5b9f354425939bd79e07345e52dede7e208470",
+    "lines": [
+      21,
+      21
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "77dedad6b8cf7670656a5495e086eb3887689f95"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "ef9a64c8ae50472c9ed465151d5b9f354425939bd79e07345e52dede7e208470",
+    "lines": [
+      32,
+      32
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "77dedad6b8cf7670656a5495e086eb3887689f95"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "docs/release-readiness-audit.md",
+    "surface": "historical_file",
+    "sha256": "2e2719eabc9b42381b5afa3f098e14a7dee657e25869f8ca1d89b9c8fa105ae5",
+    "lines": [
+      67,
+      67
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "ebbefc57d86c01744050492cdabfe8fc83e5e262"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "docs/release-readiness-audit.md",
+    "surface": "historical_file",
+    "sha256": "2e2719eabc9b42381b5afa3f098e14a7dee657e25869f8ca1d89b9c8fa105ae5",
+    "lines": [
+      121,
+      121
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "ebbefc57d86c01744050492cdabfe8fc83e5e262"
+  },
+  {
+    "pattern": "P-VOCAB-SDD",
+    "file": ".gitignore",
+    "surface": "historical_file",
+    "sha256": "186a819c3ce34110b932bff86586018be1d9e26e7d54debedd1f1a78b5790e23",
+    "lines": [
+      38,
+      38
+    ],
+    "reason": "Exact ignored planning filename in ignore rule, not publication of that document.",
+    "blob": "98e54097f1f59261d5e2b67fd866ccedb4779d48"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "d8efc6554a5a8f85e1dd374881da67f2b5fa6ec10125ecd1adee099e0353acd0",
+    "lines": [
+      19,
+      19
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "233260ca6d294ff08316e9adc31121a636f7a0c4"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "d8efc6554a5a8f85e1dd374881da67f2b5fa6ec10125ecd1adee099e0353acd0",
+    "lines": [
+      21,
+      21
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "233260ca6d294ff08316e9adc31121a636f7a0c4"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "d8efc6554a5a8f85e1dd374881da67f2b5fa6ec10125ecd1adee099e0353acd0",
+    "lines": [
+      32,
+      32
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "233260ca6d294ff08316e9adc31121a636f7a0c4"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "2d68a30c9c694fa37937af1a53ca7fb142fdd8d90c60082acce0d920225a887b",
+    "lines": [
+      90,
+      90
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "ceb278be0e136edf9c264af583bc677b14d4fa02"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "2d68a30c9c694fa37937af1a53ca7fb142fdd8d90c60082acce0d920225a887b",
+    "lines": [
+      92,
+      92
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "ceb278be0e136edf9c264af583bc677b14d4fa02"
+  },
+  {
+    "pattern": "P-INFRA-PLACEHOLDER-PORT",
+    "file": "apps/server/tests/catalog-default-context-regression.test.ts",
+    "surface": "historical_file",
+    "sha256": "5e4111e12bd50e1db92ad94c6332465229e7085c0da4ff1fc6331aedc05754b1",
+    "lines": [
+      68,
+      68
+    ],
+    "reason": "Model input context token limit fixture and corresponding assertion, not network port.",
+    "blob": "dddc80b489b11e90624738b25f4865ffc825e2f3"
+  },
+  {
+    "pattern": "P-INFRA-PLACEHOLDER-PORT",
+    "file": "apps/server/tests/catalog-default-context-regression.test.ts",
+    "surface": "historical_file",
+    "sha256": "5e4111e12bd50e1db92ad94c6332465229e7085c0da4ff1fc6331aedc05754b1",
+    "lines": [
+      80,
+      80
+    ],
+    "reason": "Model input context token limit fixture and corresponding assertion, not network port.",
+    "blob": "dddc80b489b11e90624738b25f4865ffc825e2f3"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "6eb8e55e1916be1acfc414ae59889908787946d69e60b8a272b4bccad37c9e96",
+    "lines": [
+      80,
+      80
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "52de76ef0e624d4a666b82cdad9cbf2c516f59e8"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "6eb8e55e1916be1acfc414ae59889908787946d69e60b8a272b4bccad37c9e96",
+    "lines": [
+      82,
+      82
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "52de76ef0e624d4a666b82cdad9cbf2c516f59e8"
+  },
+  {
+    "pattern": "P-VOCAB-SDD",
+    "file": ".gitignore",
+    "surface": "historical_file",
+    "sha256": "c916ddbf9676b3026a0e16129dc906c1cf5cf73415dcde17d1543aec545f692e",
+    "lines": [
+      38,
+      38
+    ],
+    "reason": "Exact ignored planning filename in ignore rule, not publication of that document.",
+    "blob": "5c34c3837cfaabf8b5d854fdcfe2d73e0096fc43"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "da1b00cccfed8c5446cfc623cd64effdfb00275fa4f79d37188d5d636f727b2f",
+    "lines": [
+      74,
+      74
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "c9a4f948d9e6569626f8628d7cc44b5f94a43fff"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "da1b00cccfed8c5446cfc623cd64effdfb00275fa4f79d37188d5d636f727b2f",
+    "lines": [
+      76,
+      76
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "c9a4f948d9e6569626f8628d7cc44b5f94a43fff"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "3db36fc549adc27ab4c86a3c5e9019788e32a8c958d3efa70075ca8d3144d52e",
+    "lines": [
+      74,
+      74
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "b7608a2ea4b9bae057cd72c237e9d3b9b14d6003"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "3db36fc549adc27ab4c86a3c5e9019788e32a8c958d3efa70075ca8d3144d52e",
+    "lines": [
+      76,
+      76
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "b7608a2ea4b9bae057cd72c237e9d3b9b14d6003"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "5f0dcd54c090be74da898610423def17c470c7814ce6ff9b477568eca22ef24b",
+    "lines": [
+      11,
+      11
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "f350a47c4c43437c18544089174ba6fb8106b8a8"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "5f0dcd54c090be74da898610423def17c470c7814ce6ff9b477568eca22ef24b",
+    "lines": [
+      13,
+      13
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "f350a47c4c43437c18544089174ba6fb8106b8a8"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "e5f1358e537a58d491ca30b0fb85cfdb40c4e255d12d472cfb739b01877216ed",
+    "lines": [
+      67,
+      67
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "5348d9d06bf090c322274ffba1a7d2898ef4750f"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "e5f1358e537a58d491ca30b0fb85cfdb40c4e255d12d472cfb739b01877216ed",
+    "lines": [
+      69,
+      69
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "5348d9d06bf090c322274ffba1a7d2898ef4750f"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "26fd7ee1b8b2ba33ac7ea34cf88ac79d815dd6e2a0c520be3dae5144203526b8",
+    "lines": [
+      75,
+      75
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "f1004952b93b68d5cd94f8f4b3be363a1dd20416"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "26fd7ee1b8b2ba33ac7ea34cf88ac79d815dd6e2a0c520be3dae5144203526b8",
+    "lines": [
+      77,
+      77
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "f1004952b93b68d5cd94f8f4b3be363a1dd20416"
+  },
+  {
+    "pattern": "P-VOCAB-SDD",
+    "file": ".gitignore",
+    "surface": "historical_file",
+    "sha256": "c3bcf0a4448870ab44919c6dcbffc6ddba5205473bcc4967c3fe4788f1d225cd",
+    "lines": [
+      38,
+      38
+    ],
+    "reason": "Exact ignored planning filename in ignore rule, not publication of that document.",
+    "blob": "18d304fdfa147a11fe8b665464339d60ef3d8fb5"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "ffe206637916665856227509688ae50a720afcb9c61d39ab5b5b7bccf0f59e1c",
+    "lines": [
+      75,
+      75
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "c8cbc63442302d0935dc4553ce7f131db982e356"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "ffe206637916665856227509688ae50a720afcb9c61d39ab5b5b7bccf0f59e1c",
+    "lines": [
+      77,
+      77
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "c8cbc63442302d0935dc4553ce7f131db982e356"
+  },
+  {
+    "pattern": "P-VOCAB-SDD",
+    "file": ".gitignore",
+    "surface": "historical_file",
+    "sha256": "f91efca62171cb3fda92206003dd535a68187c8391412cf018f0a09a5e1906de",
+    "lines": [
+      38,
+      38
+    ],
+    "reason": "Exact ignored planning filename in ignore rule, not publication of that document.",
+    "blob": "abe72692a2ffaa15ea5a621aa178553714106394"
+  },
+  {
+    "pattern": "P-VOCAB-SDD",
+    "file": ".gitignore",
+    "surface": "historical_file",
+    "sha256": "b5a8778cb9fd4e13a295298aa511b75af35b0b989e563c91caeb4770f1f17caa",
+    "lines": [
+      38,
+      38
+    ],
+    "reason": "Exact ignored planning filename in ignore rule, not publication of that document.",
+    "blob": "917437afe379abe1f662eb313f590b714522bf8f"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "e3f6c3a8729527aab320394d7c72094cca390b0df95a9e7172fd531bdcd7e9b9",
+    "lines": [
+      11,
+      11
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "d8c281b841a5603f922bf916c3080ad7ad1ebd9b"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "e3f6c3a8729527aab320394d7c72094cca390b0df95a9e7172fd531bdcd7e9b9",
+    "lines": [
+      13,
+      13
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "d8c281b841a5603f922bf916c3080ad7ad1ebd9b"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "731c05f1095c992e30ccb9567f7f76e3721c75f780d05b75f47ab23ccd5a1829",
+    "lines": [
+      75,
+      75
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "aa9093f3aa9f908d3a0a22cf71697d04f50008a7"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "731c05f1095c992e30ccb9567f7f76e3721c75f780d05b75f47ab23ccd5a1829",
+    "lines": [
+      77,
+      77
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "aa9093f3aa9f908d3a0a22cf71697d04f50008a7"
+  },
+  {
+    "pattern": "P-VOCAB-PRONOUNS",
+    "file": "apps/server/open-sse/services/compression/rules/id/filler.json",
+    "surface": "historical_file",
+    "sha256": "ecfd528cdd17d73d1a8295448d3c8c01b4168f01ded3da19df48d23742162ccb",
+    "lines": [
+      82,
+      82
+    ],
+    "reason": "Indonesian compression dictionary regex or replacement token; not operator dialogue.",
+    "blob": "3b2ecb23283bf422c1400040ee4a7e2ce7e2effd"
+  },
+  {
+    "pattern": "P-VOCAB-PRONOUNS",
+    "file": "apps/server/open-sse/services/compression/rules/id/ultra.json",
+    "surface": "historical_file",
+    "sha256": "212867dc3451a55ba8fdad80b35e8526deaafb71dfa8d63ffde83a8ecdefa386",
+    "lines": [
+      196,
+      196
+    ],
+    "reason": "Indonesian compression dictionary regex or replacement token; not operator dialogue.",
+    "blob": "be0f0cc2fed463fb6d844279374e16f8080db72c"
+  },
+  {
+    "pattern": "P-VOCAB-PRONOUNS",
+    "file": "apps/server/open-sse/services/compression/rules/id/ultra.json",
+    "surface": "historical_file",
+    "sha256": "212867dc3451a55ba8fdad80b35e8526deaafb71dfa8d63ffde83a8ecdefa386",
+    "lines": [
+      240,
+      240
+    ],
+    "reason": "Indonesian compression dictionary regex or replacement token; not operator dialogue.",
+    "blob": "be0f0cc2fed463fb6d844279374e16f8080db72c"
+  },
+  {
+    "pattern": "P-VOCAB-PRONOUNS",
+    "file": "apps/server/open-sse/services/compression/rules/id/ultra.json",
+    "surface": "historical_file",
+    "sha256": "212867dc3451a55ba8fdad80b35e8526deaafb71dfa8d63ffde83a8ecdefa386",
+    "lines": [
+      242,
+      242
+    ],
+    "reason": "Indonesian compression dictionary regex or replacement token; not operator dialogue.",
+    "blob": "be0f0cc2fed463fb6d844279374e16f8080db72c"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/bun.lock",
+    "surface": "historical_file",
+    "sha256": "ff36fce17242f7eab566af4a05f23c4a5e051df6af8d19b50b465023b12ab289",
+    "lines": [
+      6,
+      6
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "ec24b531c0f8da45b5bc523ce0b9cc1d0ff5728f"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/bun.lock",
+    "surface": "historical_file",
+    "sha256": "ff36fce17242f7eab566af4a05f23c4a5e051df6af8d19b50b465023b12ab289",
+    "lines": [
+      155,
+      155
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "ec24b531c0f8da45b5bc523ce0b9cc1d0ff5728f"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/bun.lock",
+    "surface": "historical_file",
+    "sha256": "ff36fce17242f7eab566af4a05f23c4a5e051df6af8d19b50b465023b12ab289",
+    "lines": [
+      928,
+      928
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "ec24b531c0f8da45b5bc523ce0b9cc1d0ff5728f"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI-SCOPE",
+    "file": "apps/server/bun.lock",
+    "surface": "historical_file",
+    "sha256": "ff36fce17242f7eab566af4a05f23c4a5e051df6af8d19b50b465023b12ab289",
+    "lines": [
+      155,
+      155
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "ec24b531c0f8da45b5bc523ce0b9cc1d0ff5728f"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI-SCOPE",
+    "file": "apps/server/bun.lock",
+    "surface": "historical_file",
+    "sha256": "ff36fce17242f7eab566af4a05f23c4a5e051df6af8d19b50b465023b12ab289",
+    "lines": [
+      928,
+      928
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "ec24b531c0f8da45b5bc523ce0b9cc1d0ff5728f"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/001_initial_schema.sql",
+    "surface": "historical_file",
+    "sha256": "ba2584f667b4065d411b10d4f30117260ed55bd89cd491b8be6ffc66a31b1a66",
+    "lines": [
+      2,
+      2
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "d366cde3c8f4863db6369da6eb5112b516cead93"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/017_version_manager_upstream_proxy.sql",
+    "surface": "historical_file",
+    "sha256": "2cea43fc6bc62350a70b366116d2a744e5b0063cf73a1110fc14f5977f263c99",
+    "lines": [
+      14,
+      14
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "337e7d9d7aa4b6663284aa649f3ed41976014ad2"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/017_version_manager_upstream_proxy.sql",
+    "surface": "historical_file",
+    "sha256": "2cea43fc6bc62350a70b366116d2a744e5b0063cf73a1110fc14f5977f263c99",
+    "lines": [
+      25,
+      25
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "337e7d9d7aa4b6663284aa649f3ed41976014ad2"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/017_version_manager_upstream_proxy.sql",
+    "surface": "historical_file",
+    "sha256": "2cea43fc6bc62350a70b366116d2a744e5b0063cf73a1110fc14f5977f263c99",
+    "lines": [
+      38,
+      38
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "337e7d9d7aa4b6663284aa649f3ed41976014ad2"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/067_relay_proxies.sql",
+    "surface": "historical_file",
+    "sha256": "9a0e10a527f1d3570d610a279cbf51ea67065e77c4d801b32f467c55ddf8d9b9",
+    "lines": [
+      4,
+      4
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "7e33003a83911768f622d2a7cf15b89f97ab7253"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/072_free_proxies_fk.sql",
+    "surface": "historical_file",
+    "sha256": "50ad89c3aba5d3d389ff4fbec3e4f3b946fffb6dafe33acf15299ce5110a16da",
+    "lines": [
+      5,
+      5
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "e37ce7a161cbb312393782b9fe64b9bb8bf22240"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/100_cli_access_tokens.sql",
+    "surface": "historical_file",
+    "sha256": "e8008c307fb25c29b363bda247191831cdc67163dcb8685a38f64c695daf7bb4",
+    "lines": [
+      2,
+      2
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "3626ee1cb78b415d3840eed0d1b302272e87083e"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/103_strip_legacy_combo_config_keys.sql",
+    "surface": "historical_file",
+    "sha256": "87f8e37199a1ea50704f453f4e1da7f2d23a4681bdc6ee79bb2a3a2041a73145",
+    "lines": [
+      7,
+      7
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "7a702dd1221c5962c73943a6b9d39b33deeb0645"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/126_reasoning_routing_rules.sql",
+    "surface": "historical_file",
+    "sha256": "20e88a5637d7a807d01db67416f9b91536e984ae20c7b96ad53d9375c2e11b6d",
+    "lines": [
+      43,
+      43
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "d7b4d6791d5ead171461328da8d0eee1454c761d"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/128_auto_candidate_overrides.sql",
+    "surface": "historical_file",
+    "sha256": "06d95b5b4d4e1ab82b30b13928c84ffc2e8a8bef3f22b069559d8bb20e57ee5d",
+    "lines": [
+      2,
+      2
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "c6262f25348b67e4ff313ec885bfbb0ae472ed18"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/152_remove_puter_provider.sql",
+    "surface": "historical_file",
+    "sha256": "06675ec79138535c7ebbd7fb4b787d52990d64573f37656b6fb802fee6562924",
+    "lines": [
+      2,
+      2
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "9319a2f96141781466d3c88d60988dd86c1f98a4"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/154_call_logs_response_id.sql",
+    "surface": "historical_file",
+    "sha256": "2cdc304873bd466a583aca271790ec42fef9a88d6a668fc2ed56920f2de906b0",
+    "lines": [
+      3,
+      3
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "c03f117037515de90aecc04a1ba4112287c0e68a"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/155_agentic_conversations.sql",
+    "surface": "historical_file",
+    "sha256": "023068deb65541eb2f65e74f784188e1e946235e20bad21c6f9f5a0aa99854bc",
+    "lines": [
+      11,
+      11
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "ac41b97982f59a090dd71682255b4ece5ad3560b"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/156_conversation_turn_nodes.sql",
+    "surface": "historical_file",
+    "sha256": "e5e9734795490f93071847b7cb2f84604e51a8fac19e44ce0464ced46dd66ff5",
+    "lines": [
+      11,
+      11
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "5de781bb5e61480074f5a5fa986bf684a1296538"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/159_remove_mimocode_provider.sql",
+    "surface": "historical_file",
+    "sha256": "ae00da1512e7ca89611e5f60a6a1f9cb2f9d773e97db62040cd97cb9f8e9a468",
+    "lines": [
+      2,
+      2
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "1775d31333693637f954ff013ecae43f85d668d4"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "apps/server/src/lib/db/migrations/162_remove_hackclub_provider.sql",
+    "surface": "historical_file",
+    "sha256": "0feb100487c90141bdd7eb95c2d05410938ae4ca3e0c64d2adc68a605fd10648",
+    "lines": [
+      2,
+      2
+    ],
+    "reason": "Inherited upstream migration comment/API identifier or historical workspace dependency name; public lineage, not operator infrastructure.",
+    "blob": "4dd20904e96ef04fe480887f885a2acf5cb62f50"
   }
 ]

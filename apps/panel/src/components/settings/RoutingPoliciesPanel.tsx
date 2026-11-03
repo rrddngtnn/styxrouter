@@ -85,8 +85,8 @@ export function RoutingPoliciesForm({
       ? initStreamRec.throughputWatchdog
       : {}
   ) as Record<string, unknown>;
-  const [streamRecoveryEnabled, setStreamRecoveryEnabled] = useState<boolean>(Boolean(initStreamRec.enabled));
-  const [continueMidStream, setContinueMidStream] = useState<boolean>(Boolean(initStreamRec.continueMidStream));
+  const [, setStreamRecoveryEnabled] = useState<boolean>(Boolean(initStreamRec.enabled));
+  const [, setContinueMidStream] = useState<boolean>(Boolean(initStreamRec.continueMidStream));
   const [watchdogEnabled, setWatchdogEnabled] = useState<boolean>(Boolean(initWatchdog.enabled));
 
   const [aliasesText, setAliasesText] = useState<string>(() => {
@@ -197,8 +197,8 @@ export function RoutingPoliciesForm({
           ...existingResilience,
           streamRecovery: {
             ...existingStreamRecovery,
-            enabled: streamRecoveryEnabled,
-            continueMidStream,
+            enabled: false,
+            continueMidStream: false,
             throughputWatchdog: {
               ...existingWatchdog,
               enabled: watchdogEnabled,
@@ -277,11 +277,11 @@ export function RoutingPoliciesForm({
                 <span>{tr("Auto-refresh provider quota in background")}</span>
               </label>
               <label className="check">
-                <input type="checkbox" checked={streamRecoveryEnabled} onChange={(e) => setStreamRecoveryEnabled(e.target.checked)} />
+                <input type="checkbox" checked={false} disabled title="Excluded from publication candidate" />
                 <span>{tr("Enable stream recovery (transparent early retry)")}</span>
               </label>
               <label className="check">
-                <input type="checkbox" checked={continueMidStream} onChange={(e) => setContinueMidStream(e.target.checked)} />
+                <input type="checkbox" checked={false} disabled title="Excluded from publication candidate" />
                 <span>{tr("Continue mid-stream after unexpected disconnect")}</span>
               </label>
               <label className="check">

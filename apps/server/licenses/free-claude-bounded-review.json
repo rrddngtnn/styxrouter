@@ -1,0 +1,36 @@
+{
+  "revision": "e79b430cc27b63c690b5d782b045c213b9a873c5",
+  "purpose": "Pinned comparison evidence only; old attributed implementations replaced, not granted blanket clearance. No upstream source is bundled by this manifest.",
+  "files": [
+    {
+      "path": "LICENSE",
+      "bytes": 1068,
+      "sha256": "87b3c9ceef5c9fbea81798c8abfd36b25f4da1a5280af07222852f552f936572",
+      "url": "https://raw.githubusercontent.com/Alishahryar1/free-claude-code/e79b430cc27b63c690b5d782b045c213b9a873c5/LICENSE"
+    },
+    {
+      "path": "api/gateway_model_ids.py",
+      "bytes": 1875,
+      "sha256": "5d9bc994d5b8b23317c00891461d0e989d6bfbcb02fa2e5bcb1845c80a7ad39a",
+      "url": "https://raw.githubusercontent.com/Alishahryar1/free-claude-code/e79b430cc27b63c690b5d782b045c213b9a873c5/api/gateway_model_ids.py"
+    },
+    {
+      "path": "config/logging_config.py",
+      "bytes": 4900,
+      "sha256": "91c4dd519d8071e3f78b7a017748ba6b44c58405ea2dbec7817670fd03b6860d",
+      "url": "https://raw.githubusercontent.com/Alishahryar1/free-claude-code/e79b430cc27b63c690b5d782b045c213b9a873c5/config/logging_config.py"
+    },
+    {
+      "path": "core/rate_limit.py",
+      "bytes": 1754,
+      "sha256": "ef5cd97705cfb9155db063c45f65e291439c2a82cb8d5cf4f9d691ea928b0620",
+      "url": "https://raw.githubusercontent.com/Alishahryar1/free-claude-code/e79b430cc27b63c690b5d782b045c213b9a873c5/core/rate_limit.py"
+    },
+    {
+      "path": "providers/rate_limit.py",
+      "bytes": 10676,
+      "sha256": "f3d97564978cc3c82ff5ba8ee800ceff6efca3d1ad01ca23165e9f12914e4e97",
+      "url": "https://raw.githubusercontent.com/Alishahryar1/free-claude-code/e79b430cc27b63c690b5d782b045c213b9a873c5/providers/rate_limit.py"
+    }
+  ]
+}

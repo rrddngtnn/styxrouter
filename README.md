@@ -98,8 +98,9 @@ live in [`CREDITS.md`](CREDITS.md). The main lineage includes:
 ## License
 
 The root [`LICENSE`](LICENSE) records an MIT grant, but the retained tree is not
-verified as MIT-only. In particular, the Hailuo executor explicitly ports code
-from GPL-3.0-licensed gpt4free. See [`CREDITS.md`](CREDITS.md) for pinned evidence,
+verified as MIT-only. The former Hailuo executor explicitly ported code
+from GPL-3.0-licensed gpt4free and is excluded from this candidate current tree,
+not from retained Git history. See [`CREDITS.md`](CREDITS.md) for pinned evidence,
 retained notices, and unresolved provenance. These notices do not relicense the
 project or establish release clearance.
 

@@ -1,0 +1,13 @@
+STYXROUTER BRAND-KIT REPLACEMENT NOTICE
+
+The supplied Elaa brand-kit artwork formerly served under these filenames
+has been replaced, not relicensed. None of that supplied artwork is retained
+in the replacement SVG, PNG or ICO files listed in LICENSE-NOTICE.txt.
+The old commercial-use kit notices do not describe the new artwork.
+
+styx-lockup-original.svg is a compatibility filename only; it now contains
+the new original design, NOT an archived copy of the supplied kit.
+
+The replacement artwork is dedicated under CC0 1.0 Universal to the extent
+rights exist, with no trademark grant. See LICENSE-NOTICE.txt and PROVENANCE.txt.
+This notice does not change any third-party icon or other repository license.

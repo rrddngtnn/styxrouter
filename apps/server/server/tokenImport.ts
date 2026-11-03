@@ -20,7 +20,7 @@ const canonical = (s: string) => {
 // Auth modes do not describe executor requirements: a web cookie, GitHub's
 // exchange token, and a bearer access token are not interchangeable. Only
 // contracts audited here are enabled; new providers fail closed until reviewed.
-const oauthAccess = new Set(["codebuddy-cn", "codebuddy-intl", "claude", "codex", "kimi-coding", "kimi-web", "xai-oauth", "kiro", "hailuo-web", "promptql"]);
+const oauthAccess = new Set(["codebuddy-cn", "codebuddy-intl", "claude", "codex", "kimi-coding", "kimi-web", "xai-oauth", "kiro", "promptql"]);
 const specialApiKeys = new Set(["glm", "glmt", "qoder", "kimi", "moonshot", "xai", "opencode", "opencode-zen", "opencode-go", "cheaperinference"]);
 const safeRefresh = new Set<string>();
 // Informational only: these contracts remain disabled until their complete
@@ -47,7 +47,7 @@ function compatibility(id: string, entry: any) {
   const reason = supported ? null : details?.reason || (entry.authHeader === "cookie" || id.endsWith("-web")
     ? "Web session or cookie credentials require a provider-specific import flow"
     : "Credential contract has not been verified for generic token import");
-  return { id, supported, reason, ...(id === "kiro" ? { credentialFormat: "oauth-account", requiredData: ["access token", "authentication method", "profile ARN for external IdP"] } : id === "promptql" ? {credentialFormat: "project-jwt", requiredData: ["playground JWT", "project ID"]} : supported ? {} : { credentialFormat: details?.credentialFormat || "unverified", requiredData: details?.requiredData || [] }), access: supported, accessRefresh: oauth && id !== "kimi-web" && id !== "kiro" && id !== "hailuo-web" && id !== "promptql", json: supported,
+  return { id, supported, reason, ...(id === "kiro" ? { credentialFormat: "oauth-account", requiredData: ["access token", "authentication method", "profile ARN for external IdP"] } : id === "promptql" ? {credentialFormat: "project-jwt", requiredData: ["playground JWT", "project ID"]} : supported ? {} : { credentialFormat: details?.credentialFormat || "unverified", requiredData: details?.requiredData || [] }), access: supported, accessRefresh: oauth && id !== "kimi-web" && id !== "kiro" && id !== "promptql", json: supported,
     refreshReason: oauth && !safeRefresh.has(id) ? "Imported refresh is disabled: cross-process token rotation is not protected; re-authenticate using the provider login" : apiKey && !oauth ? "API-key credentials do not accept OAuth refresh tokens" : null,
     authType: oauth ? "oauth" : apiKey ? "apikey" : null };
 }

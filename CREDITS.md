@@ -6,9 +6,10 @@ a release clearance. Retain source attribution and legal notices even where
 structural identifiers are renamed.
 
 The root `LICENSE` records an MIT grant; it does not replace third-party licences
-or establish an MIT-only licence for this tree. The Hailuo/gpt4free port below
-has GPL-3.0 source provenance. Its exact import revision and the obligations for
-a combined distribution remain unresolved. Do not describe this tree as MIT-only
+or establish an MIT-only licence for this tree. The Hailuo/gpt4free port documented below
+has GPL-3.0 source provenance and is excluded from this candidate current tree.
+Its exact import revision and the obligations for historical combined
+distributions remain unresolved. Do not describe this tree as MIT-only
 or treat the retained notices as release clearance. No project-wide licence
 change is made here; installation and hygiene checks cannot settle licensing.
 The Docker and npm publication jobs are deliberately disabled for all triggers.
@@ -50,10 +51,10 @@ ports, including `open-sse/executors/kiroThinking.ts` (PR #1273),
 These comments establish a need for attribution; they are not a complete audit
 of copied files or the historical licence of every imported revision.
 
-## Hailuo / gpt4free — GPL source provenance, unresolved release blocker
+## Hailuo / gpt4free — excluded current-tree port; historical GPL provenance
 
-The retained file [`hailuo-web.ts`](apps/server/open-sse/executors/hailuo-web.ts)
-explicitly says its request signing and SSE event shape were ported 1:1 from
+The former file `apps/server/open-sse/executors/hailuo-web.ts`, present at
+candidate base `6abc2f7`, explicitly said its request signing and SSE event shape were ported 1:1 from
 `g4f/Provider/needs_auth/mini_max/{HailuoAI,crypt}.py` (lines 17–20). Its
 `getBodyToYy` and `generateYyHeader` implementations (lines 78–93) correspond to
 [`crypt.py` at e3127d4](https://github.com/xtekky/gpt4free/blob/e3127d4a261a85abb9cdcf8d7821e7bf0097ae44/g4f/Provider/needs_auth/mini_max/crypt.py#L27-L50):
@@ -66,14 +67,24 @@ is the GNU GPL version 3. Its complete text is retained in
 [`gpt4free-GPL-3.0.txt`](apps/server/licenses/gpt4free-GPL-3.0.txt). This identifies
 the previously unnamed GPL-source port; it does not establish the exact imported
 revision, a GPL `only`/`or-later` choice, or a licence for the combined work.
-Those questions need resolution before distribution. Adding the licence text is
-not a compliance determination, a clean-room replacement, or a relicense.
+Those questions remain relevant to any distribution containing the port, including
+retained Git history. The owner authorized exclusion from this candidate current
+tree: the executor, its registry/static chat model, runtime import/export, UI
+credential metadata and token-import support were removed. No history was rewritten.
+The GPL text and pinned evidence remain as historical legal records. This is not a
+compliance determination, a clean-room replacement, a relicense or MIT-only clearance.
+Official MiniMax API providers and unrelated Hailuo video catalogs remain.
 
 Other gpt4free references remain in `qwen-web.ts` and `gemini-web.ts`; their
 comments alone do not establish whether code was copied or independently
 implemented. Their provenance and any applicable notices remain to be audited.
 
-## gcf-typescript — historical MIT source, exact import unresolved
+## gcf-typescript — excluded from publication candidate
+
+The four codec files and their GCF dispatch paths have been removed from the
+current candidate. TOON compression remains. Pinned comparison found substantive
+differences whose origin was not established; the historical account below and
+MIT evidence are retained, not clearance of those differences.
 
 Four files in
 [`open-sse/services/compression/engines/headroom/gcf/`](apps/server/open-sse/services/compression/engines/headroom/gcf/)
@@ -93,7 +104,19 @@ MIT. Neither today's upstream licence nor the local SPDX labels alone settle
 which revisions all local modifications came from. No local licence header is
 changed by this audit.
 
-## Free Claude Code — historical MIT reference, exact import unresolved
+## Free Claude Code — candidate exclusions and bounded replacements
+
+The candidate removes `streamRecovery.ts`, its tuning constants and replay wiring,
+plus `freeWebSearch.ts`, the DuckDuckGo-free registry/alias and dedicated handler.
+Recovery settings are compatibility keys forced off; the independent throughput
+watchdog remains. Historical attribution below describes the former files.
+The four other attributed implementations (`logRedaction.ts`, `noThinkingAlias.ts`,
+`slidingWindowLimiter.ts`, `providerDefaultRateLimit.ts`) were removed in the candidate
+and replaced from local behavior/security contracts. Prior source was inspected;
+these are not translations described as clean room, nor proof of exact historic
+import provenance. Historical MIT notice is retained conservatively. Pinned
+comparison hashes are in `apps/server/licenses/free-claude-bounded-review.json`;
+see the bounded replacement update in `docs/release-readiness-audit.md`.
 
 [`streamRecovery.ts`](apps/server/open-sse/services/streamRecovery.ts) identifies
 a port of `core/anthropic/stream_recovery.py`; related attribution also remains

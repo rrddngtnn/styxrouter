@@ -1,28 +1,5 @@
-/**
- * headroom compression engine — SmartCrusher: tabular compaction of homogeneous JSON arrays.
- *
- * Implements item H3 (SmartCrusher lossless compaction) + N5 (explicit [N rows] count marker)
- * + GP5' (columnar/tabular encoder, dependency-free) from the compression research plan:
- *   _tasks/research/compression/headroom-plano-implementacao.md
- *   _tasks/research/compression/rodada4-internet-e-coerencia.md
- *   _tasks/research/compression/gcf-proxy-relatorio-plano.md
- *
- * Algorithm:
- *   - Scans non-system message contents (string contents and ```json fenced blocks).
- *   - When content parses as a homogeneous array of objects (≥ minRows, default 8),
- *     replaces it with a compact columnar block (```omni-tabular ...```).
- *   - The columnar block carries: [N rows] count marker, type hints, a header row,
- *     and value-only data rows.
- *   - LOSSLESS: decode(encode(arr)) deep-equals the original (proven by round-trip tests).
- *   - Conservative: only replaces when the compact form is strictly smaller.
- *   - Never touches system messages.
- *
- * Encoder format: see tabular.ts (CSV-style with RFC 4180 quoting for special chars,
- * JSON-stringified nested values quoted as string cells, type-hint metadata row).
- *
- * Note: TOON (@toon-format/toon, ~24.6k★) could be a future drop-in encoder here for
- * improved compression on complex shapes. Plain columnar is used now (dep-free, zero
- * supply-chain risk, ≥30% savings on typical homogeneous arrays already met).
+/** Headroom SmartCrusher: TOON JSON-array compaction, legacy omni-tabular decoding.
+ * GCF encoding/decoding excluded from this publication candidate.
  */
 
 import { createCompressionStats } from "../../stats.ts";
@@ -37,8 +14,6 @@ import { crushMessages, DEFAULT_MIN_ROWS } from "./smartcrusher.ts";
 import {
   TABULAR_FENCE_OPEN,
   TABULAR_FENCE_CLOSE,
-  GCF_FENCE_OPEN,
-  GCF_FENCE_CLOSE,
   decodeTabular,
 } from "./tabular.ts";
 import { TOON_FENCE_OPEN, TOON_FENCE_CLOSE } from "./toon.ts";
@@ -180,11 +155,11 @@ type MessageLike = {
 };
 
 /**
- * Reverse the headroom compaction: find every ```gcf-generic or ```omni-tabular
+ * Reverse the headroom compaction: find every ```toon or ```omni-tabular
  * block in message contents and decode it back to the original JSON string.
  *
  * No production caller by design — the compact form is sent to the provider as-is. This is
- * exported as the round-trip ORACLE that proves the GCF/tabular encoder is lossless: the
+ * exported as the round-trip ORACLE that proves the TOON/tabular encoder is lossless: the
  * losslessness regression tests encode via apply() then decode here and assert deep-equal.
  *
  * Returns a new body with all compacted blocks expanded.
@@ -230,12 +205,11 @@ export function reconstructHeadroom(body: Record<string, unknown>): Record<strin
 }
 
 /**
- * Restore all GCF (```gcf-generic) and legacy (```omni-tabular) blocks
+ * Restore TOON (```toon) and legacy (```omni-tabular) blocks
  * in a text string back to their original JSON.
  */
 /** Map a fence-open marker to its matching close tag. */
 function closeTagFor(fence: string): string {
-  if (fence === GCF_FENCE_OPEN) return GCF_FENCE_CLOSE;
   if (fence === TOON_FENCE_OPEN) return TOON_FENCE_CLOSE;
   return TABULAR_FENCE_CLOSE;
 }
@@ -272,14 +246,13 @@ function restoreText(text: string): string {
   // Fast path: no fence marker present
   if (
     !text.includes(TABULAR_FENCE_OPEN) &&
-    !text.includes(GCF_FENCE_OPEN) &&
     !text.includes(TOON_FENCE_OPEN)
   )
     return text;
 
   let result = text;
-  // Process all fence types: GCF first (new format), then legacy omni-tabular, then TOON
-  for (const fence of [GCF_FENCE_OPEN, TABULAR_FENCE_OPEN, TOON_FENCE_OPEN]) {
+  // Process retained legacy omni-tabular and TOON fence types
+  for (const fence of [TABULAR_FENCE_OPEN, TOON_FENCE_OPEN]) {
     result = decodeFenceOccurrences(result, fence, closeTagFor(fence));
   }
   return result;

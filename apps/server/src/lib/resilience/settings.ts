@@ -145,16 +145,9 @@ export const DEFAULT_RESILIENCE_SETTINGS: ResilienceSettings = {
     providerWindowDefaults: {},
   },
   streamRecovery: {
-    // Opt-in (default OFF): the holdback that powers transparent early-retry adds
-    // up to STREAM_RECOVERY.HOLDBACK_MS of time-to-first-token latency on every
-    // streaming request, so it must be explicitly enabled by the operator.
-    enabled: ["true", "1", "on"].includes(
-      (process.env.STREAM_RECOVERY_ENABLED || "").trim().toLowerCase()
-    ),
-    // Opt-in (default OFF): mid-stream continuation re-requests after a post-commit cut.
-    continueMidStream: ["true", "1", "on"].includes(
-      (process.env.STREAM_RECOVERY_MIDSTREAM_ENABLED || "").trim().toLowerCase()
-    ),
+    // Compatibility keys only; derived retry/continuation excluded from candidate.
+    enabled: false,
+    continueMidStream: false,
     throughputWatchdog: {
       enabled: ["true", "1", "on"].includes(
         (process.env.STREAM_THROUGHPUT_WATCHDOG_ENABLED || "").trim().toLowerCase()

@@ -1,4 +1,10 @@
-# Publication hygiene triage
+# Historical publication hygiene triage
+
+> This document records the earlier triage, not the current scanner interface or
+> clearance. The explicit private overlay and content-bound historical/bundle
+> review mechanism now supersede the interface limitation described below. See
+> `publication-hygiene.md` for the supported options and current review rules.
+
 
 ## Scope and disposition
 

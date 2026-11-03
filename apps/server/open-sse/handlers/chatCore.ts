@@ -245,15 +245,13 @@ import {
   STREAM_READINESS_MAX_TIMEOUT_MS,
   STREAM_READINESS_TIMEOUT_MS,
   ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE,
-  STREAM_RECOVERY,
   DEFAULT_MAX_TOKENS,
   STREAM_DISCONNECT_GRACE_PERIOD_MS,
 } from "../config/constants.ts";
 import { applyStatusRestatement } from "../config/upstreamStatusRestatement.ts";
-import { createRecoverableStream, makeContinuationBody } from "../services/streamRecovery.ts";
+import { wrapStreamWithWatchdog } from "../services/watchdogStream.ts";
 import {
   resolveResilienceSettings,
-  isStreamRecoveryExplicitlyConfigured,
 } from "@/lib/resilience/settings";
 import {
   classifyProviderError,
@@ -271,7 +269,6 @@ import {
   createStreamingErrorResult,
   getUpstreamErrorIdentifier,
 } from "./chatCore/streamErrorResult.ts";
-import { wrapReadableStreamWithFinalize } from "./chatCore/streamFinalize.ts";
 import { buildCacheUsageLogMeta } from "./chatCore/cacheUsageMeta.ts";
 import { buildExecutorClientHeaders } from "./chatCore/executorClientHeaders.ts";
 import { getExecutionConnectionId } from "./chatCore/executionCredentials.ts";
@@ -3366,145 +3363,12 @@ export async function handleChatCore({
                   return res;
                 }
 
-                // Opt-in transparent stream recovery (free-claude-code port, default OFF).
-                // Only engages for a successful (2xx) stream — an error body must never be
-                // held or replayed. Setting is read once here from the cached resolved
-                // resilience settings; the default path is byte-for-byte unchanged.
-                const okStatus = res.response.status >= 200 && res.response.status < 300;
-                let streamRecoveryEnabled = false;
-                let continueMidStreamEnabled = false;
-                let throughputWatchdog =
-                  resolveResilienceSettings(null).streamRecovery.throughputWatchdog;
-                if (okStatus) {
-                  try {
-                    // Reuse the request-consolidated settings read (see line ~2076) — no
-                    // second DB/cache hit. Default OFF when the setting is absent.
-                    const sr = resolveResilienceSettings(settings).streamRecovery;
-                    // Fail-closed: the agent-goal-policy heuristic may only ADD recovery
-                    // when the operator has no explicit configuration. If the operator
-                    // explicitly configured stream recovery (env var or DB/settings
-                    // override), that value always wins — the goal policy must never
-                    // re-enable recovery the operator explicitly turned off.
-                    const operatorExplicit = isStreamRecoveryExplicitlyConfigured(settings);
-                    const goalOverride = !operatorExplicit && agentGoalPolicy.streamRecoveryEnabled;
-                    streamRecoveryEnabled = sr.enabled || goalOverride;
-                    continueMidStreamEnabled = sr.continueMidStream === true;
-                    throughputWatchdog = sr.throughputWatchdog;
-                    if (goalOverride && !sr.enabled) {
-                      log?.info?.(
-                        "AGENT_GOAL",
-                        `agentGoalPolicy override: stream recovery enabled for goal request requestId=${traceId} model=${modelToCall || model || requestedModel || "unknown"}`
-                      );
-                    }
-                  } catch {
-                    streamRecoveryEnabled = false;
-                    continueMidStreamEnabled = false;
-                    throughputWatchdog =
-                      resolveResilienceSettings(null).streamRecovery.throughputWatchdog;
-                  }
-                }
-
-                let clientBody: ReadableStream<Uint8Array>;
-                if (streamRecoveryEnabled || throughputWatchdog.enabled) {
-                  // Run the SAME upstream (same account/creds) with a given body and return
-                  // its 2xx stream, or null. Used both by the early-retry re-open (same body)
-                  // and the mid-stream continuation (assistant-prefilled body).
-                  const runUpstreamStream = async (
-                    body: unknown
-                  ): Promise<ReadableStream<Uint8Array> | null> => {
-                    try {
-                      assertManagedLeaseFence(attemptConnectionId);
-                      const retryRaw = await executeWithUpstreamStartTimeout({
-                        executor,
-                        provider,
-                        model: modelToCall,
-                        connectionTimeoutMs: resolveConnectionTimeoutMs(
-                          execCreds?.providerSpecificData
-                        ),
-                        signal: streamController.signal,
-                        log,
-                        execute: (signal) =>
-                          runWithCapture(providerRequestCapture, () =>
-                            executor.execute({
-                              model: modelToCall,
-                              body,
-                              stream: upstreamStream,
-                              credentials: execCreds,
-                              signal,
-                              log,
-                              extendedContext,
-                              upstreamExtraHeaders: buildUpstreamHeadersForExecute(modelToCall),
-                              clientHeaders: buildExecutorClientHeaders(
-                                clientRawRequest?.headers,
-                                userAgent
-                              ),
-                              clientResponseFormat,
-                              onCredentialsRefreshed,
-                              skipUpstreamRetry,
-                              contextEditing: { enabled: contextEditingEnabled },
-                            })
-                          ),
-                      });
-                      const retryRes = normalizeExecutorResult(retryRaw);
-                      const retryOk =
-                        retryRes.response.status >= 200 && retryRes.response.status < 300;
-                      if (retryOk && retryRes.response.body) {
-                        return retryRes.response.body as ReadableStream<Uint8Array>;
-                      }
-                      await retryRes.response.body?.cancel().catch(() => {});
-                      return null;
-                    } catch {
-                      return null;
-                    }
-                  };
-
-                  // Mid-stream continuation (Fase 4.4): re-request with the partial text as an
-                  // assistant prefill. Gated by its own setting and only for OpenAI-compatible
-                  // bodies (makeContinuationBody returns null otherwise).
-                  const continueStream = continueMidStreamEnabled
-                    ? (assistantSoFar: string) => {
-                        const continuationBody = makeContinuationBody(
-                          bodyToSend as Record<string, unknown>,
-                          assistantSoFar
-                        );
-                        return continuationBody
-                          ? runUpstreamStream(continuationBody)
-                          : Promise.resolve(null);
-                      }
-                    : undefined;
-
-                  clientBody = createRecoverableStream(
-                    originalBody as ReadableStream<Uint8Array>,
-                    () => runUpstreamStream(bodyToSend),
-                    {
-                      finalize: releaseAccountSemaphore,
-                      onRetry: (attempt, err) =>
-                        log?.warn?.(
-                          "STREAM_RECOVERY",
-                          `transparent early-retry ${attempt}/${STREAM_RECOVERY.EARLY_RETRY_MAX} after ${
-                            (err as { name?: string })?.name || "truncation"
-                          }`
-                        ),
-                      continueStream,
-                      onContinue: (attempt) =>
-                        log?.warn?.(
-                          "STREAM_RECOVERY",
-                          `mid-stream continuation attempt ${attempt}/${STREAM_RECOVERY.EARLY_RETRY_MAX}`
-                        ),
-                      throughputWatchdog,
-                      onWatchdogAbort: () =>
-                        log?.warn?.(
-                          "STREAM_WATCHDOG",
-                          "active upstream stream stayed below the configured useful-output rate"
-                        ),
-                    }
-                  );
-                } else {
-                  clientBody = wrapReadableStreamWithFinalize(
-                    originalBody,
-                    releaseAccountSemaphore
-                  );
-                }
+                // Publication candidate: exclude derived retry/continuation, retain watchdog.
+                const watchdog = resolveResilienceSettings(settings).streamRecovery.throughputWatchdog;
+                const clientBody = wrapStreamWithWatchdog(
+                  originalBody as ReadableStream<Uint8Array>, releaseAccountSemaphore,
+                  res.response.ok ? watchdog : { enabled: false }
+                );
 
                 return {
                   ...res,

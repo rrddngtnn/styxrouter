@@ -1,12 +1,10 @@
 import { expect, test } from "bun:test";
 import { KimiWebExecutor } from "../open-sse/executors/kimi-web.ts";
-import { HailuoWebExecutor } from "../open-sse/executors/hailuo-web.ts";
 
 const secret = "synthetic-unlabeled-token-48201";
 const original = globalThis.fetch;
 const cases = [
   { name: "Kimi", executor: new KimiWebExecutor(), model: "k3", credentials: { accessToken: secret } },
-  { name: "Hailuo", executor: new HailuoWebExecutor(), model: "hailuo", credentials: { apiKey: secret } },
 ];
 const input = (c: typeof cases[number], stream = false): any => ({ model: c.model, body: { messages: [{ role: "user", content: "hello" }] }, credentials: c.credentials, stream });
 

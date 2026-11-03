@@ -293,26 +293,6 @@ export const SEARCH_PROVIDERS: Record<string, SearchProviderConfig> = {
     fallbackOnly: true,
   },
 
-  // Free, no-API-key DuckDuckGo lite scraping (free-claude-code port). Last-resort
-  // only (fallbackOnly): never auto-selected over a configured provider; served by
-  // the dedicated HTML path in open-sse/handlers/search.ts (not the generic JSON one).
-  "duckduckgo-free": {
-    id: "duckduckgo-free",
-    name: "DuckDuckGo (free)",
-    baseUrl: "https://lite.duckduckgo.com/lite/",
-    method: "POST",
-    authType: "none",
-    authHeader: "none",
-    costPerQuery: 0,
-    freeMonthlyQuota: 999999,
-    searchTypes: ["web"],
-    defaultMaxResults: 5,
-    maxMaxResults: 25,
-    timeoutMs: 10_000,
-    cacheTTLMs: 5 * 60 * 1000,
-    fallbackOnly: true,
-  },
-
   // SuperGrok / xAI server-side X Search. Not web search. Explicit provider or
   // search_type "x" only — never auto-selected for generic web queries.
   "x-search": {
@@ -372,7 +352,6 @@ export const SEARCH_PROVIDER_ALIASES: Record<string, string> = {
   youcom: "youcom-search",
   searxng: "searxng-search",
   zai: "zai-search",
-  duckduckgo: "duckduckgo-free",
   ctx7: "context7",
   c7: "context7",
   x_search: "x-search",

@@ -309,5 +309,117 @@ class HygieneLimits(unittest.TestCase):
             self.assertEqual(proc.report_data["gates"]["historical_files"]["status"], "fail")
 
 
+class HygieneBoundExceptions(unittest.TestCase):
+    @staticmethod
+    def module():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("hygiene_gate_test", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_bound_context_digest_range_and_schema_fail_closed(self):
+        import hashlib
+        mod = self.module()
+        text = "ExampleAgent\nExampleAgent\n"
+        entry = dict(pattern="P-TEST", file="guide.md", surface="tracked_file",
+                     sha256=hashlib.sha256(text.encode()).hexdigest(), lines=[1, 1], reason="Public client")
+        from types import SimpleNamespace
+        compiled = mod.compile_patterns([SimpleNamespace(name="P-TEST", regex="ExampleAgent", severity="fatal",
+            surfaces={"tracked_file", "panel_bundle", "runtime"})])
+        self.assertEqual(len(mod._scan_text(text, "guide.md", "tracked_file", compiled, [entry])), 1)
+        for content, path, surface in [(text + "edit", "guide.md", "tracked_file"),
+                (text, "other.md", "tracked_file"), (text, "guide.md", "panel_bundle"),
+                (text, "guide.md", "runtime")]:
+            self.assertEqual(len(mod._scan_text(content, path, surface, compiled, [entry])), 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "review.json"
+            for change in [{"lines": [0, 1]}, {"lines": [1, True]}, {"reason": ""}, {"sha256": "bad"},
+                    {"file": "../guide.md"}, {"file": "*.md"}, {"surface": "runtime"}, {"pattern": "unknown"},
+                    {"section": "Credits"}]:
+                f.write_text(json.dumps([dict(entry, **change)]))
+                with self.assertRaises(ValueError):
+                    mod.load_bound_allowlist(f, {"P-TEST"})
+
+    def test_historical_exceptions_require_full_object_and_do_not_cover_other_paths(self):
+        import hashlib
+        mod = self.module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            HygieneGitCoverage.git(root, "init", "-q")
+            env = dict(os.environ, GIT_AUTHOR_NAME="Clean", GIT_AUTHOR_EMAIL="a@example.test",
+                       GIT_COMMITTER_NAME="Clean", GIT_COMMITTER_EMAIL="b@example.test")
+            (root / "credit.md").write_text("OmniRoute attribution\n")
+            HygieneGitCoverage.git(root, "add", ".")
+            HygieneGitCoverage.git(root, "commit", "-qm", "first", env=env)
+            oid = HygieneGitCoverage.git(root, "rev-parse", "HEAD:credit.md").stdout.decode().strip()
+            entry = dict(pattern="P-STRUCT-OMNI", file="credit.md", surface="historical_file", blob=oid,
+                sha256=hashlib.sha256((root / "credit.md").read_bytes()).hexdigest(), lines=[1, 1], reason="Legal notice")
+            overlay = root / "review.json"
+            overlay.write_text(json.dumps([entry]))
+            allowed = mod.load_bound_allowlist(overlay, {"P-STRUCT-OMNI"})
+            compiled = mod.compile_patterns(mod.load_patterns().PATTERNS)
+            self.assertEqual(mod.gate_historical_files(root, compiled, [], allowed).status, "pass")
+            (root / "other.md").write_text((root / "credit.md").read_text())
+            HygieneGitCoverage.git(root, "add", "other.md")
+            HygieneGitCoverage.git(root, "commit", "-qm", "second", env=env)
+            self.assertEqual(mod.gate_historical_files(root, compiled, [], allowed).status, "fail")
+
+    def test_bundle_exception_binds_exact_character_span_not_entire_minified_line(self):
+        import hashlib
+        mod = self.module()
+        from types import SimpleNamespace
+        text = '"ExampleAgent";"ExampleAgent"'
+        compiled = mod.compile_patterns([SimpleNamespace(name="P-TEST", regex="ExampleAgent", severity="fatal", surfaces={"panel_bundle"})])
+        entry = dict(pattern="P-TEST", file="assets/app.js", surface="panel_bundle",
+            sha256=hashlib.sha256(text.encode()).hexdigest(), lines=[1, 1], offsets=[1, 13], reason="Verified bundled integration display name")
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "review.json"
+            f.write_text(json.dumps([entry]))
+            allowed = mod.load_bound_allowlist(f, {"P-TEST"})
+            self.assertEqual(len(mod._scan_text(text, "assets/app.js", "panel_bundle", compiled, allowed)), 1)
+            entry.pop("offsets")
+            f.write_text(json.dumps([entry]))
+            with self.assertRaises(ValueError):
+                mod.load_bound_allowlist(f, {"P-TEST"})
+
+    def test_explicit_missing_private_inputs_and_unknown_patterns_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = str(Path(tmp) / "missing.json")
+            for args in [["--private-patterns", missing], ["--private-allowlist", missing]]:
+                proc = run_gate(FIX / "clean", args)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIsNone(proc.report_data)
+            overlay = Path(tmp) / "overlay.json"
+            overlay.write_text('[{"pattern":"P-PRIVATE-UNAVAILABLE","file":"guide.md"}]')
+            proc = run_gate(FIX / "clean", ["--allowlist", str(overlay)])
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIsNone(proc.report_data)
+
+    def test_explicit_private_catalog_and_bound_overlay(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "candidate"
+            root.mkdir()
+            text = "Public ExampleAgent integration\nprivate ExampleAgent note\n"
+            (root / "guide.md").write_text(text)
+            catalog = Path(tmp) / "catalog.py"
+            catalog.write_text('from hygiene_patterns import _p\nPRIVATE_PATTERNS = [_p("P-TEST-AGENT", r"ExampleAgent")]\n')
+            overlay = Path(tmp) / "review.json"
+            overlay.write_text(json.dumps([dict(pattern="P-TEST-AGENT", file="guide.md",
+                surface="tracked_file", sha256=hashlib.sha256(text.encode()).hexdigest(),
+                lines=[1, 1], reason="Verified public integration selector")]))
+            from unittest.mock import patch
+            env = dict(os.environ)
+            env.pop("HYGIENE_SKIP_PRIVATE", None)
+            with patch.dict(os.environ, env, clear=True):
+                proc = run_gate(root, ["--private-patterns", str(catalog), "--private-allowlist", str(overlay)])
+            self.assertIsNotNone(proc.report_data, proc.stderr)
+            self.assertTrue(proc.report_data["operator_private_patterns_loaded"])
+            hits = proc.report_data["gates"]["tracked_files"]["hits"]
+            self.assertEqual([h["line"] for h in hits], [2])
+
+
 if __name__ == "__main__":
     unittest.main()

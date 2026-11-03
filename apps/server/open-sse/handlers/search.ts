@@ -7,7 +7,7 @@ import { randomUUID } from "crypto";
  *   serper-search, brave-search, perplexity-search, exa-search, tavily-search,
  *   firecrawl, google-pse-search, linkup-search, searchapi-search,
  *   youcom-search, searxng-search, ollama-search, zai-search, jina-search,
- *   duckduckgo-free, x-search (Grok / SuperGrok X Search — explicit or search_type "x")
+ *   x-search (Grok / SuperGrok X Search — explicit or search_type "x")
  *
  * Request format:
  * {
@@ -28,7 +28,6 @@ import * as fcSearch from "./search/firecrawlSearch.ts";
 import { type FirecrawlSearchEnvelope } from "./search/firecrawlSearch.ts";
 import { buildJinaSearchRequest, extractJinaSearchItems } from "./search/jinaSearch.ts";
 import * as xSearch from "./search/xSearch.ts";
-import { freeWebSearch } from "../services/freeWebSearch.ts";
 import { saveCallLog } from "@/lib/usageDb";
 import { safeOutboundFetch } from "@/shared/network/safeOutboundFetch";
 import { parseAndValidateNonMetadataUrl } from "@/shared/network/outboundUrlGuard";
@@ -1516,105 +1515,6 @@ export async function handleSearch(options: SearchHandlerOptions): Promise<Searc
   return result;
 }
 
-/**
- * Free DuckDuckGo lite provider — no API key, HTML scraping (free-claude-code port).
- * Dedicated path because the lite endpoint returns HTML, not the JSON the generic
- * tryProvider() flow expects. See open-sse/services/freeWebSearch.ts.
- */
-async function tryDuckDuckGoFreeProvider(
-  config: SearchProviderConfig,
-  params: Omit<SearchRequestParams, "token">,
-  startTime: number,
-  globalStartTime: number,
-  log?: {
-    info?: (tag: string, message: string) => void;
-    error?: (tag: string, message: string) => void;
-  } | null
-): Promise<SearchHandlerResult> {
-  const { query, searchType, maxResults } = params;
-  const remainingGlobal = GLOBAL_TIMEOUT_MS - (Date.now() - globalStartTime);
-  const timeout = Math.min(config.timeoutMs, Math.max(remainingGlobal, 1000));
-
-  if (log) {
-    log.info?.("SEARCH", `${config.id} | query: "${query.slice(0, 80)}" | type: ${searchType}`);
-  }
-
-  const requestBody = {
-    query: query.slice(0, 200),
-    search_type: searchType,
-    max_results: maxResults,
-  };
-
-  try {
-    const freeResults = await freeWebSearch(query, maxResults, timeout);
-    const now = new Date().toISOString();
-    const results = freeResults
-      .slice(0, maxResults)
-      .map((r, idx) =>
-        makeResult(config.id, { title: r.title, url: r.url, snippet: r.snippet }, idx, now)
-      );
-    const duration = Date.now() - startTime;
-
-    saveCallLog({
-      method: config.method,
-      path: "/v1/search",
-      status: 200,
-      model: config.id,
-      provider: config.id,
-      duration,
-      requestType: "search",
-      tokens: { prompt_tokens: 0, completion_tokens: 0 },
-      requestBody,
-      responseBody: { results_count: results.length, cached: false },
-    }).catch(() => {
-      /* non-critical — logging must not block search response */
-    });
-
-    return {
-      success: true,
-      data: {
-        provider: config.id,
-        query,
-        results,
-        answer: null,
-        usage: { queries_used: 1, search_cost_usd: 0 },
-        metrics: {
-          response_time_ms: duration,
-          upstream_latency_ms: duration,
-          total_results_available: results.length,
-        },
-        errors: [],
-      },
-    };
-  } catch (err) {
-    const duration = Date.now() - startTime;
-    const message = sanitizeErrorMessage(err);
-    if (log) {
-      log.error?.("SEARCH", `${config.id} error: ${message}`);
-    }
-
-    saveCallLog({
-      method: config.method,
-      path: "/v1/search",
-      status: 502,
-      model: config.id,
-      provider: config.id,
-      duration,
-      requestType: "search",
-      error: message.slice(0, 500),
-      requestBody,
-    }).catch(() => {
-      /* non-critical */
-    });
-
-    return {
-      success: false,
-      status: 502,
-      error: `DuckDuckGo free search failed: ${message}`,
-    };
-  }
-}
-
 async function tryProvider(
   config: SearchProviderConfig,
   params: Omit<SearchRequestParams, "token">,
@@ -1640,10 +1540,6 @@ async function tryProvider(
   }
 
   const { query, searchType, maxResults } = params;
-
-  if (config.id === "duckduckgo-free") {
-    return tryDuckDuckGoFreeProvider(config, params, startTime, globalStartTime, log);
-  }
 
   if (config.id === "zai-search" && token) {
     return tryZaiMCPProvider(

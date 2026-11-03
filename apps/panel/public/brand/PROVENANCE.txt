@@ -1,0 +1,33 @@
+STYXROUTER REPLACEMENT ARTWORK PROVENANCE
+
+Generated geometric artwork for replacement branding with an open license,
+created at the project owner's express request.
+The owner authorized the CC0 dedication recorded in LICENSE-NOTICE.txt.
+
+Design: an angular river-like S constructed from explicit line coordinates on
+a deep-green rounded tile; custom uppercase STYXROUTER lettering constructed
+from straight path segments. No external logo, supplied kit path, icon-library
+shape, font outline, downloaded image or external design reference was used.
+Existing SVG viewBoxes/aspect ratios and asset filenames were preserved for
+layout compatibility, not as a source of artwork. SVGs include accessible
+StyxRouter titles/descriptions. The dark lockup uses pale lettering, while
+the light lockup and standalone wordmark use deep-green lettering.
+
+Replaced files:
+  styx-icon.svg                 standalone original mark
+  styx-wordmark.svg             original geometric lettering (no font dependency)
+  styx-lockup.svg               light-surface mark plus lettering
+  styx-lockup-dark.svg          dark-surface mark plus lettering
+  styx-lockup-original.svg      compatibility filename; new light-surface artwork
+  apple-touch-icon.png         180 x 180 RGB export of the new mark
+  ../favicon.ico               16 x 16 and 32 x 32 RGBA exports of the new mark
+
+Raster method: ImageMagick SVG renderer at high resolution; Pillow Lanczos
+resampling and PNG/ICO encoding. No raster pixels from the supplied kit reused.
+The previous operator-supplied StyxRouter-brand-kit.zip provenance and Elaa
+commercial-use notices have been superseded for these replaced files only.
+They are not asserted to confer open redistribution rights on the old kit.
+
+Third-party provider icons elsewhere in the repository are unchanged and
+outside this dedication. Their existing notices/terms continue to apply.
+No trademark rights or uniqueness/registration assurance are provided.

@@ -1,6 +1,175 @@
 # OSS release licensing and provenance audit
 
-## Status and scope
+## Candidate exclusion update (base `6abc2f7`)
+
+The owner authorized a scoped Hailuo/gpt4free exclusion in this publication
+candidate only. The copied `apps/server/open-sse/executors/hailuo-web.ts` and
+`open-sse/config/providers/registry/minimax/web/index.ts` (paths relative to
+`apps/server/` unless fully qualified) are removed from the current tree. Its
+executor import/registration/export, provider/static chat-model registration,
+web credential/catalog metadata and token-import exceptions are removed too.
+The Hailuo-specific dispatch test was replaced by a candidate exclusion contract;
+Kimi coverage in the shared secret-regression test remains. Official `minimax`
+and `minimax-cn` API providers and independent Hailuo video listings remain.
+
+The GPL text, evidence manifest and upstream links remain intentionally. This
+is current-tree exclusion, not history sanitization, a relicense, clean-room
+replacement or MIT-only clearance. Historical source remains in Git history;
+public Git release must account for it separately. This exclusion task made no
+brand changes, commit, push, live DB access, inference or restart. The original checkout
+is outside this task and was not modified. The historical audit below records
+pre-exclusion observations: its shipped-file claims, line numbers, package counts
+and undecided-owner wording are not descriptions of the modified candidate.
+Release approval remains withheld for the unresolved items below.
+
+### Exclusion verification
+
+- Dependency prerequisite: Bun `1.4.3`; `bun install --frozen-lockfile --ignore-scripts`
+  completed in the candidate (no manifest/lock changes). Bun was not initially on
+  PATH; the installed `$HOME/.bun/bin/bun` was used.
+- RED: `bun scripts/test-isolated.ts tests/publication-exclusion-contract.test.ts`
+  failed at the executor-file absence assertion (`expected false`, `received true`)
+  before implementation changes. The unknown-provider import assertion was later
+  aligned with the existing API contract (`null`, not an entry-level error).
+- GREEN: the isolated runner passed all six focused files (24 tests):
+  `publication-exclusion-contract`, `web-executor-secret-regression`,
+  `provider-registry-metadata`, `token-import-contract`,
+  `token-import-compatibility-regression`, and
+  `token-import-unsupported-contract-map-regression` (each `.test.ts`).
+  The contract checks source-file absence, runtime registration/exports, generated
+  model catalog, failed-closed executor selection, credential metadata and token
+  imports, plus a runtime-source reference scan and MiniMax/video retention.
+- `bun --bun tsc --noEmit` passed independently in `apps/server` and `apps/panel`.
+  These are focused tests/typechecks, not a full-suite/build/package/legal clearance.
+  Test DB migrations were limited to isolated disposable runner directories.
+
+### GCF / Free Claude candidate exclusions implemented
+
+Owner authorization covers these candidate-only exclusions. Pinned upstream
+comparison was performed before removal using the immutable URLs and digests in
+`apps/server/licenses/upstream-sources.json`; `scripts/compare-publication-provenance.py`
+reproduces the comparison against candidate base `6abc2f7` without executing upstream.
+All selected source/licence downloads matched their recorded bytes and SHA-256.
+
+- GCF `a5ee0d400de441e8098eea083168fd25100a41b4`: compared all three
+  implementation files. Besides formatting/import/header changes, local
+  `scalar.ts` changes the plain-number threshold from `1e21` to `9007199254740992`
+  with numeric-domain rationale, and the decoder includes additional root-array
+  surplus checks. The source of every substantive delta could not be established.
+  Conservatively removed all four vendored files and GCF encode/decode dispatch.
+  Existing TOON dependency/codec, SmartCrusher shortening gate and legacy
+  omni-tabular decoder remain; historical GCF fences are left untouched rather
+  than decoded incorrectly. No package dependency was exclusive to this vendor.
+- Free Claude `e79b430cc27b63c690b5d782b045c213b9a873c5`: inspected the pinned
+  MIT recovery source (10,975 bytes, SHA-256 `c08cc03b0a78817039ba67b46e91b9ecda16ec16b21451e11f18300054f1ac38`).
+  Its `RecoveryHoldbackBuffer` push/flush/discard sequence and 0.75s/65,536-byte,
+  four-retry defaults correspond to the attributed TS port. Local SSE scanning,
+  continuation and watchdog integration differ; comparison does not establish
+  provenance of every later edit. The pinned tree inspection also found no
+  search-named Python implementation establishing the DuckDuckGo port's grant.
+  Removed recovery source/constants/replay call sites and the DuckDuckGo-free
+  service, registry, alias, handler and credential-free fallback exception.
+  Other search providers and all unrelated chat providers remain.
+- Retained the independent throughput watchdog through a tested single-pass
+  wrapper with finalization/cancellation, never reopening upstream. Legacy
+  recovery settings are forced false regardless of environment/DB flags and
+  dashboard toggles are disabled; watchdog configuration remains effective.
+  No inference calls, production DB/service access, commit, push or history edits.
+- RED was observed for codec/recovery file absence and forced-off settings before
+  implementation. GREEN: isolated runner passed all eight focused test files:
+  `publication-provenance-exclusions`, `publication-watchdog-stream`,
+  `publication-exclusion-contract`, `power-features`, `stream-reader-types-regression`,
+  `claude-empty-stream-readiness`, `provider-registry-metadata`, `token-import-contract`.
+  Disposable DBs were confined to runner scratch directories. Final server and
+  panel `bun --bun tsc --noEmit` both passed; `git diff --check` passed.
+  This remains focused verification, not a full-suite or artifact clearance.
+
+### Bounded Free Claude remainder — contract replacements implemented
+
+The four previously attributed implementations were removed in this candidate
+and replaced at the same exported interfaces: `src/shared/utils/logRedaction.ts`,
+`open-sse/utils/noThinkingAlias.ts`, and
+`open-sse/services/{slidingWindowLimiter,providerDefaultRateLimit}.ts`.
+Existing logger hook, chat normalization/catalog, rateLimitManager and NVIDIA
+concurrency call sites remain connected; no protection was disabled.
+
+Pinned tree `e79b430cc27b63c690b5d782b045c213b9a873c5` was inspected without
+executing upstream code, including its complete MIT licence and these sources:
+
+| Pinned source | Comparison with former local implementation |
+| --- | --- |
+| `config/logging_config.py` | Contains Telegram URL and Authorization/Bearer redaction, found by content search rather than filename filtering. Local generic argument/error traversal, extra credential families and censor representation were not established by this snapshot. |
+| `api/gateway_model_ids.py` | Uses `claude-3-freecc-no-thinking` and decoded dataclasses, not the local `no-think/` request mutation and spec-gated catalog synthesis. Historical snapshot is not evidence for all later local logic. |
+| `core/rate_limit.py` | Async lock/deque single sliding window, unlike local keyed oracle, multi-scope leases and bounded storage. |
+| `providers/rate_limit.py` | Provider singleton/reactive retry/concurrency wrapper, not the local operator-override, abort-aware admission API. |
+
+Exact URLs, lengths and SHA-256 hashes of these four files and licence are recorded
+in `apps/server/licenses/free-claude-bounded-review.json`. The inspection utility
+`scripts/inspect-free-claude-provenance.py` now selects these exact paths, including
+the previously missed logging file. The historical MIT grant is established for
+those upstream bytes, **not** the exact imported revision or all former local
+portions; no blanket retrospective grant was inferred.
+
+Rather than retaining uncertain implementations, replacements were written against
+local public API and security behavior contracts after deleting all four old
+implementations and observing the isolated contracts fail. The earlier source was
+inspected: this is a behavior-contract replacement, **not clean room**, not a
+translation relabelled as independently licensed, and not a legal clearance.
+The historical copyright/permission notice and all evidence remain conservatively.
+
+Security contracts now cover string credential families; structured credentials;
+non-mutating real Error clones and causes; safe serialization; fail-closed
+cycles/accessors/depth/node exhaustion; trailing-window boundary denial; atomic
+multi-scope admission and refundable leases; and key-pressure denial without
+active-history eviction. NVIDIA retains 40 requests/60 seconds and concurrency 6,
+operator overrides and per-connection isolation. Abort-before/during-wait is
+rejected and quota deadlines reject with `TimeoutError` rather than admitting an
+unreserved request (the former budget-expiry bypass is not preserved).
+No-thinking request suppression and catalog naming/canonical-prefix eligibility
+remain available through the existing interfaces.
+
+Verification: `publication-safety-replacements.test.ts` first failed all seven
+initial contracts after removal; an additional serialization contract failed on
+an unsafe custom `toJSON`, then passed after fail-closed handling. Final isolated
+runner passed seven files: `publication-safety-replacements`,
+`request-log-header-redaction-regression`, `request-log-nested-independent-review`,
+`catalog-runtime`, `publication-provenance-exclusions`,
+`publication-exclusion-contract`, and `publication-watchdog-stream` (all `.test.ts`).
+The new contract file passes nine tests, including an actual pino logMethod hook
+and Error serializer exercise. Server and panel `bun --bun tsc --noEmit` passed;
+`git diff --check` passed. All five bounded evidence entries were re-fetched from
+their pinned raw URLs and matched byte lengths/SHA-256; the inspection utility ran
+successfully after its exact-path update.
+All test DBs were disposable runner scratch directories; no live DB/inference,
+restart, branding edits, original-checkout edits, commit, push or history edits.
+
+Remaining scope: exact historic imports and retained Git history still require
+separate release treatment. Other provenance/asset/dependency/package gates below
+are unchanged; no full-suite, artifact or MIT-only clearance is asserted.
+
+### Historical proposed further exclusions — superseded for GCF / recovery/search
+
+The first two rows below describe the pre-exclusion proposal; implementation and
+remaining scope above take precedence. Other rows remain review items, not deletions.
+
+Do not infer a licence from current upstream, a local SPDX label, or import date.
+If exact historical grants/copy scope cannot be established, the explicit
+conservative exclusion candidates are:
+
+| Candidate scope | Required dependency work / impact before exclusion |
+| --- | --- |
+| `open-sse/services/compression/engines/headroom/gcf/{index,generic,decode_generic,scalar}.ts` | Remove the GCF tabular encoding/decoding path in `headroom/tabular.ts` and its callers/tests, preserving unrelated compression. Historical MIT is evidence, not proof for all local edits; later Apache does not retroactively revoke MIT. |
+| `open-sse/services/streamRecovery.ts`, attributed Free-Claude portions of `open-sse/config/constants.ts` and `open-sse/config/searchRegistry.ts` | Inventory recovery imports/call sites and attributed constants/search logic; remove only proven copied portions plus dependent recovery behavior, not entire shared config/search subsystems. Historical MIT versus later AGPL applicability remains unresolved. |
+| `open-sse/executors/{qwen-web,gemini-web}.ts` and corresponding provider/catalog/import surfaces, if comparison cannot clear provenance | Compare gpt4free (and Gemini-API) references against pinned sources first; comments alone do not prove copied implementation. Scoped provider exclusion would remove those web chat paths, not official Qwen/Gemini API integrations. |
+| Unresolved borrowed portions in ZCode/GLM, tokenRefresh `rotationMap.ts` and `providers/codex.ts`, `services/raycast.ts`, Cursor prompt/helpers, and Kiro translator/executor | Inventory exact cited upstream code/prompts and dependent paths first. This is a review queue, not authorization to delete whole GLM/Codex/Cursor/Kiro subsystems. See exact paths in remainder inventory below. |
+
+Brand art remains an independent rights gate; this exclusion task does not edit
+or approve assets. Concurrent brand-file edits were observed and were not reviewed
+or reverted by this task.
+OmniRoute/9Router inherited ports, dependencies/runtimes and provider icon evidence
+still need review; no blanket exclusion or blanket clearance is asserted.
+
+## Historical audit: status and scope
 
 **Release approval withheld: verified notice omission and unresolved source/asset rights remain.** This is an evidence inventory, not legal advice, a project relicense, or a finding that every unresolved component is incompatible with open source.
 

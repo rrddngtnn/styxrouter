@@ -1,0 +1,21 @@
+STYXROUTER ORIGINAL REPLACEMENT ARTWORK — LICENSE NOTICE
+
+Scope: styx-icon.svg, styx-wordmark.svg, styx-lockup.svg,
+styx-lockup-dark.svg, styx-lockup-original.svg, apple-touch-icon.png,
+and ../favicon.ico, all replaced together in this publication candidate.
+
+To the extent copyright or related rights exist in this newly generated
+artwork, the project owner dedicates those rights to the public domain
+under CC0 1.0 Universal. Copying, modification, redistribution and commercial
+use are permitted without attribution. The full CC0 legal instrument is:
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
+This notice incorporates that instrument by reference, including its waiver,
+public-license fallback and limitations. No warranty is provided.
+
+No trademark, trade-name, endorsement, patent or publicity rights are granted.
+No assertion of trademark availability or uniqueness is made.
+
+This dedication covers ONLY the listed new artwork. It does not relicense
+any prior Elaa/supplied brand kit, third-party provider icons, fonts, code,
+or other repository material. Those retain their own applicable terms.
+See PROVENANCE.txt for the replacement history and construction details.

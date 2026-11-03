@@ -81,8 +81,8 @@ export function resolveBooleanFeatureFlag(key: string, fallback: boolean): boole
 
 export function resolveStreamRecoveryDefaults(): StreamRecoverySettings {
   return {
-    enabled: resolveBooleanFeatureFlag("STREAM_RECOVERY_ENABLED", false),
-    continueMidStream: resolveBooleanFeatureFlag("STREAM_RECOVERY_MIDSTREAM_ENABLED", false),
+    enabled: false,
+    continueMidStream: false,
     throughputWatchdog: {
       enabled: resolveBooleanFeatureFlag("STREAM_THROUGHPUT_WATCHDOG_ENABLED", false),
       warmupMs: toInteger(process.env.STREAM_THROUGHPUT_WATCHDOG_WARMUP_MS, 30_000, {
@@ -394,8 +394,8 @@ export function normalizeStreamRecoverySettings(
   const record = asRecord(next);
   const watchdog = asRecord(record.throughputWatchdog);
   return {
-    enabled: toBoolean(record.enabled, fallback.enabled),
-    continueMidStream: toBoolean(record.continueMidStream, fallback.continueMidStream),
+    enabled: false, // Publication candidate excludes derived recovery.
+    continueMidStream: false,
     throughputWatchdog: {
       enabled: toBoolean(watchdog.enabled, fallback.throughputWatchdog.enabled),
       warmupMs: toInteger(watchdog.warmupMs, fallback.throughputWatchdog.warmupMs, {

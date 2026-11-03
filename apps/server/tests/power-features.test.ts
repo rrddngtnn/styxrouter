@@ -71,8 +71,8 @@ test("PATCH /settings accepts and hot-reloads thinkingBudget, providerErrorRules
   expect(stored.webSearchRouteModel).toBe("antigravity/gemini-3-flash");
 
   const resilience = resolveResilienceSettings(stored);
-  expect(resilience.streamRecovery.enabled).toBe(true);
-  expect(resilience.streamRecovery.continueMidStream).toBe(true);
+  expect(resilience.streamRecovery.enabled).toBe(false);
+  expect(resilience.streamRecovery.continueMidStream).toBe(false);
   expect(resilience.streamRecovery.throughputWatchdog.enabled).toBe(true);
 });
 

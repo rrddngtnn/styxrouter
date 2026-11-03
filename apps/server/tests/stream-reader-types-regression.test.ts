@@ -9,6 +9,6 @@ test("stream readers typecheck against the Node stream contract", () => {
   ], { cwd: root, stdout: "pipe", stderr: "pipe" });
   expect([0, 2]).toContain(result.exitCode);
   const output = new TextDecoder().decode(result.stdout);
-  const paths = ["open-sse/executors/context7-fetch.ts", "open-sse/handlers/chatCore/jsonBodyToSse.ts", "open-sse/services/streamRecovery.ts"];
+  const paths = ["open-sse/executors/context7-fetch.ts", "open-sse/handlers/chatCore/jsonBodyToSse.ts", "open-sse/services/watchdogStream.ts"];
   expect(output.split("\n").filter((line) => paths.some((path) => line.includes(path)) && line.includes("error TS"))).toEqual([]);
 }, 120_000);

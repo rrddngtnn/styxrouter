@@ -21,7 +21,6 @@ import { moonshotProvider } from "./registry/moonshot/index.ts";
 import { poeProvider } from "./registry/poe/index.ts";
 import { minimaxProvider } from "./registry/minimax/index.ts";
 import { minimax_cnProvider } from "./registry/minimax/cn/index.ts";
-import { hailuo_webProvider } from "./registry/minimax/web/index.ts";
 import { chatgpt_web_codexProvider } from "./registry/chatgpt-web-codex/index.ts";
 import { openrouterProvider } from "./registry/openrouter/index.ts";
 import { cheaperinferenceProvider } from "./registry/cheaperinference/index.ts";
@@ -71,7 +70,6 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   poe: poeProvider,
   minimax: minimaxProvider,
   "minimax-cn": minimax_cnProvider,
-  "hailuo-web": hailuo_webProvider,
   "chatgpt-web-codex": chatgpt_web_codexProvider,
   openrouter: openrouterProvider,
   cheaperinference: cheaperinferenceProvider,

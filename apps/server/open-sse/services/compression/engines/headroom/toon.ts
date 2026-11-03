@@ -1,11 +1,4 @@
-/**
- * toon.ts — TOON (@toon-format/toon) candidate encoder for the headroom engine.
- *
- * TOON is a second encoder considered alongside GCF in the SmartCrusher best-of-N
- * gate. GCF stays the default and tiebreak winner; TOON is used only when strictly
- * smaller. All entry points are FAIL-OPEN: any throw yields null/[] so a TOON bug
- * can never break headroom compaction. Pure: no Date.now / Math.random.
- */
+/** Independently packaged TOON codec. Encoding failures fail open. */
 import { encode as toonEncode, decode as toonDecode } from "@toon-format/toon";
 
 export const TOON_FENCE_OPEN = "```toon";

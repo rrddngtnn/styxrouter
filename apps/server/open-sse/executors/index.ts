@@ -66,7 +66,6 @@ import { KimiWebExecutor } from "./kimi-web.ts";
 import { DoubaoWebExecutor } from "./doubao-web.ts";
 import { QwenWebExecutor } from "./qwen-web.ts";
 import { RaycastExecutor } from "./raycast.ts";
-import { HailuoWebExecutor } from "./hailuo-web.ts";
 import { ZaiWebExecutor } from "./zai-web.ts";
 import { KimiExecutor } from "./kimi.ts";
 import { MoonshotExecutor } from "./moonshot.ts";
@@ -208,7 +207,6 @@ const executors = {
   "qwen-web": new QwenWebExecutor(),
   raycast: new RaycastExecutor(),
   rc: new RaycastExecutor(), // Alias
-  "hailuo-web": new HailuoWebExecutor(),
   "zai-web": new ZaiWebExecutor(),
   zw: new ZaiWebExecutor(), // Alias
   theoldllm: new TheOldLlmExecutor(),
@@ -362,7 +360,6 @@ export { YuanbaoWebExecutor } from "./yuanbao-web.ts";
 export { T3ChatWebExecutor } from "./t3-chat-web.ts";
 export { InnerAiExecutor } from "./inner-ai.ts";
 export { QwenWebExecutor } from "./qwen-web.ts";
-export { HailuoWebExecutor } from "./hailuo-web.ts";
 export { TheOldLlmExecutor } from "./theoldllm.ts";
 export { ChipotleExecutor } from "./chipotle.ts";
 export { LMArenaExecutor } from "./lmarena.ts";

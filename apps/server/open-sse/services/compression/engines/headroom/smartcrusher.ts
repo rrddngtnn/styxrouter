@@ -1,26 +1,8 @@
-/**
- * smartcrusher.ts — SmartCrusher: JSON array → GCF compaction (H3 lossless stage).
- *
- * Scans message contents (strings and ```json fenced blocks inside strings) for
- * arrays of objects. When found and when the GCF form is strictly smaller,
- * replaces the JSON array text with a compact GCF block.
- *
- * GCF (Graph Compact Format) handles homogeneous AND heterogeneous arrays,
- * mixed-type columns, nested objects, and nullable fields natively.
- *
- * Conservative guards (inherited from headroom upstream):
- *   - Never touch role: "system" messages.
- *   - Minimum row count gate (default 8).
- *   - Skip if GCF form is NOT smaller than the original JSON (no regression).
- *   - Elements must be objects (not bare primitives or arrays at the top level).
- *
- * Backward compatibility:
- *   - detectHomogeneous is still exported (used by existing tests and may be
- *     useful for analytics), but is no longer a gate for encoding. GCF encodes
- *     both homogeneous and heterogeneous arrays.
+/** SmartCrusher JSON-array compaction using TOON only; GCF excluded.
+ * Never modifies system/developer messages; only uses shorter encodings.
  */
 
-import { encodeTabularBlock, wrapTabular, kindOf } from "./tabular.ts";
+import { kindOf } from "./tabular.ts";
 import { encodeToonBlock, wrapToon } from "./toon.ts";
 
 /** Default minimum number of rows to trigger compaction. */
@@ -35,7 +17,7 @@ const JSON_FENCE_RE = /```json\n([\s\S]*?)\n```/g;
  *
  * Returns the shared keys array if homogeneous, null otherwise.
  *
- * Note: this is no longer a gate for GCF encoding (GCF handles heterogeneous
+ * Note: this is no longer a gate for TOON encoding (TOON handles heterogeneous
  * arrays natively), but is kept for backward compatibility and analytics.
  */
 export function detectHomogeneous(arr: unknown[]): string[] | null {
@@ -68,7 +50,7 @@ export function detectHomogeneous(arr: unknown[]): string[] | null {
 
 /**
  * Check if all elements in an array are objects (not null, not arrays).
- * This is the minimum gate for GCF encoding.
+ * This is the minimum gate for TOON encoding.
  */
 function allObjects(arr: unknown[]): boolean {
   for (const item of arr) {
@@ -78,15 +60,15 @@ function allObjects(arr: unknown[]): boolean {
 }
 
 /**
- * Try to crush a JSON string (array of objects) into GCF form.
+ * Try to crush a JSON string (array of objects) into TOON form.
  * Returns the compact string if it shrinks the input; null otherwise.
  *
- * GCF handles heterogeneous arrays, mixed-type columns, nested objects,
+ * TOON handles heterogeneous arrays, mixed-type columns, nested objects,
  * and nullable fields natively, so the only gates are:
  *   - Must be a valid JSON array
  *   - Must have >= minRows elements
  *   - All elements must be objects
- *   - GCF form must be strictly smaller than JSON
+ *   - TOON form must be strictly smaller than JSON
  */
 export function tryCompactJson(jsonStr: string, minRows: number = DEFAULT_MIN_ROWS): string | null {
   let parsed: unknown;
@@ -98,7 +80,7 @@ export function tryCompactJson(jsonStr: string, minRows: number = DEFAULT_MIN_RO
 
   if (!Array.isArray(parsed) || parsed.length < minRows) return null;
 
-  // All elements must be objects (GCF encodes objects in tabular form).
+  // All elements must be objects (TOON encodes objects in tabular form).
   if (!allObjects(parsed)) return null;
 
   const arr = parsed as Record<string, unknown>[];
@@ -111,18 +93,11 @@ export function tryCompactJson(jsonStr: string, minRows: number = DEFAULT_MIN_RO
 }
 
 /**
- * Best-of-N encoder selection: GCF (default) vs TOON. Returns the strictly
- * smaller fenced block; ties resolve to GCF for cache stability. Extracted so
- * tryCompactJson stays below the complexity gate.
+ * Use TOON when available; JSON fallback keeps compaction fail-open.
  */
 export function pickSmallestEncoding(arr: Record<string, unknown>[]): string {
-  const gcf = wrapTabular(encodeTabularBlock(arr));
-  const toonInner = encodeToonBlock(arr);
-  if (toonInner !== null) {
-    const toon = wrapToon(toonInner);
-    if (toon.length < gcf.length) return toon;
-  }
-  return gcf;
+  const block = encodeToonBlock(arr);
+  return block === null ? JSON.stringify(arr) : wrapToon(block);
 }
 
 export type MessageLike = {
