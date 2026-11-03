@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -47,6 +48,73 @@ class HygieneGateT1(unittest.TestCase):
         proc = run_gate(FIX / "clean")
         self.assertEqual(proc.report_data["gates"]["runtime"]["status"], "skipped")
         self.assertIn("runtime-url", proc.report_data["gates"]["runtime"]["reason"])
+
+
+class HygieneRuntimeSkipAcceptance(unittest.TestCase):
+    def _committed_fixture(self, scratch: Path, name: str) -> Path:
+        root = scratch / name
+        shutil.copytree(FIX / name, root)
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+        env = dict(os.environ, GIT_AUTHOR_NAME="Clean", GIT_AUTHOR_EMAIL="a@example.test",
+                   GIT_COMMITTER_NAME="Clean", GIT_COMMITTER_EMAIL="b@example.test")
+        subprocess.run(["git", "-C", str(root), "commit", "-qm", "clean fixture"], check=True, env=env)
+        return root
+
+    def _offline_args(self, scratch: Path) -> list[str]:
+        catalog = scratch / "hygiene_private.py"
+        catalog.write_text("PRIVATE_PATTERNS = []\n")
+        panel = scratch / "panel-dist"
+        panel.mkdir()
+        return ["--private-patterns", str(catalog), "--panel-dist-dir", str(panel)]
+
+    def test_omitted_runtime_is_incomplete_without_explicit_acceptance(self):
+        """Strict mode never clears an otherwise clean offline review with no runtime URL."""
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp)
+            proc = run_gate(self._committed_fixture(scratch, "clean"), self._offline_args(scratch))
+        self.assertNotEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.report_data["overall"], "incomplete")
+        self.assertEqual(proc.report_data["gates"]["runtime"]["status"], "skipped")
+
+    def test_explicit_acceptance_clears_only_omitted_runtime_after_offline_passes(self):
+        """Offline publication review may accept exactly the omitted runtime gate."""
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp)
+            proc = run_gate(
+                self._committed_fixture(scratch, "clean"),
+                self._offline_args(scratch) + ["--allow-runtime-skip"],
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.report_data["overall"], "pass")
+        runtime = proc.report_data["gates"]["runtime"]
+        self.assertEqual(runtime["status"], "skipped")
+        self.assertIn("accepted for offline publication review", runtime["reason"])
+
+    def test_explicit_acceptance_does_not_clear_fatal_offline_gate(self):
+        """The flag cannot turn a fatal static/history/bundle result into clearance."""
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp)
+            proc = run_gate(
+                self._committed_fixture(scratch, "dirty"),
+                self._offline_args(scratch) + ["--allow-runtime-skip"],
+            )
+        self.assertNotEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.report_data["overall"], "fail")
+
+    def test_explicit_acceptance_does_not_clear_a_provided_runtime_failure(self):
+        """The exception is limited to omitted runtime coverage, never runtime failure."""
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp)
+            proc = run_gate(
+                self._committed_fixture(scratch, "clean"),
+                self._offline_args(scratch) + [
+                    "--allow-runtime-skip", "--runtime-url", "http://127.0.0.1:1",
+                ],
+            )
+        self.assertNotEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.report_data["overall"], "fail")
+        self.assertEqual(proc.report_data["gates"]["runtime"]["status"], "fail")
 
     def test_dirty_fixture_fails_RED(self):
         """

@@ -48,6 +48,7 @@ jobs:
           python3 scripts/public-hygiene-gate.py \
             --repo-root . \
             --panel-dist-dir apps/panel/dist \
+            --allow-runtime-skip \
             --allowlist scripts/hygiene_allowlist.json \
             --private-patterns "$RUNNER_TEMP/hygiene_private.py" \
             --private-allowlist "$RUNNER_TEMP/hygiene_private_allowlist.json"

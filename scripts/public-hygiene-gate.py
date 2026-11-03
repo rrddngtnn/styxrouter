@@ -6,9 +6,13 @@ Usage:
         --repo-root PATH \
         [--panel-dist-dir PATH] \
         [--runtime-url URL --auth-token TOKEN]
+        [--allow-runtime-skip]
 
 Writes evidence/<UTC>/public-hygiene-report.json (0600).
-Exits non-zero on fatal hits, scan errors, or incomplete/skipped gates. Ignored
+Exits non-zero on fatal hits, scan errors, or incomplete/skipped gates. The
+explicit --allow-runtime-skip exception accepts only an omitted runtime gate
+for an offline publication review; it never accepts a runtime failure or any
+other skipped or failed gate. Ignored
 untracked files are outside the candidate set; force-added files must be rerun.
 History is limited to HEAD-reachable commits (not other refs or reflogs), at most
 200,000 changes, 8 MiB per text blob and 512 MiB total; limits fail closed.
@@ -79,12 +83,16 @@ class Report:
     timestamp: str
     gates: dict[str, GateResult] = field(default_factory=dict)
     private_loaded: bool = False
+    runtime_skip_accepted: bool = False
 
     @property
     def overall(self) -> str:
         if any(g.status == "fail" for g in self.gates.values()):
             return "fail"
-        if any(g.status == "skipped" for g in self.gates.values()):
+        if any(
+            g.status == "skipped" and not (name == "runtime" and self.runtime_skip_accepted)
+            for name, g in self.gates.items()
+        ):
             return "incomplete"
         return "pass"
 
@@ -93,6 +101,7 @@ class Report:
             "timestamp": self.timestamp,
             "generated_by": "scripts/public-hygiene-gate.py",
             "operator_private_patterns_loaded": self.private_loaded,
+            "runtime_skip_accepted_for_offline_publication_review": self.runtime_skip_accepted,
             "gates": {
                 name: {
                     "status": g.status,
@@ -124,6 +133,8 @@ class Report:
             if len(g.hits) > 10:
                 lines.append(f"      ... and {len(g.hits) - 10} more hits")
         lines.append("")
+        if self.runtime_skip_accepted:
+            lines.append("  runtime: skipped/accepted for offline publication review")
         lines.append(f"OVERALL: {self.overall}")
         return "\n".join(lines)
 
@@ -592,6 +603,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--panel-dist-dir", type=Path, default=None)
     parser.add_argument("--runtime-url", type=str, default=None)
     parser.add_argument("--auth-token", type=str, default=None)
+    parser.add_argument(
+        "--allow-runtime-skip", action="store_true",
+        help="accept only an omitted runtime gate for offline publication review",
+    )
     parser.add_argument("--allowlist", type=Path, default=ALLOWLIST_DEFAULT)
     parser.add_argument("--private-patterns", type=Path, default=None)
     parser.add_argument("--private-allowlist", type=Path, default=None)
@@ -620,6 +635,9 @@ def main(argv: list[str] | None = None) -> int:
     report.gates["historical_files"] = gate_historical_files(args.repo_root, compiled, internal_doc_paths, allowlist)
     report.gates["panel_bundle"] = gate_panel_bundle(args.panel_dist_dir, compiled, allowlist)
     report.gates["runtime"] = gate_runtime(args.runtime_url, args.auth_token, compiled, allowlist)
+    if args.allow_runtime_skip and report.gates["runtime"].status == "skipped":
+        report.runtime_skip_accepted = True
+        report.gates["runtime"].reason += "; skipped/accepted for offline publication review"
 
     evidence_root = args.evidence_dir or (args.repo_root / "evidence")
     out_dir = evidence_root / report.timestamp
