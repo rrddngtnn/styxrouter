@@ -36,3 +36,30 @@ test("candidate excludes Free Claude recovery and DuckDuckGo port, not other sea
   expect(resolved.streamRecovery.continueMidStream).toBe(false);
   expect(resolved.streamRecovery.throughputWatchdog.enabled).toBe(true);
 });
+
+test("candidate excludes the GPL-licensed Raycast relay port and every provider surface", () => {
+  const excluded = [
+    "open-sse/executors/raycast.ts",
+    "open-sse/services/raycast.ts",
+    "src/lib/oauth/providers/raycast.ts",
+  ];
+  for (const relativePath of excluded) {
+    expect(existsSync(resolve(root, relativePath))).toBe(false);
+  }
+
+  const sourceFiles = [
+    "open-sse/executors/index.ts",
+    "src/lib/oauth/providers/index.ts",
+    "src/lib/oauth/constants/oauth.ts",
+    "src/shared/constants/providers.ts",
+    "src/shared/constants/providers/oauth.ts",
+    "src/shared/constants/publicApiRoutes.ts",
+    "src/server/authz/routeGuard.ts",
+    "src/shared/validation/schemas/auth.ts",
+    "open-sse/utils/publicCreds.ts",
+    ".env.example",
+  ];
+  for (const relativePath of sourceFiles) {
+    expect(readFileSync(resolve(root, relativePath), "utf8").toLowerCase()).not.toContain("raycast");
+  }
+});

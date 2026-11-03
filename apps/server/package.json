@@ -107,8 +107,5 @@
     "@huggingface/transformers": "^4.3.1",
     "tls-client-node": "^0.2.0",
     "wreq-js": "^3.0.0"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }

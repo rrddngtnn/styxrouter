@@ -171,11 +171,6 @@ const EMBEDDED_DEFAULTS = {
   // Firefly credits balance endpoint public x-api-key (`SunbreakWebUI1`) from
   // GET firefly.adobe.io/v1/credits/balance browser traffic.
   adobe_firefly_balance_api_key: [32, 1, 23, 26, 95, 21, 20, 9, 59, 12, 1, 120, 63, 0],
-  // Raycast Pro V2 request-signature secret (#8895). Community-extracted from the
-  // public Raycast macOS client — the SAME value ships to every install, so it is
-  // public by design, not a per-user credential. Overridable via RAYCAST_SIG_SECRET
-  // or providerSpecificData.sigSecret.
-  raycast_sig_secret: [69, 22, 26, 76, 24, 69, 65, 85, 95, 92, 84, 27, 21, 84, 65, 23, 29, 78, 75, 71, 69, 86, 94, 95, 0, 76, 16, 87, 75, 66, 78, 25, 76, 18, 23, 7, 95, 15, 84, 31, 79, 0, 16, 69, 24, 79, 20, 70, 77, 83, 13, 15, 86, 72, 78, 82, 22, 68, 26, 25, 28, 68, 69, 90],
 } as const;
 
 export type EmbeddedDefaultKey = keyof typeof EMBEDDED_DEFAULTS;

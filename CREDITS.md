@@ -153,12 +153,64 @@ local integration copied source from it or which revision was used. The
 provenance and licence of any retained source remain unresolved; no local code
 is relabelled on this evidence.
 
-## Other provenance and assets still requiring review
+## Named-port evidence and current-source disposition
 
-The port inventory is not exhaustive. Named source references also include
-`ndycode/codex-multi-auth`, `szcharlesji/raycast-relay`, `composer-api`, and
-`javargasm/pi-kiro`. Their exact imported revisions and notices are not established
-by this audit.
+The local history begins with a bulk initial import (`d97b9c6`, 2026-10-24), so
+it cannot reconstruct exact upstream import revisions for the named ports below.
+The pinned revisions are instead the latest inspected snapshots no later than
+that import. Their source blobs and licence-text hashes are recorded in
+[`apps/server/licenses/upstream-sources.json`](apps/server/licenses/upstream-sources.json).
+They establish the cited source and licence at those snapshots, not an exact
+import revision or the provenance of every subsequent local change.
+
+### javargasm/pi-kiro — retained current Kiro thinking port
+
+`apps/server/open-sse/translator/request/openai-to-kiro.ts:990` identifies the
+current Claude/Kiro thinking-mode implementation as ported from
+[`javargasm/pi-kiro`](https://github.com/javargasm/pi-kiro). Inspected
+pre-import snapshot
+[`5e33bb79a2d9adb58c74e15d98a9ba8221559640`](https://github.com/javargasm/pi-kiro/tree/5e33bb79a2d9adb58c74e15d98a9ba8221559640)
+contains the same thinking directive and adaptive-thinking request-field
+mechanisms in `src/stream.ts`; it is MIT, copyright (c) 2026 Hongyi Lyu.
+The complete notice is retained in
+[`pi-kiro-MIT.txt`](apps/server/licenses/pi-kiro-MIT.txt). The local code is
+not byte-identical to that snapshot and the exact imported revision remains
+unproven; retaining the MIT notice is not a claim that the snapshot is the
+import source.
+
+### ndycode/codex-multi-auth — retained current rotation-map port
+
+`open-sse/services/tokenRefresh/rotationMap.ts:18` identifies the rotation-map
+pattern as ported from `ndycode/codex-multi-auth`. Inspected pre-import snapshot
+[`cce85fbe458162b4094eec16ed003597c7a5777d`](https://github.com/ndycode/codex-multi-auth/tree/cce85fbe458162b4094eec16ed003597c7a5777d)
+is MIT, copyright (c) 2026 ndycode; the complete notice is retained in
+[`codex-multi-auth-MIT.txt`](apps/server/licenses/codex-multi-auth-MIT.txt).
+The cited `refresh-queue.ts` implementation had evolved from the local comment's
+line range by that snapshot. This is verified licence/source evidence for a
+current named port, not proof of the exact import revision.
+
+### standardagents/composer-api — retained current Cursor prompt ports
+
+`open-sse/executors/cursor.ts` and `open-sse/executors/cursor/prompt.ts`
+identify adapted tool-directive and output-constraint code from
+[`standardagents/composer-api`](https://github.com/standardagents/composer-api).
+Inspected pre-import snapshot
+[`539cebf2d70312f6e433434b4d694392feaa29f6`](https://github.com/standardagents/composer-api/tree/539cebf2d70312f6e433434b4d694392feaa29f6)
+contains `TOOL_SYSTEM_DIRECTIVE`, `directToolChoiceHint`, and the named
+constraint helpers in `worker/openai.ts`. It is MIT, copyright (c) 2026
+Standard Agents; the complete notice is retained in
+[`composer-api-MIT.txt`](apps/server/licenses/composer-api-MIT.txt). Exact
+import provenance remains unproven.
+
+### szcharlesji/raycast-relay — excluded current-tree GPL port
+
+The current Raycast executor, protocol service, OAuth import provider and all
+associated provider/credential surfaces have been removed. The removed service
+explicitly identified `szcharlesji/raycast-relay`; inspected pre-import snapshot
+[`9dc99733d52e61d826f8f23e91c6deab193ede98`](https://github.com/szcharlesji/raycast-relay/tree/9dc99733d52e61d826f8f23e91c6deab193ede98)
+is GPL-3.0 and contains the corresponding V2 HMAC and V1 JWT signature
+functions. This is a candidate-current-tree exclusion, not a history rewrite or
+a conclusion about historical combined distributions.
 
 The headers in `apps/server/open-sse/vendor/codex-chatgpt-web/` explicitly pin
 `miuuyy/codex-chatgpt-web` commit `55592fca0ba19a27f1b769cec8fff61ff340a785`.

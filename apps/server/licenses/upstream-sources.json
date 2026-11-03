@@ -70,5 +70,41 @@
     "url": "https://raw.githubusercontent.com/blackwell-systems/gcf-typescript/a5ee0d400de441e8098eea083168fd25100a41b4/src/scalar.ts",
     "bytes": 8839,
     "sha256": "6593f595e02775fa7e3f509f6f1ed65b63a1416bb6779f9af4587b39aed47542"
+  },
+  {
+    "file": "pi-kiro-MIT.txt",
+    "url": "https://raw.githubusercontent.com/javargasm/pi-kiro/5e33bb79a2d9adb58c74e15d98a9ba8221559640/LICENSE",
+    "bytes": 1067,
+    "sha256": "b8fe97c1369135affef01ebcd9221e1db0ad41a9cf86699f7fe273681f08009e"
+  },
+  {
+    "file": "pi-kiro-stream.ts",
+    "url": "https://raw.githubusercontent.com/javargasm/pi-kiro/5e33bb79a2d9adb58c74e15d98a9ba8221559640/src/stream.ts",
+    "bytes": 53865,
+    "sha256": "9a73fb09a6c09981bb5b6e5e08299a41c389f3b6dfceaa9f8b734674e0a24260"
+  },
+  {
+    "file": "codex-multi-auth-MIT.txt",
+    "url": "https://raw.githubusercontent.com/ndycode/codex-multi-auth/cce85fbe458162b4094eec16ed003597c7a5777d/LICENSE",
+    "bytes": 1064,
+    "sha256": "fe67f950b42c810f48074edaf3a605c86586e7928a32e59a2d78e9d8d0e119bf"
+  },
+  {
+    "file": "codex-multi-auth-refresh-queue.ts",
+    "url": "https://raw.githubusercontent.com/ndycode/codex-multi-auth/cce85fbe458162b4094eec16ed003597c7a5777d/lib/refresh-queue.ts",
+    "bytes": 15913,
+    "sha256": "d654500557e906074ee2747e9382c9d234cedf5325f853412b21bfcc0db3591f"
+  },
+  {
+    "file": "composer-api-MIT.txt",
+    "url": "https://raw.githubusercontent.com/standardagents/composer-api/539cebf2d70312f6e433434b4d694392feaa29f6/LICENSE",
+    "bytes": 1072,
+    "sha256": "f3f0ab9bdd3531dce37358888f1382e671350166b80868d8812faa59a287df32"
+  },
+  {
+    "file": "composer-api-openai.ts",
+    "url": "https://raw.githubusercontent.com/standardagents/composer-api/539cebf2d70312f6e433434b4d694392feaa29f6/worker/openai.ts",
+    "bytes": 164978,
+    "sha256": "b5b2c0133bdfe5deff3936e8dc716cd1334a68c26c5b878324cbcdb671f957d9"
   }
 ]
