@@ -1,5 +1,11 @@
 [
   {
+    "file": "codex-chatgpt-web-MIT.txt",
+    "url": "https://raw.githubusercontent.com/miuuyy/codex-chatgpt-web/55592fca0ba19a27f1b769cec8fff61ff340a785/LICENSE",
+    "bytes": 1087,
+    "sha256": "d8b06e8d802722749b8f09e4ed1f2439fde0995a09b7e47c65dca3cc54d43d6e"
+  },
+  {
     "file": "9router-MIT.txt",
     "url": "https://raw.githubusercontent.com/decolua/9router/3a978a631ad65529c06e48ce495092d5bba29f46/LICENSE",
     "bytes": 1086,

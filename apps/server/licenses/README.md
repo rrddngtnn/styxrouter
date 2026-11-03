@@ -7,6 +7,7 @@ licences of separately sourced code. Do not describe this package as MIT-only.
 
 | Retained source / reference | Inspected licence text | Scope and limitation |
 | --- | --- | --- |
+| codex-chatgpt-web vendored implementation | `codex-chatgpt-web-MIT.txt` | MIT notice from explicitly pinned upstream `miuuyy/codex-chatgpt-web` revision `55592fca0ba19a27f1b769cec8fff61ff340a785`; retained without changing other component licences. |
 | 9Router source ports | `9router-MIT.txt` | MIT at `3a978a631ad65529c06e48ce495092d5bba29f46`; exact historical imports not fully audited. |
 | Hailuo/gpt4free port | `gpt4free-GPL-3.0.txt` | GNU GPL version 3 at `e3127d4a261a85abb9cdcf8d7821e7bf0097ae44`; `open-sse/executors/hailuo-web.ts` explicitly identifies the 1:1 signing/SSE port from `HailuoAI.py` and `crypt.py`. Exact import, GPL only/or-later choice, and combined-work obligations remain unresolved. |
 | gcf-typescript vendored generic codec | `gcf-typescript-historical-MIT.txt` | MIT at `a5ee0d400de441e8098eea083168fd25100a41b4`; local source differs. Upstream changed to Apache-2.0 later. No exact import revision or provenance of every local change has been established. |
@@ -20,9 +21,9 @@ here or that their licences apply to the entire package.
 For full evidence and additional unresolved sources, see the root repository
 `CREDITS.md`; it is not included in this package. Other references include
 gpt4free comments in `qwen-web.ts` and `gemini-web.ts`, ZCode client identity,
-named ports from other projects, and
-`open-sse/vendor/codex-chatgpt-web/`, whose directory name alone does not establish
-its source or licence. Brand assets have a separate
+named ports from other projects. The headers in
+`open-sse/vendor/codex-chatgpt-web/` explicitly identify the pinned source recorded
+in the table above; its full MIT notice is now retained here. Brand assets have a separate
 `panel/brand/LICENSE-NOTICE.txt` when included in the built panel.
 
 Resolve the applicable source licences and distribution requirements before

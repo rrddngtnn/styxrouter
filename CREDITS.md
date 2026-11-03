@@ -133,8 +133,13 @@ is relabelled on this evidence.
 The port inventory is not exhaustive. Named source references also include
 `ndycode/codex-multi-auth`, `szcharlesji/raycast-relay`, `composer-api`, and
 `javargasm/pi-kiro`. Their exact imported revisions and notices are not established
-by this audit. The name `open-sse/vendor/codex-chatgpt-web/` alone is not evidence
-of a particular upstream repository or licence.
+by this audit.
+
+The headers in `apps/server/open-sse/vendor/codex-chatgpt-web/` explicitly pin
+`miuuyy/codex-chatgpt-web` commit `55592fca0ba19a27f1b769cec8fff61ff340a785`.
+Its MIT copyright and permission notice is retained in
+`apps/server/licenses/codex-chatgpt-web-MIT.txt`. This corrects a missing notice;
+it does not resolve the other release blockers listed above.
 
 Brand assets carry a separate
 [`LICENSE-NOTICE.txt`](apps/panel/public/brand/LICENSE-NOTICE.txt). It describes
