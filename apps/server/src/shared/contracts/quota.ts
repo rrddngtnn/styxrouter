@@ -32,6 +32,7 @@ export interface QuotaProviderEntry {
   tokenStatus: QuotaTokenStatus;
   /** Codex banked reset credits available on the account (when reported by /wham/usage). */
   bankedResetCredits?: number | null;
+  bankedResetCreditsStale?: boolean;
   /** CBCN credit observations are independent of routing cooldowns. */
   creditStatus?: "unknown" | "stale" | "observed";
   accountCooldownUntil?: string | null;
@@ -146,7 +147,7 @@ export function sanitizeQuotaProvider(input: unknown): QuotaProviderEntry {
 
   const bankedResetCreditsRaw = toNumber(source.bankedResetCredits);
   const bankedResetCredits =
-    bankedResetCreditsRaw !== null && bankedResetCreditsRaw >= 0
+    bankedResetCreditsRaw !== null && Number.isSafeInteger(bankedResetCreditsRaw) && bankedResetCreditsRaw >= 0
       ? Math.trunc(bankedResetCreditsRaw)
       : undefined;
 
@@ -167,6 +168,7 @@ export function sanitizeQuotaProvider(input: unknown): QuotaProviderEntry {
     resetAt,
     tokenStatus: normalizeTokenStatus(source.tokenStatus),
     ...(bankedResetCredits !== undefined ? { bankedResetCredits } : {}),
+    ...(source.bankedResetCreditsStale === true ? { bankedResetCreditsStale: true } : {}),
     ...(provider === "codebuddy-cn" && (source.creditStatus === "unknown" || source.creditStatus === "stale" || source.creditStatus === "observed") ? {
       creditStatus: source.creditStatus,
       accountCooldownUntil: typeof source.accountCooldownUntil === "string" && Number.isFinite(Date.parse(source.accountCooldownUntil)) ? source.accountCooldownUntil : null,

@@ -1,5 +1,5 @@
 import { usePreferences } from "../lib/preferences.tsx";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Pagination } from "../components/Pagination.tsx";
 import { ProviderIcon } from "../components/ProviderIcon.tsx";
@@ -64,11 +64,14 @@ export function Quota() {
   const [live, setLive] = useState<Record<string, Live>>({});
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncSummary, setSyncSummary] = useState<string | null>(null);
+  const resetRequest = useRef(0);
+  const redeemBusy = useRef(false);
+  const redemptionKeys = useRef(new Map<string, string>());
   const [resetCreditTarget, setResetCreditTarget] = useState<QuotaRow | null>(null);
   const [resetCreditState, setResetCreditState] = useState<{
     loading: boolean;
     redeeming: boolean;
-    availableCount: number;
+    availableCount: number | null;
     credits: Array<{
       selectionToken: string;
       resetType?: string;
@@ -79,11 +82,13 @@ export function Quota() {
       description?: string;
     }>;
     error: string | null;
-  }>({ loading: false, redeeming: false, availableCount: 0, credits: [], error: null });
+  }>({ loading: false, redeeming: false, availableCount: null, credits: [], error: null });
 
   async function openResetCredits(row: QuotaRow) {
+    if (redeemBusy.current) return;
+    const request = ++resetRequest.current;
     setResetCreditTarget(row);
-    setResetCreditState({ loading: true, redeeming: false, availableCount: row.bankedResetCredits ?? 0, credits: [], error: null });
+    setResetCreditState({ loading: true, redeeming: false, availableCount: null, credits: [], error: null });
     try {
       const res = await api.get<{
         ok: boolean;
@@ -98,48 +103,65 @@ export function Quota() {
           description?: string;
         }>;
       }>(`/api/usage/codex-reset-credit?connectionId=${encodeURIComponent(row.connectionId)}`);
+      if (request !== resetRequest.current) return;
+      if (!res.ok || !Array.isArray(res.credits)) throw new Error("Invalid reset-credit inventory response.");
       setResetCreditState({
         loading: false,
         redeeming: false,
-        availableCount: res.availableCount ?? 0,
+        availableCount: typeof res.availableCount === "number" && Number.isSafeInteger(res.availableCount) && res.availableCount >= 0 ? res.availableCount : null,
         credits: res.credits ?? [],
         error: null,
       });
     } catch (e) {
+      if (request !== resetRequest.current) return;
       setResetCreditState({
         loading: false,
         redeeming: false,
-        availableCount: row.bankedResetCredits ?? 0,
+        availableCount: null,
         credits: [],
         error: e instanceof Error ? e.message : String(e),
       });
     }
   }
 
+  function closeResetCredits() {
+    if (redeemBusy.current) return;
+    resetRequest.current++;
+    setResetCreditTarget(null);
+  }
+
   async function redeemResetCredit(creditId?: string) {
-    if (!resetCreditTarget) return;
-    setResetCreditState((s) => ({ ...s, redeeming: true, error: null }));
+    if (!resetCreditTarget || redeemBusy.current || resetCreditState.loading || resetCreditState.error || !resetCreditState.credits.length) return;
+    const selected = creditId ?? resetCreditState.credits[0]?.selectionToken;
+    if (!selected || !resetCreditState.credits.some(c => c.selectionToken === selected)) return;
+    const target = resetCreditTarget;
+    if (!window.confirm(tr("Spend one banked reset credit for {0}? This cannot be undone; the upstream service decides which exhausted limit is reset.", { 0: target.name }))) return;
+    redeemBusy.current = true;
+    setResetCreditState(s => ({ ...s, redeeming: true, error: null }));
     try {
-      const idempotencyKey =
-        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-          ? crypto.randomUUID()
-          : `styx-reset-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      const res = await api.post<{ ok: boolean; outcome: string; usage?: unknown }>("/api/usage/codex-reset-credit", {
-        connectionId: resetCreditTarget.connectionId,
-        idempotencyKey,
-        ...(creditId ? { creditId } : {}),
+      const key = JSON.stringify([target.connectionId, selected]);
+      let idempotencyKey = redemptionKeys.current.get(key);
+      if (!idempotencyKey) {
+        idempotencyKey = crypto.randomUUID();
+        redemptionKeys.current.set(key, idempotencyKey);
+      }
+      const res = await api.post<{ ok: boolean; outcome: string; usage?: unknown; quotaRefreshed?: boolean }>("/api/usage/codex-reset-credit", {
+        connectionId: target.connectionId, idempotencyKey, creditId: selected,
       });
-      toast.success(
-        res.outcome === "alreadyRedeemed"
-          ? tr("Reset credit was already redeemed; quota refreshed.")
-          : tr("Codex banked reset credit redeemed! Quota window reset."),
-      );
+      if (!res.ok || !["reset", "alreadyRedeemed"].includes(res.outcome)) throw new Error("Unconfirmed redemption response. Retry the same credit to check its outcome.");
+      toast.success(res.outcome === "alreadyRedeemed" ? tr("This reset credit was already redeemed.") : tr("Codex confirmed the reset credit was redeemed."));
+      if (res.quotaRefreshed !== true) toast.error(tr("Credit redeemed, but quota refresh is unavailable. Check quota separately; do not spend another credit to refresh it."));
+      resetRequest.current++;
       setResetCreditTarget(null);
-      await refresh(resetCreditTarget.connectionId);
+      // Retire potentially stale reset counts, including when the secondary refresh failed.
+      setLive(l => ({ ...l, [target.connectionId]: { ...l[target.connectionId], data: res.usage ?? { _stale: true }, checkedAt: new Date().toISOString() } }));
+      state.reload();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setResetCreditState((s) => ({ ...s, redeeming: false, error: msg }));
+      setResetCreditState(s => ({ ...s, redeeming: false, error: msg }));
       toast.error(msg);
+    } finally {
+      redeemBusy.current = false;
     }
   }
 
@@ -227,7 +249,7 @@ export function Quota() {
       <Modal
         open={resetCreditTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setResetCreditTarget(null);
+          if (!open) closeResetCredits();
         }}
         title={tr("Codex Banked Reset Credits")}
         description={
@@ -239,11 +261,11 @@ export function Quota() {
         {resetCreditTarget && (
           <div className="stack-form">
             <p className="muted" style={{ margin: 0 }}>
-              {tr("ChatGPT Plus/Pro/Team accounts occasionally bank extra rate-limit reset credits. Redeeming one immediately resets an exhausted Codex 5h/weekly quota window upstream.")}
+              {tr("Availability and reset eligibility are determined by Codex. Redeeming spends one credit and cannot be undone. A reset does not guarantee all quota windows are cleared.")}
             </p>
             <div className="card" style={{ padding: 12 }}>
               <div>
-                {tr("Available banked resets")}: <strong>{resetCreditState.availableCount}</strong>
+                {tr("Available banked resets")}: <strong>{resetCreditState.availableCount ?? tr("Unknown")}</strong>
               </div>
               {resetCreditState.loading && (
                 <p className="muted" style={{ margin: "8px 0 0" }}>{tr("Querying upstream reset-credit inventory…")}</p>
@@ -269,7 +291,7 @@ export function Quota() {
                       <button
                         type="button"
                         className="btn-add"
-                        disabled={resetCreditState.redeeming}
+                        disabled={resetCreditState.redeeming || !!resetCreditState.error}
                         onClick={() => void redeemResetCredit(c.selectionToken)}
                       >
                         {resetCreditState.redeeming ? tr("Redeeming…") : tr("Redeem this credit")}
@@ -283,7 +305,7 @@ export function Quota() {
               <button
                 type="button"
                 className="btn-add"
-                disabled={resetCreditState.loading || resetCreditState.redeeming || resetCreditState.availableCount <= 0}
+                disabled={resetCreditState.loading || resetCreditState.redeeming || !!resetCreditState.error || !resetCreditState.credits.length}
                 onClick={() => void redeemResetCredit()}
               >
                 {resetCreditState.redeeming ? tr("Redeeming…") : tr("Redeem earliest expiring credit")}
@@ -296,7 +318,7 @@ export function Quota() {
               >
                 {tr("Refresh inventory")}
               </button>
-              <button type="button" className="btn-ghost" onClick={() => setResetCreditTarget(null)}>
+              <button type="button" className="btn-ghost" onClick={closeResetCredits}>
                 {tr("Close")}
               </button>
             </div>
@@ -484,10 +506,8 @@ export function QuotaBrowser({ rows, names, live, syncingAll, onRefresh, onCheck
         const stale = (!cachedNewer && response?._stale === true) || !!status?.error;
         const warning = status?.error ?? (typeof response?._staleReason === "string" ? response._staleReason : null) ?? (typeof response?.message === "string" ? response.message : null) ?? row.message;
         const plan = !cachedNewer && typeof response?.plan === "string" ? response.plan : row.plan;
-        const bankedResetCredits =
-          !cachedNewer && typeof response?.bankedResetCredits === "number" && Number.isFinite(response.bankedResetCredits)
-            ? response.bankedResetCredits
-            : row.bankedResetCredits;
+        const resetObservation = !cachedNewer && response ? response.bankedResetCredits : row.bankedResetCredits;
+        const bankedResetCredits = typeof resetObservation === "number" && Number.isSafeInteger(resetObservation) && resetObservation >= 0 ? resetObservation : null;
         const fetched = stale ? (typeof response?._staleSince === "string" ? response._staleSince : row.fetchedAt) : (!cachedNewer && fresh.length && status?.checkedAt ? status.checkedAt : row.fetchedAt);
         const renderWindow = (w: QuotaWindow) => {
           const isFresh = !stale && !cachedNewer && w.stale !== true && fresh.includes(w);
@@ -505,7 +525,7 @@ export function QuotaBrowser({ rows, names, live, syncingAll, onRefresh, onCheck
           {row.provider === "codex" && (bankedResetCredits != null || onOpenResetCredits) && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
               <span>
-                {tr("Banked reset credits")}: <strong>{bankedResetCredits != null ? bankedResetCredits : DASH}</strong>
+                {tr("Banked reset credits")}: <strong>{bankedResetCredits != null ? bankedResetCredits : tr("Unknown")}</strong>{bankedResetCredits != null && ` (${tr(stale || (cachedNewer || !response) && row.bankedResetCreditsStale ? "Stale" : "Cached")})`}
               </span>
               {onOpenResetCredits && row.isActive !== false && (
                 <button
@@ -515,7 +535,7 @@ export function QuotaBrowser({ rows, names, live, syncingAll, onRefresh, onCheck
                   disabled={busy}
                   onClick={() => onOpenResetCredits(row)}
                 >
-                  {bankedResetCredits != null && bankedResetCredits > 0 ? tr("Redeem reset") : tr("Reset credits")}
+                  {!stale && bankedResetCredits != null && bankedResetCredits > 0 ? tr("Redeem reset") : tr("Reset credits")}
                 </button>
               )}
             </div>

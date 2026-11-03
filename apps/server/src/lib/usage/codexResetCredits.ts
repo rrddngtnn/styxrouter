@@ -44,7 +44,7 @@ export type PublicCodexResetCredit = Omit<CodexResetCredit, "id"> & {
 
 export interface CodexResetCreditList {
   credits: PublicCodexResetCredit[];
-  availableCount: number;
+  availableCount: number | null;
 }
 
 export class CodexResetCreditError extends Error {
@@ -189,7 +189,7 @@ function parseResetCredit(value: unknown): CodexResetCredit | null {
   };
 }
 
-function getResetCreditCandidates(payload: unknown): unknown[] {
+function getResetCreditCandidates(payload: unknown): unknown[] | null {
   if (Array.isArray(payload)) return payload;
 
   const record = toRecord(payload);
@@ -206,7 +206,7 @@ function getResetCreditCandidates(payload: unknown): unknown[] {
     if (Array.isArray(value)) return value;
   }
 
-  return [];
+  return null;
 }
 
 function getExpirySortValue(credit: CodexResetCredit): number {
@@ -217,9 +217,10 @@ function getExpirySortValue(credit: CodexResetCredit): number {
 
 function parseAvailableResetCredits(payload: unknown): {
   credits: CodexResetCredit[];
-  availableCount: number;
+  availableCount: number | null;
 } {
-  const credits = getResetCreditCandidates(payload)
+  const candidates = getResetCreditCandidates(payload);
+  const credits = (candidates ?? [])
     .map(parseResetCredit)
     .filter((credit): credit is CodexResetCredit => credit !== null)
     .map((credit, index) => ({ credit, index }))
@@ -229,13 +230,13 @@ function parseAvailableResetCredits(payload: unknown): {
     .map(({ credit }) => credit);
 
   const payloadRecord = toRecord(payload);
-  const reportedCount = Number(payloadRecord.available_count ?? payloadRecord.availableCount);
+  const reportedCount = payloadRecord.available_count ?? payloadRecord.availableCount;
 
   return {
     credits,
-    availableCount: Number.isFinite(reportedCount)
-      ? Math.max(0, Math.trunc(reportedCount))
-      : credits.length,
+    availableCount: typeof reportedCount === "number" && Number.isSafeInteger(reportedCount) && reportedCount >= 0
+      ? reportedCount
+      : candidates ? credits.length : null,
   };
 }
 
@@ -378,10 +379,16 @@ async function fetchResetCredits(connection: CodexConnectionLike): Promise<Respo
   );
 }
 
+type Redemption = { requestedCreditId?: string; selectedCreditId?: string; result?: { outcome: CodexResetCreditOutcome; usage: JsonRecord | null; quotaRefreshed: boolean } };
+// Keep unresolved attempts pinned; never evict them into a different spend.
+const redemptions = new Map<string, Redemption>();
+const activeRedemptions = new Set<string>();
+
 async function consumeWithAuthRetry(
   connection: CodexConnectionLike,
   idempotencyKey: string,
-  requestedCreditId?: string
+  requestedCreditId: string | undefined,
+  attempt: Redemption
 ): Promise<{ connection: CodexConnectionLike; response: Response }> {
   let refreshedConnection = await refreshCodexConnectionIfNeeded(connection);
   let creditsResponse = await fetchResetCredits(refreshedConnection);
@@ -401,27 +408,15 @@ async function consumeWithAuthRetry(
     );
   }
 
-  const credit = selectResetCredit(creditsPayload, requestedCreditId);
+  const credit = attempt.selectedCreditId
+    ? { id: attempt.selectedCreditId }
+    : selectResetCredit(creditsPayload, requestedCreditId);
+  attempt.selectedCreditId = credit.id;
   let response = await postConsumeResetCredit(refreshedConnection, idempotencyKey, credit.id);
 
   if (response.status === 401 || response.status === 403) {
     refreshedConnection = await refreshCodexConnectionIfNeeded(refreshedConnection, true);
-    const refreshedCreditsResponse = await fetchResetCredits(refreshedConnection);
-    const refreshedCreditsPayload = await readResponsePayload(refreshedCreditsResponse);
-    if (!refreshedCreditsResponse.ok) {
-      throwKnownConsumeError(refreshedCreditsPayload);
-      throw new CodexResetCreditError(
-        refreshedCreditsResponse.status,
-        "codex_reset_credit_upstream_error",
-        `Codex reset-credit API returned HTTP ${refreshedCreditsResponse.status}.`
-      );
-    }
-    const refreshedCredit = selectResetCredit(refreshedCreditsPayload, requestedCreditId);
-    response = await postConsumeResetCredit(
-      refreshedConnection,
-      idempotencyKey,
-      refreshedCredit.id
-    );
+    response = await postConsumeResetCredit(refreshedConnection, idempotencyKey, credit.id);
   }
 
   return { connection: refreshedConnection, response };
@@ -473,7 +468,8 @@ export async function consumeCodexResetCredit(
   creditId?: string
 ): Promise<{
   outcome: CodexResetCreditOutcome;
-  usage: JsonRecord;
+  usage: JsonRecord | null;
+  quotaRefreshed: boolean;
 }> {
   if (!connectionId || typeof connectionId !== "string") {
     throw new CodexResetCreditError(400, "connection_id_required", "connectionId is required.");
@@ -482,14 +478,31 @@ export async function consumeCodexResetCredit(
     throw new CodexResetCreditError(400, "idempotency_key_required", "idempotencyKey is required.");
   }
 
+  const key = JSON.stringify([connectionId, idempotencyKey.trim()]);
+  const requestedCreditId = typeof creditId === "string" && creditId.trim() ? creditId.trim() : undefined;
+  const existing = redemptions.get(key);
+  if (existing && existing.requestedCreditId !== requestedCreditId) {
+    throw new CodexResetCreditError(409, "idempotency_conflict", "This request key belongs to a different credit selection.");
+  }
+  if (activeRedemptions.has(connectionId)) {
+    throw new CodexResetCreditError(409, "redemption_in_progress", "A reset redemption is already in progress for this account.");
+  }
+  if (!existing && redemptions.size >= 10000) {
+    throw new CodexResetCreditError(503, "redemption_capacity", "Reset redemption tracking is full; no credit was spent.");
+  }
+  const attempt: Redemption = existing ?? { requestedCreditId };
+  redemptions.set(key, attempt);
+  activeRedemptions.add(connectionId);
   try {
     const connection = await loadCodexConnection(connectionId);
+    if (attempt.result) return attempt.result;
     const normalizedCreditId =
       typeof creditId === "string" && creditId.trim().length > 0 ? creditId.trim() : undefined;
     const { response } = await consumeWithAuthRetry(
       connection,
       idempotencyKey.trim(),
-      normalizedCreditId
+      normalizedCreditId,
+      attempt
     );
     const payload = await readResponsePayload(response);
 
@@ -505,11 +518,16 @@ export async function consumeCodexResetCredit(
     const outcome = parseConsumeOutcome(payload);
     invalidateCodexQuotaCache(connectionId);
 
-    const refreshed = await fetchAndPersistProviderLimits(connectionId, "manual", {
-      allowRotatingRefresh: true,
-    });
-
-    return { outcome, usage: refreshed.usage };
+    // Redemption is irreversible; a secondary observation failure must not invite another spend.
+    try {
+      const refreshed = await fetchAndPersistProviderLimits(connectionId, "manual", {
+        allowRotatingRefresh: true,
+      });
+      const quotaRefreshed = refreshed.usage?._stale !== true;
+      return attempt.result = { outcome, usage: refreshed.usage, quotaRefreshed };
+    } catch {
+      return attempt.result = { outcome, usage: null, quotaRefreshed: false };
+    }
   } catch (error) {
     if (error instanceof CodexResetCreditError) throw error;
     throw new CodexResetCreditError(
@@ -517,5 +535,7 @@ export async function consumeCodexResetCredit(
       "codex_reset_credit_failed",
       sanitizeErrorMessage(error) || "Failed to redeem Codex reset credit."
     );
+  } finally {
+    activeRedemptions.delete(connectionId);
   }
 }

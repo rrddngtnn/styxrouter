@@ -107,6 +107,7 @@ export interface QuotaRow {
   resetAt: string | null;
   tokenStatus: string;
   bankedResetCredits?: number | null;
+  bankedResetCreditsStale?: boolean;
   creditStatus?: "unknown" | "stale" | "observed";
   accountCooldownUntil?: string | null;
   modelCooldowns?: Array<{ model: string; reason: string; until: string }>;

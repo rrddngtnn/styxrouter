@@ -305,7 +305,7 @@ function applyCachedLimits(
       : entry.message;
   const bankedResetCredits =
     typeof cached.bankedResetCredits === "number" &&
-    Number.isFinite(cached.bankedResetCredits) &&
+    Number.isSafeInteger(cached.bankedResetCredits) &&
     cached.bankedResetCredits >= 0
       ? Math.trunc(cached.bankedResetCredits)
       : entry.bankedResetCredits;
@@ -326,7 +326,7 @@ function applyCachedLimits(
       fetchedAt,
       message,
       windows,
-      ...(bankedResetCredits !== undefined ? { bankedResetCredits } : {}),
+      ...(bankedResetCredits !== undefined ? { bankedResetCredits, bankedResetCreditsStale: effectiveRefreshFailed === true } : {}),
     };
   }
 
@@ -337,7 +337,7 @@ function applyCachedLimits(
     fetchedAt,
     message,
     windows,
-    ...(bankedResetCredits !== undefined ? { bankedResetCredits } : {}),
+    ...(bankedResetCredits !== undefined ? { bankedResetCredits, bankedResetCreditsStale: effectiveRefreshFailed === true } : {}),
     quotaTotal: best.total ?? 100,
     quotaUsed: best.used ?? Math.max(0, Math.round(100 - pct)),
     percentRemaining: pct,
