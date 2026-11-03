@@ -22,6 +22,7 @@ import {
   reorderCombos,
   updateCombo,
 } from "../src/lib/db/combos.ts";
+import { isConnectionUnavailableToAuxiliaryActivity } from "../src/lib/exclusiveLeaseIsolation.ts";
 import { getConsistentMachineId } from "../src/shared/utils/machineId.ts";
 import { logAuditEvent } from "../src/lib/compliance/index.ts";
 import { z, type ZodTypeAny } from "zod";
@@ -582,6 +583,9 @@ export function createAdminApi() {
     if (conn.authType !== "oauth") {
       return bad(c, "Only OAuth accounts support token refresh.");
     }
+    if (conn.isActive === false) {
+      return bad(c, "Enable this account before refreshing its token.", 409);
+    }
     if (!conn.refreshToken || typeof conn.refreshToken !== "string") {
       return bad(c, "No refresh token stored for this account; re-authenticate via OAuth.");
     }
@@ -589,23 +593,38 @@ export function createAdminApi() {
       return bad(c, "Imported static token refresh is disabled; re-authenticate via OAuth.");
     }
     try {
+      if (await isConnectionUnavailableToAuxiliaryActivity(id)) {
+        return bad(c, "Token refresh deferred while this account is exclusively reserved or leased.", 409);
+      }
+      // Keep the helper's credential object: its staleness check may adopt a
+      // newer expired DB token before refreshing. CAS against that actual input,
+      // not the older HTTP snapshot (and never arbitrary current credentials).
+      const refreshCredentials = {
+        refreshToken: conn.refreshToken,
+        connectionId: id,
+        accessToken: conn.accessToken,
+        expiresAt: conn.tokenExpiresAt ?? conn.expiresAt ?? null,
+        providerSpecificData: conn.providerSpecificData,
+      };
       const r: any = await getAccessTokenWithProxy(
         conn.provider,
-        {
-          refreshToken: conn.refreshToken,
-          connectionId: id,
-          accessToken: conn.accessToken,
-          expiresAt: conn.tokenExpiresAt ?? conn.expiresAt ?? null,
-          providerSpecificData: conn.providerSpecificData,
-        },
+        refreshCredentials,
         async (persisted) => {
+          const current = (await getProviderConnectionById(id)) as any;
+          if (!current || current.isActive === false || current.providerSpecificData?.importedToken ||
+              current.provider !== conn.provider || current.authType !== "oauth" ||
+              (current.refreshToken !== refreshCredentials.refreshToken && current.refreshToken !== persisted.refreshToken) ||
+              await isConnectionUnavailableToAuxiliaryActivity(id)) {
+            throw new Error("Connection changed during refresh");
+          }
           if (!(await updateProviderCredentials(id, persisted as Record<string, unknown>))) {
             throw new Error("Secure credential persistence failed");
           }
         },
       );
       if (!r?.accessToken) {
-        const errMsg = r?.code ? `Refresh rejected (${r.code})` : "OAuth token refresh failed";
+        // Upstream codes and exception messages are untrusted credential-bearing text.
+        const errMsg = "OAuth token refresh failed; re-authenticate if the problem persists.";
         await updateProviderConnection(id, {
           testStatus: "error",
           lastError: errMsg,
@@ -618,8 +637,8 @@ export function createAdminApi() {
       const tokenExpiresAt = updated?.tokenExpiresAt ?? updated?.expiresAt ?? null;
       audit(c, "connection.refresh_token", id, { ok: true, tokenExpiresAt });
       return c.json({ ok: true, tokenExpiresAt });
-    } catch (e) {
-      const error = (e instanceof Error ? e.message : "OAuth token refresh failed").slice(0, 200);
+    } catch {
+      const error = "OAuth token refresh failed; credentials were not confirmed persisted.";
       audit(c, "connection.refresh_token", id, { ok: false, error });
       return c.json({ ok: false, error }, 400);
     }

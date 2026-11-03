@@ -48,6 +48,12 @@ interface ProvidersResponse {
   providers?: Provider[];
 }
 
+// Expiry alone is not evidence of refresh capability or a scheduled refresh.
+export function CredentialExpiryHint({ expiresAt }: { expiresAt?: string | null }) {
+  const hint = formatCredentialExpiryHint(expiresAt);
+  return hint ? <> · {hint}</> : null;
+}
+
 interface Account {
   id: string;
   provider: string;
@@ -1096,13 +1102,7 @@ export function ProviderDetail() {
                     <td className={!a.isActive ? "muted" : failing ? "bad" : "ok"}>
                       {!a.isActive ? tr("disabled") : a.testStatus ?? tr("unchecked")}
                       {a.backoffLevel > 0 ? ` · backoff ${a.backoffLevel}` : ""}
-                      {(() => {
-                        const expHint = formatCredentialExpiryHint(a.tokenExpiresAt);
-                        if (!expHint) return "";
-                        return !isApiKey && expHint.startsWith("expires in")
-                          ? ` · ${expHint} (auto-refresh)`
-                          : ` · ${expHint}`;
-                      })()}
+                      <CredentialExpiryHint expiresAt={a.tokenExpiresAt} />
                     </td>
                     <td className="cell-error" title={a.lastError ?? undefined}>
                       {results[a.id] ?? (a.lastError ? a.lastError.replace(/\s+/g, " ").slice(0, 80) : "")}
