@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 
 test("normalizes versioned URLs and rejects credential-bearing or non-HTTP URLs", () => {
@@ -76,6 +77,32 @@ test("tools catalog includes Claude Code, Codex, OpenCode, Aider, IDE, Python SD
   const hermes = buildSnippets("hermes-agent", "http://127.0.0.1:20128", "sk-test", "codex/gpt-5.4");
   expect(hermes[0]?.file).toBe("~/.hermes/config.yaml");
   expect(hermes[0]?.body).toContain("http://127.0.0.1:20128/v1");
+});
+
+test("blank tunnel ports use the documented public default", () => {
+  for (const mode of TUNNEL_MODES) {
+    for (const port of ["", "   "]) {
+      const snippets = buildTunnelSnippets(mode.id, port, "styx.example.org", "user@example.org");
+      expect(snippets.map(s => s.body).join("\n")).toContain("127.0.0.1:20128");
+    }
+  }
+});
+
+test("backend port input is independent of the browser reverse-proxy port", () => {
+  const source = readFileSync(new URL("../src/pages/Tools.tsx", import.meta.url), "utf8");
+  expect(source).not.toContain("location.port");
+  expect(source).toContain('const [localPort, setLocalPort] = useState("20128")');
+  expect(source).toContain('placeholder="20128"');
+  expect(source).toContain('onChange={(e) => setLocalPort(e.target.value)}');
+  expect(source).toContain('placeholder="user@example.org"');
+  expect(source.match(/activeTunnel\.recommendedBase\(localPort\.trim\(\) \|\| "20128"/g)).toHaveLength(2);
+});
+
+test("custom backend ports remain usable across all tunnel modes", () => {
+  for (const mode of TUNNEL_MODES) {
+    const snippets = buildTunnelSnippets(mode.id, " 31234 ", "styx.example.org", "user@203.0.113.5");
+    expect(snippets.map(s => s.body).join("\n")).toContain("127.0.0.1:31234");
+  }
 });
 
 test("tunnel validation blocks syntax injection and documents TLS and streaming prerequisites", () => {

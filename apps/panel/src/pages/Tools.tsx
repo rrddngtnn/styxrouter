@@ -410,7 +410,7 @@ export function Tools() {
   const [base, setBase] = useState(() => location.origin);
   const [key, setKey] = useState("");
   const [model, setModel] = useState("");
-  const [localPort, setLocalPort] = useState(() => location.port || "20128");
+  const [localPort, setLocalPort] = useState("20128");
   const [publicHost, setPublicHost] = useState(() =>
     location.hostname && location.hostname !== "127.0.0.1" && location.hostname !== "localhost"
       ? location.hostname
@@ -719,7 +719,7 @@ export function Tools() {
                   <input
                     type="text"
                     value={sshTarget}
-                    placeholder="user@192.0.2.20"
+                    placeholder="user@example.org"
                     onChange={(e) => setSshTarget(e.target.value)}
                   />
                 </label>
@@ -730,13 +730,13 @@ export function Tools() {
                   className="btn-add"
                   disabled={!!tunnelError}
                   onClick={() => {
-                    const nextBase = activeTunnel.recommendedBase(localPort || "20128", publicHost || "styx.yourdomain.com");
+                    const nextBase = activeTunnel.recommendedBase(localPort.trim() || "20128", publicHost || "styx.yourdomain.com");
                     setBase(nextBase);
                     toast.success(`Base URL updated to ${nextBase}`);
                   }}
                 >
                   <span>
-                    {tr("Use")} {activeTunnel.recommendedBase(localPort || "20128", publicHost || "styx.yourdomain.com")} {tr("in harness snippets")}
+                    {tr("Use")} {activeTunnel.recommendedBase(localPort.trim() || "20128", publicHost || "styx.yourdomain.com")} {tr("in harness snippets")}
                   </span>
                 </button>
               </div>

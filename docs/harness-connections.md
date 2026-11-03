@@ -76,11 +76,11 @@ capability.
 Use the repository's isolated runner (direct `bun test` is intentionally blocked):
 
 ```sh
-bun apps/server/scripts/test-isolated.ts \
+$HOME/.bun/bin/bun apps/server/scripts/test-isolated.ts \
   "$PWD/apps/panel/tests/tools-ui.test.tsx" \
   "$PWD/apps/panel/tests/oauth-expiry-ui.test.tsx" \
   "$PWD/apps/panel/tests/provider-cards.test.tsx"
-(cd apps/panel && bun run typecheck)
+(cd apps/panel && PATH=$HOME/.bun/bin:$PATH $HOME/.bun/bin/bun run typecheck)
 ```
 
 The focused checks exercise generator schemas, shell literal preservation,
