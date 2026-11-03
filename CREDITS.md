@@ -12,10 +12,12 @@ Its exact import revision and the obligations for historical combined
 distributions remain unresolved. Do not describe this tree as MIT-only
 or treat the retained notices as release clearance. No project-wide licence
 change is made here; installation and hygiene checks cannot settle licensing.
-The Docker and npm publication jobs are deliberately disabled for all triggers.
-Before enabling either job, resolve outstanding source and asset provenance,
-applicable licences and distribution obligations, retain required notices in each
-artifact, and record release approval. A passing hygiene gate is not approval.
+The owner explicitly authorized private GHCR Docker publication after build and
+isolated image verification; npm publication remains disabled. This scoped
+operational authorization is not legal clearance and does not resolve the
+outstanding provenance or distribution obligations recorded below. Public
+publication or visibility changes require separate authorization and review.
+Retain required notices in each artifact. A passing hygiene gate is not approval.
 
 ## OmniRoute
 

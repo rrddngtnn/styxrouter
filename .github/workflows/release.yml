@@ -1,92 +1,133 @@
-name: Release Docker & npm
+name: Docker verify & publish (private GHCR only)
 
 on:
+  pull_request:
   push:
-    branches:
-      - main
-    tags:
-      - "v*"
+    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish the verified image to private GHCR (main only)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  # HARD STOP for every trigger, including workflow_dispatch. After provenance,
-  # licence obligations and release clearance are reviewed and documented by the
-  # responsible owner, a separate deliberate workflow change is required to lift
-  # this block. A successful build or hygiene scan is not legal clearance.
-  docker:
-    if: ${{ false }}
-    name: Build & Push Docker Image (GHCR)
-    runs-on: ubuntu-latest
+  verify:
+    name: Build-only, then isolated image smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build only (no registry login or push)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: styxrouter:verify
+          labels: |
+            org.opencontainers.image.source=https://github.com/rrddngtnn/styxrouter
+            org.opencontainers.image.revision=${{ github.sha }}
+          # This is a single tested image, not an untested multi-arch rebuild.
+          provenance: false
+      - name: Health, built panel, no-key auth and byte-exact notices
+        run: python3 scripts/docker-smoke.py styxrouter:verify
+      - name: Export the exact verified image
+        if: github.event_name != 'pull_request'
+        run: docker save styxrouter:verify -o "$RUNNER_TEMP/styxrouter.tar"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: verified-docker-image
+          path: ${{ runner.temp }}/styxrouter.tar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+  publish:
+    name: Publish verified image to private GHCR
+    needs: verify
+    # Owner explicitly authorized Docker only. This is not licence clearance;
+    # retained provenance limitations/notices remain. No npm job or npm token.
+    if: >-
+      github.repository == 'rrddngtnn/styxrouter' &&
+      ((github.event_name == 'push' &&
+        (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))) ||
+       (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/rrddngtnn/styxrouter
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Require private repository and absent-or-private package
+        env:
+          GH_REPO: rrddngtnn/styxrouter
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/rrddngtnn/styxrouter --jq '.private')" = true
+          status=$(curl --silent --show-error --output "$RUNNER_TEMP/package.json" \
+            --write-out '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            https://api.github.com/users/rrddngtnn/packages/container/styxrouter)
+          case "$status" in
+            200) test "$(jq -r '.visibility' "$RUNNER_TEMP/package.json")" = private ;;
+            404) ;; # First GHCR publication defaults to private; verify again below.
+            *) printf 'Cannot establish package privacy (HTTP %s)\n' "$status" >&2; exit 1 ;;
+          esac
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: verified-docker-image
+          path: ${{ runner.temp }}/verified
+      - name: Load and tag exact verified image (no rebuild)
+        env:
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          docker load -i "$RUNNER_TEMP/verified/styxrouter.tar"
+          tags=("$IMAGE:sha-$GITHUB_SHA")
+          if [[ "$RELEASE_REF" == refs/heads/main ]]; then
+            tags+=("$IMAGE:latest")
+          elif [[ "$RELEASE_REF" == refs/tags/v* ]]; then
+            [[ "$RELEASE_NAME" =~ ^v[A-Za-z0-9_][A-Za-z0-9_.-]*$ ]] || { printf 'Invalid Docker release tag\n' >&2; exit 1; }
+            (( ${#RELEASE_NAME} <= 128 )) || exit 1
+            tags+=("$IMAGE:$RELEASE_NAME")
+          fi
+          printf '%s\n' "${tags[@]}" > "$RUNNER_TEMP/image-tags"
+          for tag in "${tags[@]}"; do docker tag styxrouter:verify "$tag"; done
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/styxrouter
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-
-      - name: Build and push multi-arch Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  npm:
-    if: ${{ false }}
-    name: Pack & Publish npm (@styxrouter/server)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install workspace dependencies
-        run: bun install --frozen-lockfile --ignore-scripts
-
-      - name: Build panel & verify npm tarball
-        working-directory: apps/server
-        run: npm pack --dry-run
-
-      - name: Publish to npm (on version tag when NPM_TOKEN is set)
-        if: startsWith(github.ref, 'refs/tags/v') && env.NODE_AUTH_TOKEN != ''
-        working-directory: apps/server
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+      - name: Push verified tags and verify registry digest
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            docker push "$tag"
+            docker pull "$tag"
+            test "$(docker image inspect --format '{{.Id}}' "$tag")" = \
+              "$(docker image inspect --format '{{.Id}}' styxrouter:verify)"
+          done < "$RUNNER_TEMP/image-tags"
+      - name: Verify package remains private (never change visibility)
+        run: |
+          set -euo pipefail
+          test "$(gh api users/rrddngtnn/packages/container/styxrouter --jq '.visibility')" = private
+          printf 'Published verified linux/amd64 image to private GHCR; npm disabled.\n' >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r tag; do printf -- '- `%s`\n' "$tag" >> "$GITHUB_STEP_SUMMARY"; done < "$RUNNER_TEMP/image-tags"

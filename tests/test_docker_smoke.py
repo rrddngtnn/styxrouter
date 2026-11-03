@@ -1,0 +1,77 @@
+"""Unit coverage of Docker smoke orchestration; not a real image smoke."""
+import importlib.util
+from pathlib import Path
+import subprocess
+import unittest
+from unittest.mock import patch
+
+SPEC = importlib.util.spec_from_file_location("docker_smoke", Path(__file__).parents[1] / "scripts/docker-smoke.py")
+assert SPEC is not None and SPEC.loader is not None
+smoke = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(smoke)
+
+
+class DockerSmokeTests(unittest.TestCase):
+    def test_notice_inventory_covers_retained_sources(self):
+        script = smoke.probe_script()
+        for path in (smoke.ROOT / "apps/server/licenses").iterdir():
+            if path.is_file():
+                self.assertIn('/app/apps/server/licenses/' + path.name, script)
+        self.assertIn('/app/CREDITS.md', script)
+        self.assertIn('provider-icon-NOTICE.md', script)
+        self.assertIn('STYXROUTER-BRAND-KIT-NOTICE.txt', script)
+
+    @patch.object(smoke.shutil, "which", return_value=None)
+    def test_missing_docker_fails_before_start(self, _which):
+        with self.assertRaisesRegex(SystemExit, "no image smoke was executed"):
+            smoke.main("test:unit")
+
+    def lifecycle(self, health="running healthy", fail_exec=False):
+        calls = []
+        def fake_run(*args, **kwargs):
+            calls.append((args, kwargs))
+            if args[:2] == ("docker", "inspect"):
+                return subprocess.CompletedProcess(args, 0, health)
+            if fail_exec and args[:2] == ("docker", "exec"):
+                raise subprocess.CalledProcessError(1, args)
+            return subprocess.CompletedProcess(args, 0)
+        return calls, fake_run
+
+    @patch.object(smoke.shutil, "which", return_value="/unit/docker")
+    def test_isolation_and_cleanup(self, _which):
+        calls, runner = self.lifecycle()
+        with patch.object(smoke, "run", side_effect=runner), patch.object(smoke.subprocess, "run") as cleanup:
+            smoke.main("test:unit")
+        args = calls[0][0]
+        self.assertIn("--read-only", args)
+        self.assertIn("none", args)
+        self.assertNotIn("--publish", args)
+        self.assertNotIn("--volume", args)
+        self.assertNotIn("--env-file", args)
+        self.assertIn("/data:rw,nosuid,nodev,mode=1777", args)
+        env = [args[i + 1] for i, arg in enumerate(args) if arg == "--env"]
+        for key in ("JWT_SECRET", "API_KEY_SECRET", "STORAGE_ENCRYPTION_KEY", "INITIAL_PASSWORD"):
+            self.assertRegex(next(v for v in env if v.startswith(key + "=")), key + r"=[a-f0-9]{64}$")
+        self.assertEqual(calls[-1][0][:2], ("docker", "exec"))
+        self.assertIn("--volumes", cleanup.call_args.args[0])
+
+    @patch.object(smoke.shutil, "which", return_value="/unit/docker")
+    def test_unhealthy_fails_closed_and_cleans(self, _which):
+        calls, runner = self.lifecycle("running unhealthy")
+        with patch.object(smoke, "run", side_effect=runner), patch.object(smoke.subprocess, "run") as cleanup:
+            with self.assertRaisesRegex(RuntimeError, "failed health"):
+                smoke.main("test:unit")
+        self.assertFalse(any(args[:2] == ("docker", "exec") for args, _ in calls))
+        cleanup.assert_called_once()
+
+    @patch.object(smoke.shutil, "which", return_value="/unit/docker")
+    def test_probe_failure_propagates_and_cleans(self, _which):
+        _, runner = self.lifecycle(fail_exec=True)
+        with patch.object(smoke, "run", side_effect=runner), patch.object(smoke.subprocess, "run") as cleanup:
+            with self.assertRaises(subprocess.CalledProcessError):
+                smoke.main("test:unit")
+        cleanup.assert_called_once()
+
+
+if __name__ == "__main__":
+    unittest.main()

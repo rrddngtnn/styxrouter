@@ -1,7 +1,7 @@
 import "./helpers/test-secrets";
 import { expect, test } from "bun:test";
 import { CodeBuddyCnExecutor } from "../open-sse/executors/codebuddy-cn";
-import { createApiKey } from "../src/lib/db/apiKeys";
+import { createApiKey, getApiKeyMetadata } from "../src/lib/db/apiKeys";
 import { createProviderConnection, updateProviderConnection } from "../src/lib/db/providers";
 import { initTranslators } from "../open-sse/translator/index";
 import { handleChat } from "../src/sse/handlers/chat";
@@ -47,27 +47,42 @@ test("delayed normal JSON passes and SSE returns before first chunk", async () =
 test("routes rotate on delayed 6004 for streaming and nonstreaming clients", async () => {
   await initTranslators();
   const old = globalThis.fetch;
+  // An eligible sibling must not satisfy a request belonging to a different fixture.
+  const connectionIds: string[] = [];
+  const sibling = await createProviderConnection({ provider: "codebuddy-cn", authType: "oauth", accessToken: "synthetic-unrelated", isActive: true, priority: 1 });
+  connectionIds.push(sibling.id);
   const event = 'data: {"id":"test","object":"chat.completion.chunk","created":1,"model":"deepseek-v3.2","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":null}]}\n\ndata: {"id":"test","object":"chat.completion.chunk","created":1,"model":"deepseek-v3.2","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
   try {
     for (const stream of [true, false]) {
-      const key = await createApiKey(`slow-semantic-${stream}`, "test");
       const first = `synthetic-first-${stream}`;
       const second = `synthetic-second-${stream}`;
-      const firstConnection = await createProviderConnection({ provider: "codebuddy-cn", authType: "oauth", accessToken: first, isActive: true, priority: 1 } as any);
-      const secondConnection = await createProviderConnection({ provider: "codebuddy-cn", authType: "oauth", accessToken: second, isActive: true, priority: 2 } as any);
+      const firstConnection = await createProviderConnection({ provider: "codebuddy-cn", authType: "oauth", accessToken: first, isActive: true, priority: 10 } as any);
+      const secondConnection = await createProviderConnection({ provider: "codebuddy-cn", authType: "oauth", accessToken: second, isActive: true, priority: 20 } as any);
+      connectionIds.push(firstConnection.id, secondConnection.id);
+      // Account priorities only order the eligible pool. Scope the key before
+      // affinity/LRU selection so sibling fixtures cannot bypass the 6004 path.
+      const allowedConnections = [firstConnection.id, secondConnection.id];
+      const key = await createApiKey(`slow-semantic-${stream}`, "test", [], { allowedConnections });
+      expect((await getApiKeyMetadata(key.key))?.allowedConnections).toEqual(allowedConnections);
       const seen: string[] = [];
       globalThis.fetch = (async (_url, init) => {
         const auth = new Headers(init?.headers).get("authorization") ?? "";
         seen.push(auth);
-        return auth === `Bearer ${first}` ? delayed('{"code":6004}') : new Response(event, { headers: { "content-type": "text/event-stream" } });
+        if (auth === `Bearer ${first}`) return delayed('{"code":6004}');
+        if (auth === `Bearer ${second}`) return new Response(event, { headers: { "content-type": "text/event-stream" } });
+        throw new Error(`Unexpected fixture account: ${auth}`);
       }) as typeof fetch;
       const response = await handleChat(new Request("http://localhost/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${key.key}` }, body: JSON.stringify({ model: "codebuddy-cn/deepseek-v3.2", messages: [{ role: "user", content: "hi" }], stream }) }));
       expect(response.status).toBe(200);
       expect(await response.text()).toContain("ok");
+      expect(seen).toEqual([`Bearer ${first}`, `Bearer ${second}`]);
       expect(seen).toContain(`Bearer ${first}`);
       expect(seen).toContain(`Bearer ${second}`);
-      await updateProviderConnection(firstConnection.id, { isActive: false });
-      await updateProviderConnection(secondConnection.id, { isActive: false });
+      // Keep prior-mode siblings active until final cleanup: the next key's
+      // selection scope, not deactivation timing, must isolate its failover.
     }
-  } finally { globalThis.fetch = old; }
+  } finally {
+    globalThis.fetch = old;
+    for (const id of connectionIds) await updateProviderConnection(id, { isActive: false });
+  }
 }, 60000);
