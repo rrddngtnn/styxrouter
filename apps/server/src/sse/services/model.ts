@@ -409,6 +409,8 @@ function stripRedundantNodePrefix(model: string, nodePrefix: unknown): string {
 /**
  * Get full model info (parse or resolve)
  */
+import { exactTargetProbe } from "./exactTargetProbe";
+
 export async function getModelInfo(modelStr) {
   const parsed = parseModel(modelStr);
   const { extendedContext } = parsed;
@@ -508,7 +510,7 @@ export async function getModelInfo(modelStr) {
     // the bare model name using existing heuristics (claude-* → anthropic, etc.)
     try {
       const settings = await getCachedSettings();
-      if (settings.stripModelPrefix === true) {
+      if (!exactTargetProbe() && settings.stripModelPrefix === true) {
         const strippedResult = await getModelInfoCore(parsed.model, getCombinedModelAliases);
         return { ...strippedResult, extendedContext };
       }

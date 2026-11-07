@@ -84,6 +84,8 @@ import { dispatchChatWithAffinityEviction } from "./chatDispatch";
 import { getCachedSettings, getCombosCacheVersion } from "@/lib/db/readCache";
 import { getCombos } from "@/lib/db/combos";
 import { resolveModelLockoutSettings } from "@/lib/resilience/modelLockoutSettings";
+import { exactTargetProbe, runWithExactTargetProbe } from "../services/exactTargetProbe";
+export { markExactTargetProbe } from "../services/exactTargetProbe";
 import {
   ensureOpenAIStoreSessionFallback,
   isOpenAIResponsesStoreEnabled,
@@ -513,7 +515,7 @@ async function handleChatImplementation(
   // resolves back to the real model with reasoning suppressed in place, before any
   // model resolution / combo routing sees it. Claude/Messages path forces
   // `thinking:{type:"disabled"}`; OpenAI path drops the reasoning fields.
-  const noThinking = applyNoThinkingAlias(body, {
+  const noThinking = exactTargetProbe() ? { applied: false, realModel: undefined } : applyNoThinkingAlias(body, {
     claudeFormat: url.pathname.includes("/messages"),
   });
   if (noThinking.applied) {
@@ -523,8 +525,8 @@ async function handleChatImplementation(
   // X-Route-Model header overrides body.model for routing purposes (see
   // resolveRoutingModel). The resolved model still passes through
   // enforceApiKeyPolicy below, so it cannot bypass per-key allowlists.
-  let modelStr = resolveRoutingModel(request, body);
-  if (typeof modelStr === "string") {
+  let modelStr = exactTargetProbe() || resolveRoutingModel(request, body);
+  if (!exactTargetProbe() && typeof modelStr === "string") {
     // Preserve literal combo names such as "Claude [1m]". Context tags are
     // stripped only when the exact request does not identify a combo.
     const exactCombo = await getCombo(modelStr);
@@ -540,7 +542,7 @@ async function handleChatImplementation(
   // resolve back to the real id before any combo lookup / resolveModelOrError()
   // sees it — see resolveCcDiscoveryAliasStrip. A genuine claude/ model id (the
   // real Claude OAuth provider namespace) is always left untouched.
-  const ccAliasStrip = await resolveCcDiscoveryAliasStrip(modelStr);
+  const ccAliasStrip = exactTargetProbe() ? { stripped: false, model: modelStr } : await resolveCcDiscoveryAliasStrip(modelStr);
   if (ccAliasStrip.stripped) {
     log.debug("CC_DISCOVERY", `Resolved cc discovery alias: ${modelStr} → ${ccAliasStrip.model}`);
     modelStr = ccAliasStrip.model;
@@ -849,11 +851,16 @@ async function handleChatImplementation(
     return errorResponse(hookResponse.status, hookResponse.body as any);
   }
 
+  if (exactTargetProbe()) {
+    modelStr = exactTargetProbe()!;
+    body = { ...body, model: modelStr };
+  }
+
   // T05 — Task-Aware Smart Routing
   // Detect the semantic task type and optionally route to the optimal model
   let resolvedModelStr = modelStr;
   let taskRouteInfo: { taskType: string; wasRouted: boolean } | null = null;
-  if (getTaskRoutingConfig().enabled) {
+  if (!exactTargetProbe() && getTaskRoutingConfig().enabled) {
     telemetry.startPhase("task-route");
     const tr = applyTaskAwareRouting(modelStr, body);
     if (tr.wasRouted) {
@@ -875,7 +882,7 @@ async function handleChatImplementation(
   // model (some providers don't implement Anthropic's web_search_20250305 server tool).
   // Settings are read only when a web-search tool is present; the override lands before
   // auto/combo resolution and the layer-1 fallback so the target's own handling applies.
-  if (hasNativeWebSearchTool(body)) {
+  if (!exactTargetProbe() && hasNativeWebSearchTool(body)) {
     const wsSettings = await getCachedSettings().catch(() => ({}) as Record<string, unknown>);
     const wsRoute = resolveWebSearchRouteOverride(resolvedModelStr, body, wsSettings);
     if (wsRoute.wasRouted) {
@@ -892,7 +899,7 @@ async function handleChatImplementation(
   // combo/provider resolution. Existing behavior is untouched when no rule matches.
   let reasoningDecision: ReasoningRuleDecision | null = null;
   let requestRoutingTags: { tags: string[] } = { tags: [] };
-  const reasoningRouting = await applyReasoningRouting({
+  const reasoningRouting = exactTargetProbe() ? { response: null, body, modelStr: resolvedModelStr, reasoningDecision: null, requestRoutingTags: { tags: [] as string[] } } : await applyReasoningRouting({
     request,
     body,
     modelStr: resolvedModelStr,
@@ -906,17 +913,17 @@ async function handleChatImplementation(
   reasoningDecision = reasoningRouting.reasoningDecision;
   requestRoutingTags = reasoningRouting.requestRoutingTags;
 
-  const autoRouting = await resolveAutoRoutingState(resolvedModelStr);
-  if (autoRouting.response) return autoRouting.response;
+  const autoRouting = exactTargetProbe() ? null : await resolveAutoRoutingState(resolvedModelStr);
+  if (autoRouting?.response) return autoRouting.response;
 
   // Check if model is a combo (has multiple models with fallback)
   telemetry.startPhase("resolve");
-  let combo: any = await getComboForModel(resolvedModelStr);
+  let combo: any = exactTargetProbe() ? null : await getComboForModel(resolvedModelStr);
   if (reasoningDecision?.targetCombo) combo = reasoningDecision.targetCombo;
 
   // "auto" prefix fuzzy matching: "auto/fast" → "auto/best-fast", etc.
   // parseModel splits "auto/fast" into provider="auto" which isn't a real provider.
-  if (!combo && resolvedModelStr.startsWith("auto/")) {
+  if (!exactTargetProbe() && !combo && resolvedModelStr.startsWith("auto/")) {
     const suffix = resolvedModelStr.slice(5);
     for (const candidate of [`auto/best-${suffix}`, `auto/${suffix}`]) {
       combo = await getComboForModel(candidate);
@@ -927,7 +934,7 @@ async function handleChatImplementation(
     }
   }
 
-  const virtualCombo = await createVirtualAutoCombo(autoRouting, combo, apiKeyInfo?.id);
+  const virtualCombo = exactTargetProbe() ? null : await createVirtualAutoCombo(autoRouting!, combo, apiKeyInfo?.id);
   if (virtualCombo instanceof Response) return virtualCombo;
   combo = virtualCombo;
   if (combo) {
@@ -1313,7 +1320,7 @@ async function handleChatImplementation(
 }
 
 export const handleChat = chatAdmission.withChatAdmission((...args: Parameters<typeof handleChatImplementation>) =>
-  withRoutingTraceRequest(() => handleChatImplementation(...args))
+  runWithExactTargetProbe(args[0], () => withRoutingTraceRequest(() => handleChatImplementation(...args)))
 );
 
 /** Handle one resolved model through gates, credentials, and retry/fallback. */
@@ -1597,6 +1604,7 @@ async function handleSingleModelChat(
   const occupancySessionKey =
     runtimeOptions.sessionAffinityKey ?? runtimeOptions.sessionId ?? `request:${randomUUID()}`;
   let initialPreselectedCredentials = runtimeOptions.preselectedCredentials;
+  let frozenAntigravityWireModel: string | undefined;
 
   requestAttemptLoop: while (true) {
     const excludedConnectionIds = new Set<string>();
@@ -1617,6 +1625,7 @@ async function handleSingleModelChat(
               model,
               {
                 sessionKey: occupancySessionKey,
+                antigravityWireModel: frozenAntigravityWireModel,
                 explicitConnectionPin: runtimeOptions.explicitConnectionPin === true && excludedConnectionIds.size === 0,
                 reserveOAuthSession: true,
                 excludeConnectionIds: Array.from(excludedConnectionIds),
@@ -1651,6 +1660,9 @@ async function handleSingleModelChat(
               }
             );
       preselectedCredentials = null;
+      if (credentials && "antigravityResolvedFor" in credentials && credentials.antigravityResolvedFor === model && "antigravityWireModel" in credentials && typeof credentials.antigravityWireModel === "string") {
+        frozenAntigravityWireModel ??= credentials.antigravityWireModel;
+      }
 
       // Eligibility is only a snapshot: another process may retag an account
       // before selection, including after a preflight cached its credentials.
@@ -1848,6 +1860,45 @@ async function handleSingleModelChat(
       let refreshedCredentials;
       try {
         refreshedCredentials = await checkAndRefreshToken(provider, credentials);
+        if ((provider === "antigravity" || provider === "agy") && refreshedCredentials) {
+          // Bind authorization to the same immutable wire ID the executor will use.
+          // Preselected credentials and connection defaults may not carry a resolution.
+          const wireModel = effectiveModel === model && frozenAntigravityWireModel
+            ? frozenAntigravityWireModel
+            : await (await import("@styxrouter/open-sse/services/antigravityModelResolution.ts"))
+                .resolveAntigravityWireModel(effectiveModel, credentials.antigravityExactModel === effectiveModel);
+          const key = extractApiKey(request);
+          if (!(await isModelAllowedForKey(key, modelStr)) ||
+              !(await isModelAllowedForKey(key, `antigravity/${wireModel}`))) {
+            releaseOAuthSession();
+            return errorResponse(HTTP_STATUS.FORBIDDEN, "Model is not allowed for this API key");
+          }
+          refreshedCredentials.antigravityResolvedFor = effectiveModel;
+          refreshedCredentials.antigravityWireModel = wireModel;
+          refreshedCredentials.antigravityAuthorizeAttempt = async (candidate: string) => {
+            if (key) {
+              const { getApiKeyMetadata, validateApiKey } = await import("@/lib/db/apiKeys");
+              if (!(await validateApiKey(key))) return false;
+              const current = await getApiKeyMetadata(key);
+              if (!current || (current.allowedConnections?.length && !current.allowedConnections.includes(credentials.connectionId))) return false;
+            }
+            return (await isModelAllowedForKey(key, modelStr)) &&
+              (await isModelAllowedForKey(key, `antigravity/${candidate}`));
+          };
+          if (!(await refreshedCredentials.antigravityAuthorizeAttempt(wireModel))) {
+            releaseOAuthSession();
+            return errorResponse(HTTP_STATUS.FORBIDDEN, "Model or account is not allowed for this API key");
+          }
+          refreshedCredentials.antigravityFallbackAllowed = async (candidate: string) => {
+            if (!(await isModelAllowedForKey(extractApiKey(request), `${provider}/${candidate}`))) return false;
+            const { isModelAdvertisedByConnection, isModelExcludedByConnection } = await import("@/domain/connectionModelRules");
+            if (isModelExcludedByConnection(candidate, credentials.providerSpecificData)) return false;
+            const { getSyncedAvailableModelsByConnection } = await import("@/lib/db/models");
+            const inventories = await getSyncedAvailableModelsByConnection(provider);
+            const inventory = inventories[credentials.connectionId];
+            return isModelAdvertisedByConnection(candidate, Array.isArray(inventory) ? new Set(inventory.map((item: { id: string }) => item.id)) : undefined, provider, false, true);
+          };
+        }
       } catch (error) {
         releaseOAuthSession();
         throw error;
@@ -2181,7 +2232,7 @@ async function handleSingleModelChat(
       // Combo targets never emergency-hop: the combo is the operator's fallback policy
       // (target-level orchestration plus the global fallback #689 after it), and a
       // per-target hop burns extra upstream calls against exhausted providers (#1731).
-      if (!runtimeOptions.emergencyFallbackTried && !comboName) {
+      if (!exactTargetProbe() && !runtimeOptions.emergencyFallbackTried && !comboName) {
         const fallbackDecision = shouldUseFallback(
           Number(result.status || 0),
           String(result.error || ""),

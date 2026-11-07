@@ -119,6 +119,21 @@ async function inventory(p: NonNullable<Awaited<ReturnType<typeof provider>>>, a
   }
   return { rows, manual: manual as Model[], malformedSync };
 }
+
+export async function isExplicitProviderModel(model: string): Promise<boolean> {
+  const slash = model.indexOf("/");
+  if (slash < 1) return false;
+  const prefix = model.slice(0, slash), localId = model.slice(slash + 1);
+  const candidates = Object.entries(REGISTRY)
+    .filter(([id, entry]) => entry.id === id && (id === prefix || entry.alias === prefix))
+    .map(([id, entry]) => ({ id, prefix, builtins: entry.models || [] }));
+  for (const node of await getProviderNodes() as Model[]) {
+    if (node.prefix === prefix || node.id === prefix) candidates.push({ id: node.id, prefix, builtins: [] });
+  }
+  if (candidates.length !== 1) return false;
+  const { rows } = await inventory(candidates[0]);
+  return rows.has(localId);
+}
 function specialtyRows(p: NonNullable<Awaited<ReturnType<typeof provider>>>, models: Model[] = []) {
   const scoped: ScopedInventory = { providerId: p.id, nodeId: Object.hasOwn(REGISTRY, p.id) && REGISTRY[p.id]?.id === p.id ? null : p.id, prefix: p.prefix, models };
   expandEmbeddingInventory([scoped]);

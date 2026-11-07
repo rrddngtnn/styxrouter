@@ -12,6 +12,7 @@ import { getDbInstance } from "../db/core";
 import { getRequestDetailLogByCallLogId } from "../db/detailedLogs";
 import { shouldPersistToDisk } from "./migrations";
 import { getCallLogApiKeyContext } from "./callLogApiKeyContext";
+import { isPanelProbeLogContext } from "../panelProbeLogContext";
 import {
   getLoggedInputTokens,
   getLoggedOutputTokens,
@@ -588,7 +589,7 @@ async function saveCallLogOperation(entry: any): Promise<void> {
 }
 
 export function saveCallLog(entry: any): Promise<void> {
-  if (!shouldPersistToDisk || callLogSavesClosing) return Promise.resolve();
+  if (isPanelProbeLogContext() || !shouldPersistToDisk || callLogSavesClosing) return Promise.resolve();
 
   const operation = saveCallLogOperation(entry);
   pendingCallLogSaves.add(operation);

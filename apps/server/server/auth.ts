@@ -43,7 +43,7 @@ function apiKeyOf(c: Context): string | null {
 }
 
 // A cookie is attached by the browser on any request, so a write made with one must come from our own origin.
-function foreignOrigin(c: Context): boolean {
+export function foreignOrigin(c: Context): boolean {
   const origin = c.req.header("origin");
   const configured = process.env.STYX_TRUSTED_PUBLIC_ORIGIN;
   if (configured !== undefined) {

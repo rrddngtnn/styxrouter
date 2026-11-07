@@ -116,6 +116,8 @@ async function hasOnlyActiveCodexAccount() {
   }
 }
 
+import { exactTargetProbe } from "../services/exactTargetProbe";
+
 export async function resolveModelOrError(
   modelStr: string,
   body: any,
@@ -124,6 +126,14 @@ export async function resolveModelOrError(
 ) {
   const modelInfo = await getModelInfo(modelStr);
   const sourceFormat = detectFormatFromEndpoint(body, endpointPath);
+
+  if (exactTargetProbe()) {
+    const slash = modelStr.indexOf("/");
+    if (!modelInfo.provider || modelInfo.model !== modelStr.slice(slash + 1)) {
+      return { error: errorResponse(HTTP_STATUS.BAD_REQUEST, "Exact probe target could not be resolved without rewriting") };
+    }
+    return { ...modelInfo, provider: modelInfo.provider, model: modelInfo.model };
+  }
 
   if (
     modelInfo.provider === "openai" &&

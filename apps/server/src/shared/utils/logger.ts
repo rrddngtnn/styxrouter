@@ -18,6 +18,7 @@ import { resolve } from "path";
 import { getLogConfig, initLogRotation } from "@/lib/logRotation";
 import { getAppLogLevel } from "@/lib/logEnv";
 import { redactLogArgs } from "@/shared/utils/logRedaction";
+import { isPanelProbeLogContext } from "@/lib/panelProbeLogContext";
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -34,6 +35,7 @@ const baseConfig: pino.LoggerOptions = {
   // scrubs credentials that slip into any log message/object/error. See logRedaction.ts.
   hooks: {
     logMethod(inputArgs: unknown[], method: (...args: unknown[]) => void) {
+      if (isPanelProbeLogContext()) return;
       return (method as (...a: unknown[]) => void).apply(this, redactLogArgs(inputArgs));
     },
   },

@@ -1,3 +1,4 @@
+import { isPanelProbeLogContext } from "../../lib/panelProbeLogContext";
 import { randomUUID, createHash } from "crypto";
 import { nodeTypeFromId } from "@/lib/db/providerNodeSelect";
 import { extractGoogApiKeyHeader } from "./googApiKeyAuth.ts";
@@ -170,6 +171,7 @@ interface RecoverableConnectionState {
   lastErrorSource?: string | null;
 }
 export interface CredentialSelectionOptions {
+  antigravityWireModel?: string;
   allowSuppressedConnections?: boolean;
   allowRateLimitedConnections?: boolean;
   bypassQuotaPolicy?: boolean;
@@ -1134,7 +1136,7 @@ function planLastUsedCommit(
 function materializeConnection(
   connection: ProviderConnectionView,
   options: CredentialSelectionOptions,
-  extra: DeferredLeaseSelection & { exclusiveLease?: ExclusiveConnectionLease; codexExactModel?: string } = {}
+  extra: DeferredLeaseSelection & { exclusiveLease?: ExclusiveConnectionLease; codexExactModel?: string; antigravityExactModel?: string; antigravityResolvedFor?: string; antigravityWireModel?: string } = {}
 ) {
   const apiKeyHealth = connection.providerSpecificData?.apiKeyHealth as
     Record<string, KeyHealth> | undefined;
@@ -1515,19 +1517,30 @@ export async function getProviderCredentials(
     // Resolve against all active accounts before applying caller allowlists or affinity:
     // the same spelling must not mean a literal on one account and an alias on another.
     const preserveCodexExactModel = await codexExactModel;
+    const isAgy = provider === "antigravity" || provider === "agy";
+    const agyExactModel = isAgy && requestedModel
+      ? await (await import("@/lib/db/models/activeSyncedCatalog")).getActiveSyncedCatalog(provider)
+          .then((catalog) => catalog.models.some((item) => item.id === requestedModel))
+          .catch(() => false)
+      : false;
+    const agyWireModel = isAgy && requestedModel
+      ? options.antigravityWireModel ?? await (await import("@styxrouter/open-sse/services/antigravityModelResolution.ts"))
+          .resolveAntigravityWireModel(requestedModel, agyExactModel)
+      : undefined;
     // Filter out unavailable accounts and excluded connection
     let availableConnections = connections.filter((c) => {
       if (excludedConnectionIds.has(c.id)) {
         connectionFilterStatus.set(c.id, "excluded");
         return false;
       }
-      if (requestedModel && isModelExcludedByConnection(requestedModel, c.providerSpecificData)) {
+      if (requestedModel && (isModelExcludedByConnection(requestedModel, c.providerSpecificData) ||
+          (isAgy && agyWireModel && isModelExcludedByConnection(agyWireModel, c.providerSpecificData)))) {
         connectionFilterStatus.set(c.id, "modelExcluded");
         return false;
       }
       if (
         requestedModel &&
-        !isModelAdvertisedByConnection(requestedModel, advertisedModelsByConnection.get(c.id), c.provider, preserveCodexExactModel)
+        !isModelAdvertisedByConnection(isAgy ? agyWireModel : requestedModel, advertisedModelsByConnection.get(c.id), c.provider, preserveCodexExactModel, isAgy)
       ) {
         connectionFilterStatus.set(c.id, "modelNotAdvertised");
         return false;
@@ -2159,6 +2172,7 @@ export async function getProviderCredentials(
           commitSelectionSideEffects,
           selectNextLeaseCandidate,
           ...(provider === "codex" ? { codexExactModel: preserveCodexExactModel ? requestedModel ?? undefined : undefined } : {}),
+          ...(agyWireModel && requestedModel ? { antigravityResolvedFor: requestedModel, antigravityWireModel: agyWireModel } : {}),
         });
       }
       let claim = mutateExclusiveConnectionLease(
@@ -2193,6 +2207,7 @@ export async function getProviderCredentials(
     return materializeConnection(connection, options, {
       exclusiveLease,
       ...(provider === "codex" ? { codexExactModel: preserveCodexExactModel ? requestedModel ?? undefined : undefined } : {}),
+          ...(agyWireModel && requestedModel ? { antigravityResolvedFor: requestedModel, antigravityWireModel: agyWireModel } : {}),
     });
   } finally {
     selectionLock?.release();
@@ -3167,7 +3182,7 @@ export async function markAccountUnavailable(
         lockModel(provider, connectionId, model, reason || "unknown", scopeCooldownMs);
       }
 
-      if (status && errorMsg) {
+      if (!isPanelProbeLogContext() && status && errorMsg) {
         console.error(`❌ ${provider} [${status}] (${scope}): ${errorMsg}`);
       }
 
@@ -3223,7 +3238,7 @@ export async function markAccountUnavailable(
       permanent: Boolean((result as { permanent?: boolean }).permanent),
     });
 
-    if (provider && status && errorMsg) {
+    if (!isPanelProbeLogContext() && provider && status && errorMsg) {
       console.error(`❌ ${provider} [${status}]: ${errorMsg}`);
     }
 

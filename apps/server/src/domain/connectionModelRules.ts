@@ -1,3 +1,4 @@
+import { resolveAntigravityModelId } from "@styxrouter/open-sse/config/antigravityModelAliases.ts";
 import { splitCodexReasoningSuffix } from "@styxrouter/open-sse/executors/codex/reasoningSuffix.ts";
 import { wildcardMatch } from "@styxrouter/open-sse/services/wildcardRouter.ts";
 
@@ -99,13 +100,15 @@ export function isModelAdvertisedByConnection(
   modelId: unknown,
   advertisedModelIds: ReadonlySet<string> | null | undefined,
   provider?: string,
-  codexExact = false
+  codexExact = false,
+  antigravityExact = false
 ): boolean {
   if (!advertisedModelIds || advertisedModelIds.size === 0) return true;
   if (typeof modelId !== "string" || modelId.trim().length === 0) return true;
 
   return getModelMatchCandidates(modelId).some((candidate) =>
     advertisedModelIds.has(candidate) ||
+    ((provider === "antigravity" || provider === "agy") && !antigravityExact && advertisedModelIds.has(resolveAntigravityModelId(candidate))) ||
     (provider === "codex" && !codexExact && advertisedModelIds.has(splitCodexReasoningSuffix(candidate).baseModel))
   );
 }

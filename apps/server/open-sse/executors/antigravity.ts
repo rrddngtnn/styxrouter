@@ -22,7 +22,7 @@ import {
 } from "../services/antigravityCredits.ts";
 import { persistCreditBalance, getAllPersistedCreditBalances } from "@/lib/db/creditBalance";
 import { setConnectionRateLimitUntil } from "@/lib/db/providers";
-import { getMitmAlias } from "@/lib/db/models";
+import { resolveAntigravityWireModel } from "../services/antigravityModelResolution.ts";
 import {
   MAX_ANTIGRAVITY_OUTPUT_TOKENS,
   resolveAntigravityOutputCap,
@@ -35,7 +35,6 @@ import {
 import { persistDiscoveredAntigravityProjectId } from "../services/antigravityProjectPersist.ts";
 import { markAntigravityMissingCloudCodeProject } from "../services/antigravityProjectPersistence.ts";
 import {
-  resolveAntigravityModelId,
   getAntigravityModelFallbacks,
 } from "../config/antigravityModelAliases.ts";
 import {
@@ -253,39 +252,7 @@ export function markConnectionQuotaExhausted(connectionId: string, retryAfterMs:
  * the MITM/static alias resolution and is used verbatim (after prefix stripping).
  */
 async function cleanModelName(model: string, modelIdOverride?: string): Promise<string> {
-  if (modelIdOverride) {
-    return modelIdOverride.includes("/") ? modelIdOverride.split("/").pop()! : modelIdOverride;
-  }
-  if (!model) return model;
-  const stripped = model.includes("/") ? model.split("/").pop()! : model;
-  let clean = stripped;
-
-  // 1. Check dynamic MITM aliases first (authoritative after first sync).
-  //    Built during model sync — contains ONLY currently-available models.
-  //    Obsolete/removed models are automatically excluded.
-  try {
-    const mitmAliases = await getMitmAlias("antigravity");
-    if (mitmAliases && typeof mitmAliases === "object") {
-      const aliases = mitmAliases as Record<string, unknown>;
-      const raw = aliases[stripped];
-      // Only honor string aliases; corrupted/non-string DB values fall through
-      // to the static alias resolution below (never return undefined here).
-      if (typeof raw === "string" && raw) {
-        // Strip the "antigravity/" prefix if present; use the raw model ID otherwise.
-        const PREFIX = "antigravity/";
-        clean = raw.startsWith(PREFIX) ? raw.slice(PREFIX.length) : raw;
-      }
-    }
-  } catch {
-    // DB not available (build phase, transient error) — fall through to static aliases
-  }
-
-  // 2. Fall back to static aliases if MITM didn't resolve
-  if (clean === stripped) {
-    clean = resolveAntigravityModelId(clean);
-  }
-
-  return clean;
+  return resolveAntigravityWireModel(modelIdOverride ?? model, !!modelIdOverride);
 }
 
 function applyAntigravityGenerationDefaults(
@@ -697,7 +664,7 @@ export class AntigravityExecutor extends BaseExecutor {
       return resp as unknown as never;
     }
 
-    const upstreamModel = await cleanModelName(model, modelIdOverride);
+    const upstreamModel = await cleanModelName(model, modelIdOverride ?? (credentials?.antigravityResolvedFor === model ? credentials.antigravityWireModel : credentials?.antigravityExactModel === model ? model : undefined));
     const isClaude = upstreamModel.toLowerCase().includes("claude");
     // #10104: newer Gemini endpoints reject a request ending on a `model` turn with
     // HTTP 400 "Requests ending with a model turn are not supported" — the same
@@ -1156,7 +1123,7 @@ export class AntigravityExecutor extends BaseExecutor {
 
     // Look up the chain by the NORMALLY-resolved upstream id (honours MITM/static aliases).
     // If a MITM alias remapped the id away from a known Pro tier, no chain applies → fast path.
-    const resolvedUpstreamId = await cleanModelName(input.model);
+    const resolvedUpstreamId = await cleanModelName(input.model, input.credentials?.antigravityResolvedFor === input.model ? input.credentials.antigravityWireModel : input.credentials?.antigravityExactModel === input.model ? input.model : undefined);
     const chain = getAntigravityModelFallbacks(resolvedUpstreamId);
 
     if (chain.length <= 1) {
@@ -1165,12 +1132,19 @@ export class AntigravityExecutor extends BaseExecutor {
     }
 
     let firstResult: Awaited<ReturnType<AntigravityExecutor["executeOnce"]>> | null = null;
+    let firstError: unknown;
     for (let i = 0; i < chain.length; i++) {
       const candidate = chain[i];
+      if (i > 0 && input.credentials?.antigravityResolvedFor === input.model &&
+          (!input.credentials.antigravityFallbackAllowed || !(await input.credentials.antigravityFallbackAllowed(candidate)))) {
+        if (firstResult) return firstResult;
+        throw firstError;
+      }
       let result: Awaited<ReturnType<AntigravityExecutor["executeOnce"]>>;
       try {
         result = await this.executeOnce(input, candidate);
       } catch (error) {
+        firstError ??= error;
         const outcome = handleAntigravityFallbackChainError(
           input,
           error,

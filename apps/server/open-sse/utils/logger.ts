@@ -22,6 +22,7 @@
  *   APP_LOG_FORMAT — output format: text | json (default: text)
  */
 import { getAppLogFormat, getAppLogLevel } from "../../src/lib/logEnv";
+import { isPanelProbeLogContext } from "../../src/lib/panelProbeLogContext";
 
 const LEVELS = { debug: 0, info: 1, warn: 2, error: 3 } as const;
 
@@ -114,6 +115,7 @@ function formatMeta(meta?: LogMetadata | null): string {
  */
 export function logger(tag: string): TaggedLogger {
   const emit = (level: LogLevel, message: string, meta?: LogMetadata | null): void => {
+    if (isPanelProbeLogContext()) return;
     if (LEVELS[level] < currentLevel) return;
     const consoleFn = getConsoleFn(level);
 
@@ -150,6 +152,7 @@ export function logger(tag: string): TaggedLogger {
  */
 export function createLogger(requestId: string | null = null): RequestScopedLogger {
   const emit = (level: LogLevel, tag: string, message: string, data?: LogMetadata | null): void => {
+    if (isPanelProbeLogContext()) return;
     if (LEVELS[level] < currentLevel) return;
     const consoleFn = getConsoleFn(level);
 

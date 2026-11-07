@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { extendQuotaSyncTimeout } from "./quotaSyncTimeout.ts";
 import { serveStatic } from "hono/bun";
-import { handleChat } from "../src/sse/handlers/chat.ts";
+import { handleChat, markExactTargetProbe } from "../src/sse/handlers/chat.ts";
+import { runWithPanelProbeLogContext } from "../src/lib/panelProbeLogContext.ts";
 import { initTranslators } from "../open-sse/translator/index.ts";
 import { getProviderConnections } from "../src/lib/db/providers.ts";
 import { REGISTRY } from "../open-sse/config/providers/index.ts";
@@ -19,7 +20,7 @@ import { getRequestDetailLogs } from "../src/lib/db/detailedLogs.ts";
 import { getUnifiedModelsResponse } from "../src/app/api/v1/models/catalog.ts";
 
 import { createModelMetadataApi, type ModelMetadataEnv } from "./modelMetadata.ts";
-import { authLogin, authLogout, authStatus, requireAuth } from "./auth.ts";
+import { authLogin, authLogout, authStatus, requireAuth, foreignOrigin } from "./auth.ts";
 import { createAdminApi } from "./admin.ts";
 import { createAdminApi2 } from "./admin2.ts";
 import { createOAuthApi } from "./oauth.ts";
@@ -29,7 +30,7 @@ import { createV1Api } from "./v1.ts";
 import { startProviderLimitsAutoSync } from "./providerLimitsSync.ts";
 import { startSessionAccountAffinityCleanup } from "../src/lib/db/sessionAccountAffinity.ts";
 import { createModelSyncApi } from "./modelSync.ts";
-import { createProviderModelsApi } from "./providerModels.ts";
+import { createProviderModelsApi, isExplicitProviderModel } from "./providerModels.ts";
 import { createRoutingTraceApi } from "./routingTrace.ts";
 import { executeTokenHealthPass, tokenSchedulerHealth } from "./tokenSchedulerHealth";
 import { createProcessHealthApi } from "./processHealth.ts";
@@ -211,6 +212,55 @@ app.get("/api/activity", (c) => {
 app.route("/api", createAdminApi());
 app.route("/api", createAdminApi2());
 app.route("/api", createProviderModelsApi());
+
+let panelProbeActive = false;
+let panelProbeNextAt = 0;
+
+// Session-only, fixed-prompt model probe. Never forward client headers, options,
+// or upstream response bodies; this is not a general-purpose inference API.
+app.post("/api/model-test", async (c) => {
+  c.header("Cache-Control", "no-store");
+  if (!c.req.header("origin") || foreignOrigin(c) || c.req.header("sec-fetch-site") === "cross-site") return c.json({ error: "Cross-origin request refused" }, 403);
+  // Without an explicit public origin, require an exact scheme/host match.
+  // TLS-terminating proxies must set STYX_TRUSTED_PUBLIC_ORIGIN.
+  if (process.env.STYX_TRUSTED_PUBLIC_ORIGIN === undefined && c.req.header("origin") !== new URL(c.req.url).origin) return c.json({ error: "Cross-origin request refused" }, 403);
+  if (!(c.req.header("content-type") || "").toLowerCase().startsWith("application/json")) return c.json({ error: "Invalid request" }, 400);
+  const input = await c.req.json().catch(() => null);
+  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 1 || typeof input.model !== "string" || !/^[A-Za-z0-9_][A-Za-z0-9_.:+@-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.:+@-]*)+$/.test(input.model) || input.model.length > 256) return c.json({ error: "Invalid model" }, 400);
+  if (panelProbeActive || Date.now() < panelProbeNextAt) return c.json({ error: "Probe rate limited" }, 429);
+  panelProbeActive = true;
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<Response>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(c.json({ ok: false }, 504));
+    }, 10_000);
+  });
+  const work = (async () => {
+  try {
+    if (!(await isExplicitProviderModel(input.model))) return c.json({ error: "Invalid model" }, 400);
+    if (controller.signal.aborted) return c.json({ ok: false }, 504);
+    panelProbeNextAt = Date.now() + 5000;
+    await ensureTranslators();
+    const body = { model: input.model, messages: [{ role: "user", content: "Reply with OK." }], max_tokens: 8, stream: false };
+    if (controller.signal.aborted) return c.json({ ok: false }, 504);
+    const request = new Request(new URL("/v1/chat/completions", c.req.url), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+    markExactTargetProbe(request, input.model);
+    const response = await runWithPanelProbeLogContext(() => handleChat(request as any, null, body));
+    if (!response.ok) return c.json({ ok: false }, response.status as any);
+    const result = await response.json().catch(() => null) as any;
+    if (!result || result.error || !Array.isArray(result.choices) || !result.choices.some((choice: any) => choice?.message?.role === "assistant")) return c.json({ ok: false }, 502);
+    return c.json({ ok: true });
+  } catch {
+    return c.json({ ok: false }, 500);
+  } finally {
+    clearTimeout(timer);
+    panelProbeActive = false;
+  }
+  })();
+  return Promise.race([work, timeout]);
+});
 
 app.get("/v1/models", (c) => {
   const url = new URL(c.req.url);

@@ -6,8 +6,9 @@ globalThis.fetch = (async (input, init) => {
   if (!url.startsWith('https://probe-fixture.invalid/')) return original(input, init);
   const headers = new Headers(init?.headers);
   const body = JSON.parse(String(init?.body));
-  if (headers.get('authorization') !== 'Bearer upstream-fixture-secret' || body.model !== 'vendor/model') return Response.json({error:{message:'wrong upstream authentication or model'}},{status:400});
-  return Response.json({id:'fixture',object:'chat.completion',model:body.model,choices:[{index:0,message:{role:'assistant',content:'OK'},finish_reason:'stop'}],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}});
+  if (headers.get('authorization') !== 'Bearer upstream-fixture-secret' || !['vendor/model','vendor/fail'].includes(body.model)) return Response.json({error:{message:'wrong upstream authentication or model'}},{status:400});
+  if (body.model === 'vendor/fail') return Response.json({error:{message:'PROBE_ERROR_SENTINEL_9467',code:'model_not_found'}},{status:404});
+  return Response.json({id:'fixture',object:'chat.completion',model:body.model,choices:[{index:0,message:{role:'assistant',content:'PROBE_SUCCESS_SENTINEL_9467'},finish_reason:'stop'}],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}});
 }) as typeof fetch;
 process.env.PORT = '0';
 const {default: config} = await import('../../server/styx.ts');

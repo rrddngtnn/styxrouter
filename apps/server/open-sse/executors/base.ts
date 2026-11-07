@@ -178,6 +178,11 @@ export type ProviderCredentials = {
   requestEndpointPath?: string;
   /** Internal, request-scoped exact Codex catalog ID; never a persisted setting. */
   codexExactModel?: string;
+  antigravityExactModel?: string;
+  antigravityResolvedFor?: string;
+  antigravityWireModel?: string;
+  antigravityFallbackAllowed?: (model: string) => Promise<boolean>;
+  antigravityAuthorizeAttempt?: (model: string) => Promise<boolean>;
 };
 
 export type ExecutorLog = {

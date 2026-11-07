@@ -355,6 +355,9 @@ export async function sendAntigravityRequest(
   }
 
   await prl.captureCurrentProviderBody(url, finalHeaders, serializedRequest.bodyString, log);
+  if (credentials?.antigravityAuthorizeAttempt && !(await credentials.antigravityAuthorizeAttempt(getRequestTargetModel(transformedBody)))) {
+    return { response: Response.json({ error: { message: "Model is not allowed for this API key" } }, { status: 403 }), finalHeaders };
+  }
   let response = await fetchAntigravityWithReadinessTimeout(url, {
     method: "POST",
     headers: finalHeaders,
@@ -368,6 +371,9 @@ export async function sendAntigravityRequest(
     removeHeaderCaseInsensitive(retryHeaders, "x-goog-user-project");
     log.debug("RETRY", "403 with x-goog-user-project, retrying once without it");
     await prl.captureCurrentProviderBody(url, retryHeaders, serializedRequest.bodyString, log);
+    if (credentials?.antigravityAuthorizeAttempt && !(await credentials.antigravityAuthorizeAttempt(getRequestTargetModel(transformedBody)))) {
+      return { response: Response.json({ error: { message: "Model is not allowed for this API key" } }, { status: 403 }), finalHeaders: retryHeaders };
+    }
     response = await fetchAntigravityWithReadinessTimeout(url, {
       method: "POST",
       headers: retryHeaders,
@@ -421,6 +427,9 @@ export async function tryCreditsRetry(
       serializedCreditsRequest.bodyString,
       log
     );
+    if (credentials?.antigravityAuthorizeAttempt && !(await credentials.antigravityAuthorizeAttempt(getRequestTargetModel(creditsBody)))) {
+      return { response: Response.json({ error: { message: "Model is not allowed for this API key" } }, { status: 403 }), url, headers: finalCreditsHeaders, transformedBody: creditsBody };
+    }
     const creditsResp = await fetchAntigravityWithReadinessTimeout(url, {
       method: "POST",
       headers: finalCreditsHeaders,

@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from "uuid";
 import { getDbInstance } from "./core";
 import { getSettings } from "./settings";
 import { isNoLog } from "../compliance/noLog";
+import { isPanelProbeLogContext } from "../panelProbeLogContext";
 import {
   protectPayloadForLog,
   serializePayloadForStorage,
@@ -70,6 +71,7 @@ export async function isDetailedLoggingEnabled(): Promise<boolean> {
 
 /** Save a detailed log entry — caller must verify isDetailedLoggingEnabled() first */
 export function saveRequestDetailLog(entry: RequestDetailLog): void {
+  if (isPanelProbeLogContext()) return;
   const noLogEnabled =
     Boolean(entry.no_log) || (entry.api_key_id ? isNoLog(entry.api_key_id) : false);
   if (noLogEnabled || !requestDetailLogsTableExists()) return;

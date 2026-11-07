@@ -89,6 +89,29 @@ advertises the same spelling as a literal model.
 
 Example: `codex/gpt-6.1-terra-high` → base `gpt-6.1-terra` + effort `high`.
 
+## Dashboard model test
+
+The provider workspace's **Test model** action uses the signed-in dashboard
+session, not an API key. It sends a fixed short prompt through the dedicated
+management probe and returns only success or failure; upstream output and errors
+are not exposed or persisted in request logs. Real usage charges may apply.
+The public `/v1` inference routes still require their normal API-key authorization.
+
+The probe requires a configured inventory target and an exact same-origin request.
+TLS-terminating reverse proxies must configure `STYX_TRUSTED_PUBLIC_ORIGIN` to the
+canonical public HTTPS origin; forwarded headers do not establish trust. Limits
+are process-local: one active probe, a five-second interval and a ten-second
+execution deadline. Multiple workers do not share that budget. General routing
+aliases, combos and cross-model emergency fallbacks cannot replace the probe target.
+
+For Antigravity/AGY, exact active catalog IDs take priority over static or dynamic
+aliases. Otherwise selection and dispatch share one resolved wire ID, frozen
+across account retries. API-key policies apply to both the requested ID and wire
+ID; internal retries recheck the key and allowed account immediately before send.
+A concurrent revocation after that read cannot be prevented atomically. Existing
+provider fallback chains remain subject to model ACLs and account catalogs.
+None of these rules selects a different client engine or edits account profiles.
+
 ## 4. Catalog discovery vs. live dispatch
 
 Two distinct verification levels exist. Never conflate them.

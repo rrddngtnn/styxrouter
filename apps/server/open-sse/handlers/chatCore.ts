@@ -1,3 +1,4 @@
+import { isPanelProbeLogContext } from "../../src/lib/panelProbeLogContext";
 import { getProviderNodeById } from "@/lib/db/providers/nodes";
 import {
   extractRequestToolIdentityMap,
@@ -19,6 +20,7 @@ export {
 import { checkIdempotencyCache } from "./chatCore/idempotency.ts";
 import { checkSemanticCache } from "./chatCore/semanticCache.ts";
 import { checkLifecycle, resolveLifecycle } from "./chatCore/modelLifecyclePolicy.ts";
+import { exactTargetProbe } from "../../src/sse/services/exactTargetProbe";
 import {
   shouldDefaultAllowClassifier,
   detectClassifierFormat,
@@ -803,7 +805,7 @@ export async function handleChatCore({
     headers: clientRawRequest?.headers,
     model,
   });
-  if (bgRedirect) {
+  if (bgRedirect && !exactTargetProbe()) {
     const originalModel = model;
     log?.info?.(
       "BACKGROUND",
@@ -827,7 +829,7 @@ export async function handleChatCore({
   }
 
   // Custom aliases remain explicit; lifecycle replacements are advisory and never silently routed.
-  let [resolvedModel, effectiveModel, routedLifecycleError] = resolveLifecycle(
+  let [resolvedModel, effectiveModel, routedLifecycleError] = exactTargetProbe() ? [model, model, null] : resolveLifecycle(
     provider,
     model,
     log
@@ -848,7 +850,7 @@ export async function handleChatCore({
   // additionally requires isKnownClaudeEffortBaseModel(baseModel) to verify the base id is a
   // real, effort-capable Claude model before stripping (vertex-claude-catalog-dispatch fix).
   {
-    const effortVariant = applyClaudeEffortVariant({
+    const effortVariant = exactTargetProbe() ? { effectiveModel, log: null } : applyClaudeEffortVariant({
       provider,
       effectiveModel,
       body,
@@ -1187,7 +1189,7 @@ export async function handleChatCore({
   const bodyForCacheWrite = body;
 
   // ── Phase 9.1: Semantic cache check (temp=0, any streaming mode) ──
-  const cacheHit = await checkSemanticCache({
+  const cacheHit = exactTargetProbe() ? null : await checkSemanticCache({
     semanticCacheEnabled,
     body,
     clientRawRequest,
@@ -3698,7 +3700,7 @@ export async function handleChatCore({
       failureStatus,
       upstreamErrorCode || (error instanceof Error && error.name ? error.name : "upstream_error")
     );
-    console.log(`${COLORS.red}[ERROR] ${failureMessage}${COLORS.reset}`);
+    if (!isPanelProbeLogContext()) console.log(`${COLORS.red}[ERROR] ${failureMessage}${COLORS.reset}`);
     if (stream && upstreamErrorCode) {
       const result = createStreamingErrorResult(
         failureStatus,
@@ -4333,7 +4335,7 @@ export async function handleChatCore({
     }).catch(() => {});
 
     const errMsg = formatProviderError(new Error(message), provider, model, statusCode);
-    console.log(`${COLORS.red}[ERROR] ${errMsg}${COLORS.reset}`);
+    if (!isPanelProbeLogContext()) console.log(`${COLORS.red}[ERROR] ${errMsg}${COLORS.reset}`);
 
     // Log Antigravity retry time if available
     if (retryAfterMs && provider === "antigravity") {
@@ -4360,7 +4362,7 @@ export async function handleChatCore({
     // Before returning a model-unavailable error upstream, try sibling models
     // from the same family. This keeps the request alive on the same account
     // instead of failing the entire combo.
-    if (isModelUnavailableError(statusCode, message, provider)) {
+    if (!exactTargetProbe() && isModelUnavailableError(statusCode, message, provider)) {
       const nextModel = getNextFamilyFallback(currentModel, triedModels, provider);
       if (nextModel) {
         triedModels.add(nextModel);
@@ -4459,7 +4461,7 @@ export async function handleChatCore({
           { passthrough: sourceFormat === FORMATS.CLAUDE }
         );
       }
-    } else if (isContextOverflowError(statusCode, message)) {
+    } else if (!exactTargetProbe() && isContextOverflowError(statusCode, message)) {
       const familyCandidates = getModelFamily(currentModel, provider).filter(
         (m) => m !== currentModel && !triedModels.has(m)
       );
@@ -4731,7 +4733,7 @@ export async function handleChatCore({
       persistFailureUsage(HTTP_STATUS.BAD_GATEWAY, "empty_content");
 
       // Trigger non-recursive fallback for empty content
-      const nextModel = getNextFamilyFallback(currentModel, triedModels, provider);
+      const nextModel = exactTargetProbe() ? null : getNextFamilyFallback(currentModel, triedModels, provider);
       if (nextModel) {
         triedModels.add(nextModel);
         currentModel = nextModel;
