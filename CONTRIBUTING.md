@@ -1,12 +1,18 @@
 # Contributing to StyxRouter
 
-Thanks for helping. This is a Bun monorepo: `apps/server` (Hono + Bun host) and
+This is a Bun monorepo: `apps/server` (Hono + Bun host) and
 `apps/panel` (React 19 + Vite 6 admin SPA).
+
+See the [documentation index](docs/README.md) for installation and runtime
+configuration. Submit focused pull requests against `main`; include a reproduction
+for bug fixes, tests for behavior changes, and the checks you actually ran.
+Do not include credentials or production databases.
 
 ## Setup
 
-Use Bun 1.4.3 and Python 3. Node.js and npm are needed for npm publishing
-and Node-specific external tooling. Work from the repository root. The workspace lockfile is
+Use Bun 1.4.3 and Python 3. Node.js is needed for browser fixtures and
+Node-specific tooling. npm publication is disabled. Work from the repository
+root. The workspace lockfile is
 `bun.lock`; the panel's npm lockfile is not used for the workspace install.
 Do not use production credentials or data for development or tests.
 
@@ -24,7 +30,8 @@ bun run panel:build
 # Server TypeScript check and contract + routing tests
 bun run server:typecheck
 bun run server:test
-# Single server test: cd apps/server && bun scripts/test-isolated.ts tests/example.test.ts
+# Single server test:
+bun run server:test tests/provider-model-probe-integration.test.ts
 # Avoid bare `bun test` for server tests: it shares module state and may access real data.
 
 # Panel unit tests + typecheck
@@ -48,12 +55,9 @@ recognizes common scratch/test/probe entrypoint names, but is only an accident
 guard: it cannot detect every script and its environment marker is not a security
 boundary. Do not set `STYX_ISOLATED_TEST` manually or use real data for probes.
 
-Browser fixtures use `node:test` and `.browser.mjs` names. Bun 1.4.3 does not
-run them directly as `bun test` files; direct `bun file.mjs` also rejects their
-hooks. A Bun test-wrapper experiment launched Playwright Chromium but the brand
-suite did not pass (one test passed, then a shell test timed out). Until these
-fixtures are migrated and verified, use Node's `node --test` for browser tests
-with a local fixture-only panel server and installed Playwright Chromium. Keep
+Browser fixtures use `node:test` and `.browser.mjs` names. Run them with
+Node's `node --test`, a local fixture-only panel server, and installed Playwright
+Chromium. Bun's test runner does not support these fixtures' hooks. Keep
 browser test filenames ending in `.browser.mjs`, not `.browser.test.mjs`, so
 `panel:test` remains server-independent. For the navigation landmark fixture:
 

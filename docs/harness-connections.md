@@ -1,10 +1,49 @@
-# Harness connections
+# Client and harness connections
+
+[Documentation](README.md) · [Authentication](configuration.md#panel-sessions-and-api-keys)
+
+## Before connecting
+
+Add a provider account and copy a model ID from the configured catalog. Create a
+scoped router key in the panel, then open **Connect tools**, enter the reachable
+router base URL, key, and model, and merge the generated settings into your client.
+The page's **Test connection** sends a real request with that key. The provider
+workspace's **Test model** is a separate session-authenticated action without an
+API key. Both can incur provider charges.
+
+For an OpenAI-compatible client on the same machine, use base URL
+`http://127.0.0.1:20128/v1`, a router API key, and an exact configured model ID.
+The native Hono host requires Bearer authorization, including on `/v1/messages`;
+clients that send only `x-api-key` will not pass its authentication gate.
 
 The **Connect tools** page generates configuration examples, not proof that a
 particular model, account, or deployment works. Merge examples into existing
 configuration; do not overwrite unrelated settings. Use a scoped StyxRouter API
 key, never an upstream OAuth token. Snippets containing real keys are secrets:
 keep them out of source control, screenshots, logs, and shared shell history.
+
+## Check a client key
+
+Load `STYX_API_KEY` from your secret manager or a private shell environment, then
+list the models available to that key:
+
+```sh
+curl --fail http://127.0.0.1:20128/v1/models \
+  -H "Authorization: Bearer $STYX_API_KEY"
+```
+
+For a completion, replace `provider/model-id` with an exact ID from that response.
+This sends real provider traffic and may incur charges:
+
+```sh
+curl --fail http://127.0.0.1:20128/v1/chat/completions \
+  -H "Authorization: Bearer $STYX_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"provider/model-id","messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":32,"stream":false}'
+```
+
+Keep the key out of shared shell history and logs. Use a reachable HTTPS base
+instead of loopback for remote clients.
 
 ## Endpoint conventions
 
@@ -22,7 +61,7 @@ potentially billable Chat Completions request and does not validate every protoc
 | OpenCode | `opencode.json`: `provider.styx`, `@ai-sdk/openai-compatible`, `options.baseURL`, `models`, and a `styx/<model>` selection. | [Providers](https://opencode.ai/docs/providers/) |
 | Hermes Agent | `model.provider: custom`, `model.default`, `model.base_url`, `model.key_env: STYX_API_KEY`; apply dotted settings using `hermes config set`, then launch with the exported secret. | [Providers](https://hermes-agent.nousresearch.com/docs/integrations/providers), [configuration](https://hermes-agent.nousresearch.com/docs/user-guide/configuration) |
 | Factory Droid | `~/.factory/settings.json`: `customModels` entries with `model`, `displayName`, `baseUrl`, `apiKey: "${STYX_API_KEY}"`, `provider: "generic-chat-completion-api"`; export the key, run `droid`, select via `/model`. | [Custom models / BYOK](https://docs.factory.ai/cli/byok/overview) |
-| Goose | `GOOSE_PROVIDER=openai`, `OPENAI_HOST` as origin, `OPENAI_BASE_PATH` as the relative prefixed `v1/chat/completions` path, `OPENAI_API_KEY`, and `GOOSE_MODEL`. This is not an OpenHands configuration. | [Providers](https://block.github.io/goose/docs/getting-started/providers/), [official documentation source](https://github.com/block/goose/blob/main/documentation/docs/getting-started/providers.md?plain=1) |
+| Goose | `GOOSE_PROVIDER=openai`, `OPENAI_HOST` as origin, `OPENAI_BASE_PATH` as the relative prefixed `v1/chat/completions` path, `OPENAI_API_KEY`, and `GOOSE_MODEL`. This is not an OpenHands configuration. | [Providers](https://goose-docs.ai/docs/getting-started/providers/), [official documentation source](https://github.com/aaif-goose/goose/blob/main/documentation/docs/getting-started/providers.md?plain=1) |
 | Aider | OpenAI-compatible API base and key; model name prefixed with `openai/`. | [OpenAI-compatible APIs](https://aider.chat/docs/llms/openai-compat.html) |
 | Cursor and extensions | The displayed fields are connection parameters, not a universal IDE settings-file schema. Follow each extension's provider UI. Cursor documents server-side routing, so loopback and private tailnet-only URLs are not reachable by that relay. | [Cursor API keys](https://cursor.com/help/models-and-usage/api-keys) |
 
@@ -33,11 +72,10 @@ wanted, belongs in the active profile's `.env` or approved secrets tooling, not 
 plaintext in YAML. Use `hermes config set` rather than replacing the YAML file.
 
 Factory's older `config.json` snake_case format is a migration source, not the
-current editing target. Goose's documentation repository currently redirects from
-`block/goose` to `aaif-goose/goose`; its provider documentation includes the
+current editing target. Goose's provider documentation includes the
 `OPENAI_BASE_PATH` prompt and `v1/chat/completions` default.
 
-## Network exposure is an operator decision
+## Network exposure
 
 No tunnel is created by generating these examples. Confirm the actual listener
 and launcher configuration; do not assume an environment variable changes binding.
@@ -71,22 +109,19 @@ claim. Manual refresh remains a server-authorized operation and may fail or be
 deferred; a generated client snippet says nothing about that account's refresh
 capability.
 
-## Local verification and limits
+## Contributor checks
 
 Use the repository's isolated runner (direct `bun test` is intentionally blocked):
 
 ```sh
-$HOME/.bun/bin/bun apps/server/scripts/test-isolated.ts \
+bun apps/server/scripts/test-isolated.ts \
   "$PWD/apps/panel/tests/tools-ui.test.tsx" \
   "$PWD/apps/panel/tests/oauth-expiry-ui.test.tsx" \
   "$PWD/apps/panel/tests/provider-cards.test.tsx"
-(cd apps/panel && PATH=$HOME/.bun/bin:$PATH $HOME/.bun/bin/bun run typecheck)
+bun run panel:typecheck
 ```
 
-The focused checks exercise generator schemas, shell literal preservation,
-URL/tunnel validation, recoverable invalid-URL rendering, and truthful rendered
-expiry hints. Official references above were retrieved during this correction;
-these are configuration-contract checks, not end-to-end certification. No live
-inference, OAuth exchange, production database access, tunnel creation, restart,
-or deployment is part of this verification. Harness-version differences and
-model-specific tool/streaming support still require operator validation.
+These checks cover generated configuration, shell quoting, URL validation, and
+expiry hints. They do not establish live upstream availability or compatibility
+with every client version. Test tool calling and streaming with the actual client
+and model before relying on the connection.

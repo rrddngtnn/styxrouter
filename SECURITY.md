@@ -9,12 +9,15 @@ plaintext; see the limitations below. Treat credential-handling issues as sensit
 Please report security issues **privately**, not through public issues or pull
 requests.
 
-- Open a private vulnerability report via the repository's GitHub Security Advisories tab, or
-- Contact the maintainer through the address listed on the repository profile.
+Private vulnerability reporting is currently disabled on this repository, and
+the maintainer profile does not list a public email address. Until a private
+channel is published, open a non-sensitive issue asking the maintainer for one.
+Do not include vulnerability details, credentials, or a working exploit in that
+issue. Do not assume an issue or pull request is private.
 
-Include: affected component, a reproduction, and the impact you observed. You
-will get an acknowledgement; please allow a reasonable window for a fix before
-any public disclosure.
+Once a private channel is available, include the affected component, a
+reproduction, and the observed impact. Allow time for investigation before
+public disclosure.
 
 ## Handling of secrets
 
@@ -25,7 +28,8 @@ any public disclosure.
 - If the key is absent, key derivation fails, or encryption raises an error, the
   current implementation can store plaintext. Configuring a key alone does not
   guarantee existing credentials were migrated or all new writes are encrypted.
-- `.env` is gitignored. Only `.env.example` (no real values) is tracked.
+- Real `.env` files are gitignored. Tracked environment templates contain sample
+  values only; replace them before starting the server.
 - The pre-publish hygiene gate (`scripts/public-hygiene-gate.py`) scans selected
   Git-listed files, filenames, commit messages and optionally panel and runtime
   surfaces. A skipped check or warning is not release clearance; it does not

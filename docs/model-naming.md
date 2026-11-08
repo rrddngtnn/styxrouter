@@ -1,10 +1,10 @@
 # Model naming and routing semantics
 
-This document describes how models are identified, discovered, routed, and
-verified across all providers in StyxRouter. It is the reference for anyone
-adding a new model, a new provider, or changing the catalog. Follow it
-consistently — mixed naming between providers is the single biggest source of
-operator confusion.
+[Documentation](README.md) · [Client connections](harness-connections.md)
+
+Use exact IDs from the configured catalog for requests. Display names are not
+routing IDs, and a listed model is not proof of live availability. This reference
+covers naming, account catalogs, effort variants, and context metadata.
 
 ## Provider-scoped inventory (partial)
 
@@ -110,11 +110,10 @@ across account retries. API-key policies apply to both the requested ID and wire
 ID; internal retries recheck the key and allowed account immediately before send.
 A concurrent revocation after that read cannot be prevented atomically. Existing
 provider fallback chains remain subject to model ACLs and account catalogs.
-None of these rules selects a different client engine or edits account profiles.
 
 ## 4. Catalog discovery vs. live dispatch
 
-Two distinct verification levels exist. Never conflate them.
+A catalog response and a successful inference request establish different facts.
 
 | Level | What it means | How to check |
 |---|---|---|
@@ -149,13 +148,9 @@ context is not a proven `max_input_tokens` inference limit. An explicit, model-s
 is an operator setting, not proof of upstream capacity. Other router checks may
 still apply the configured context value when budgeting requests.
 
-The same upstream Codex catalog advertised `max_context_window: 872000`; the
-[Codex client](https://github.com/openai/codex/blob/main/codex-rs/models-manager/src/model_info.rs)
-caps a configured context override at that value. It is not an independently
-verified hard inference limit. The separate [OpenAI API model specification](https://developers.openai.com/api/docs/models/gpt-6.1-terra)
-lists 1,050,000 total context and 128,000 maximum output;
-these public API limits must not be substituted for the Codex OAuth client
-window. The advertised 1M default is not evidence of large-prompt acceptance.
+Do not substitute OpenAI API context limits for the Codex OAuth client window.
+Discovery metadata and advertised router defaults are not proof that a
+large-prompt inference request will be accepted.
 
 ## 5. Per-account catalog synchronization (Codex)
 
@@ -247,4 +242,5 @@ documented behavior — never copy capabilities across providers or models.
 6. Verify the model appears in `/v1/models` with the correct display name.
 7. Update the provider's model list documentation if applicable.
 
-Do not commit a model that has not been verified with live dispatch.
+Verify live dispatch before committing a model addition. Record the model,
+account type, and validation performed without exposing tokens or private responses.

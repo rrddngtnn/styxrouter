@@ -89,7 +89,7 @@ differences whose origin was not established; the historical account below and
 MIT evidence are retained, not clearance of those differences.
 
 Four files in
-[`open-sse/services/compression/engines/headroom/gcf/`](apps/server/open-sse/services/compression/engines/headroom/gcf/)
+`open-sse/services/compression/engines/headroom/gcf/` (historical path)
 identify themselves as vendored from `blackwell-systems/gcf-typescript` and carry
 MIT SPDX headers. Historical revision
 [`a5ee0d4`](https://github.com/blackwell-systems/gcf-typescript/tree/a5ee0d400de441e8098eea083168fd25100a41b4/src)
@@ -120,7 +120,7 @@ import provenance. Historical MIT notice is retained conservatively. Pinned
 comparison hashes are in `apps/server/licenses/free-claude-bounded-review.json`;
 see the bounded replacement update in `docs/release-readiness-audit.md`.
 
-[`streamRecovery.ts`](apps/server/open-sse/services/streamRecovery.ts) identifies
+`streamRecovery.ts` (historical path) identifies
 a port of `core/anthropic/stream_recovery.py`; related attribution also remains
 in `open-sse/config/constants.ts` and `open-sse/config/searchRegistry.ts`.
 The historical

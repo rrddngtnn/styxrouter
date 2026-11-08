@@ -1,121 +1,132 @@
 # StyxRouter
 
-Lean AI model router on Hono + Bun. Serves OpenAI-, Anthropic-, Google-, Tencent-, and Z.ai-shaped backends through OpenAI-style `/v1/chat/completions`, Anthropic-style `/v1/messages` and Responses-style `/v1/responses` endpoints with per-provider OAuth/API-key credential rotation, cooldown-aware account failover, and ZCode/Codex/CBAI/Antigravity client-identity fingerprints for anti-ban resilience.
+StyxRouter routes model requests through a Hono + Bun server and provides a
+React administration panel for provider accounts, API keys, models, and routing.
+It exposes OpenAI Chat Completions, Anthropic Messages, and OpenAI Responses
+endpoints. Account rotation and protocol support depend on the provider.
 
-Ported and lean-refactored from an upstream lean-router line (see **Credits & lineage** below).
+- [Install with Docker](DOCKER.md)
+- [Install from source](docs/install.md)
+- [Configuration and authentication](docs/configuration.md)
+- [Connect clients](docs/harness-connections.md)
+- [Documentation index](docs/README.md)
 
-## Project status
+## Quick start
 
-The router runs as a native **Hono + Bun** server (`apps/server/server/styx.ts`) paired with a standalone **React 19 + Vite 6** administration panel (`apps/panel/`). The package name (`@styxrouter/server`), environment namespace (`STYX_*`), database migration tracking table (`_styx_migrations`), and field-encryption salt use the `styx` namespace. Run the pre-publish hygiene gate (`python3 scripts/public-hygiene-gate.py --repo-root . --panel-dist-dir apps/panel/dist`) before any public push.
+The published `v0.1.1` container supports `linux/amd64`. You need Docker with
+Compose for a local build, or Docker alone for the published image.
 
-## Workspace layout
-
+```sh
+git clone https://github.com/rrddngtnn/styxrouter.git
+cd styxrouter
+cp docker.env.example .env
 ```
-styxrouter/
-├── apps/
-│   ├── server/        # Hono + Bun host, executors, OAuth, DB, scripts, tests
-│   └── panel/         # React 19 + Vite 6 administration SPA
-├── scripts/           # Pre-publish hygiene gate and pattern catalog
-└── package.json       # Bun workspace root
+
+Edit `.env`: replace `INITIAL_PASSWORD` with a long unique password and set
+`JWT_SECRET`, `API_KEY_SECRET`, and `STORAGE_ENCRYPTION_KEY` to separate values.
+Generate each secret with `openssl rand -hex 32`. Keep the file private.
+
+```sh
+docker run -d --name styxrouter \
+  --restart unless-stopped \
+  -p 127.0.0.1:20128:20128 \
+  --env-file .env \
+  -v styx-data:/data \
+  ghcr.io/rrddngtnn/styxrouter:v0.1.1
+curl --fail http://127.0.0.1:20128/api/health
 ```
 
-## Model naming and routing
+Open <http://127.0.0.1:20128/panel/> and sign in with `INITIAL_PASSWORD`.
+Add a provider account, select a configured model, and use **Test model** to
+check it. That action uses your panel session and may incur upstream charges;
+it does not require a router API key.
 
-All model IDs, display names, effort variants, and per-account catalog
-semantics are documented in [`docs/model-naming.md`](docs/model-naming.md).
-Follow that document when adding or changing any model in this repository.
+Create a scoped key in the panel's API keys page for external clients. Public
+`/v1` inference requires `Authorization: Bearer <router-api-key>`; the panel
+password and upstream OAuth tokens are not client API keys. The **Connect tools**
+page generates client settings. Its **Test connection** action uses an API key,
+unlike **Test model**. See [client setup](docs/harness-connections.md).
 
-## Supported providers
+## Providers and models
 
-Retained from upstream and verified end-to-end live in this repo:
+Integrations include Codex, Antigravity, Kiro, CodeBuddy CN and Intl, Z.ai GLM,
+OpenAI, Anthropic, Gemini, and OpenAI-compatible nodes. The panel lists registered
+providers and their available authentication methods. This is not a guarantee
+that every upstream account or model is available.
 
-| Provider | Transport | Fingerprint |
-|---|---|---|
-| Codex (OpenAI) | OAuth PKCE browser flow | codex_cli_rs identity, live version drift |
-| Antigravity (Google) | OAuth code flow | Hub/IDE/CLI UA profiles + X-Stainless-* + loadCodeAssist bootstrap |
-| Kiro (AWS) | AWS SSO device flow | native AWS SDK |
-| CodeBuddy Intl (Tencent) | OAuth device flow | CodeBuddy IDE identity headers |
-| Z.ai GLM | ZCode OAuth CLI poll + API key | ZCode Start-Plan / Coding-Plan routing + plan family discovery |
-| OpenAI-Compatible Nodes | API key / custom baseUrl | Dynamic compatible connectors (e.g. Muse bridge) |
+Use the exact model ID from your configured catalog, usually `provider/model-id`.
+Listing a model does not prove that an account can serve it. See
+[model naming and routing](docs/model-naming.md) for catalog synchronization,
+effort variants, eligibility, and context metadata.
 
-Fail-closed dispatch — any provider ID not in the explicit registry whitelist throws 400 `unsupported_provider` before any executor is instantiated.
+| Endpoint | Protocol |
+| --- | --- |
+| `GET /v1/models` | Configured model catalog |
+| `POST /v1/chat/completions` | OpenAI Chat Completions |
+| `POST /v1/messages` | Anthropic Messages |
+| `POST /v1/responses` | OpenAI Responses |
 
-## Quick start (from a fresh clone)
+## Deployment and data safety
 
-```bash
-# 1. Install workspace dependencies using Bun 1.4.3 and the committed lockfile
+The native server listens on `0.0.0.0:20128` by default. Docker examples publish
+it only on loopback. Source installations need firewall or network isolation;
+the server does not honor a `HOST` setting to change that binding.
+
+For remote access, use a TLS reverse proxy, restrict backend access, and set
+`STYX_TRUSTED_PUBLIC_ORIGIN` to the exact public HTTPS origin. This is required
+for panel model tests behind a TLS-terminating proxy. See
+[origin checks](docs/reverse-proxy-origin-security.md).
+
+Persistent storage requires a synchronous SQLite driver. Bun supplies
+`bun:sqlite`; file-backed sql.js is disabled. Backups can be created and listed,
+but there is no supported safe restore command. Do not replace a live database
+or remove its WAL/SHM files. Read [storage safety](docs/sqljs-file-backend-safety.md)
+and [restore limitations](docs/sqlite-restore-blocker.md).
+
+Credential encryption can fall back to plaintext when the key is missing or
+encryption fails. Back up the encryption key separately and read the
+[security policy](SECURITY.md) before storing provider credentials.
+
+## Development
+
+The workspace contains `apps/server` (Hono + Bun), `apps/panel` (React + Vite),
+and root `scripts` for isolated probes, image verification, and publication checks.
+Use Bun 1.4.3 and the committed `bun.lock`.
+
+```sh
 bun install --frozen-lockfile
-
-# 2. Build the administration panel SPA
 bun run panel:build
-
-# 3. Create apps/server/.env, then edit it to set INITIAL_PASSWORD and the secrets.
-# Generate each 32-byte hex secret with: openssl rand -hex 32
-cp docker.env.example apps/server/.env
-
-# 4. Start the server (binds 0.0.0.0:20128 by default)
-bun run server:start
-
-# 5. Open the panel at http://127.0.0.1:20128/panel/ and sign in with INITIAL_PASSWORD
-```
-
-## SQLite backend compatibility
-
-Persistent deployments require a synchronous SQLite driver (`bun:sqlite` when running with Bun, `better-sqlite3`, or `node:sqlite`). The sql.js fallback supports `:memory:` only; file-backed startup deliberately fails rather than risk stale authorization or lost writes. This also applies to forced sql.js package-boot smoke mode; use a native driver for persistent boot checks. Stop all older sql.js processes before switching an existing database. See [sql.js backend safety](docs/sqljs-file-backend-safety.md).
-
-Backups can be created and listed, but there is currently no supported safe restore command. Do not replace a live database or its WAL/SHM files; see the [restore safety blocker](docs/sqlite-restore-blocker.md).
-
-## Testing
-
-```bash
-# TypeScript contract and routing tests (Bun test runner)
 bun run server:test
-# Single server test: (cd apps/server && bun scripts/test-isolated.ts tests/example.test.ts)
-# Do not run server tests with bare `bun test`: files share state and may access your real data.
-
-# Panel unit tests + typecheck
+bun run server:test:py
 bun run panel:test
 bun run panel:typecheck
-
-# Python-side tooling tests (stdlib unittest)
-bun run server:test:py
 ```
+
+Run server tests through the isolated runner, not bare `bun test`. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for development setup, focused tests, browser
+fixtures, and contribution requirements.
+
+## Support
+
+Start with [troubleshooting](docs/troubleshooting.md). For bugs and usage questions,
+[open an issue](https://github.com/rrddngtnn/styxrouter/issues) with the image tag
+or commit, installation method, and redacted reproduction. Do not include keys,
+OAuth tokens, cookies, databases, or unredacted configuration. Follow
+[SECURITY.md](SECURITY.md) for sensitive reports and the
+[code of conduct](CODE_OF_CONDUCT.md) when participating.
 
 ## Credits & lineage
 
-StyxRouter derives from upstream projects and contains additional named ports.
-Full attribution, inspected source revisions, and unresolved licensing questions
-live in [`CREDITS.md`](CREDITS.md). The main lineage includes:
-
-- **OmniRoute** — the lean AI-model-router line this project was ported and
-  refactored from; the server engine (`apps/server/open-sse/`) derives from it.
-  <https://github.com/diegosouzapw/OmniRoute>
-- **9Router** — reference and explicitly attributed source ports for provider
-  integrations. <https://github.com/decolua/9router>
-- **ZCode** — supplied the CLI client identity and plan-family taxonomy used by
-  the Z.ai / GLM integration. <https://zcode.z.ai>
+StyxRouter derives from [OmniRoute](https://github.com/diegosouzapw/OmniRoute)
+and includes attributed ports from [9Router](https://github.com/decolua/9router)
+and other projects. The Z.ai integration uses client identity and plan taxonomy
+from [ZCode](https://zcode.z.ai).
 
 ## License
 
-The root [`LICENSE`](LICENSE) records an MIT grant, but the retained tree is not
-verified as MIT-only. The former Hailuo executor explicitly ported code
-from GPL-3.0-licensed gpt4free and is excluded from this candidate current tree,
-not from retained Git history. See [`CREDITS.md`](CREDITS.md) for pinned evidence,
-retained notices, and unresolved provenance. These notices do not relicense the
-project or establish release clearance.
-
-## Docker
-
-A `Dockerfile`, `docker-compose.yml`, and GitHub Actions multi-arch image publisher (`.github/workflows/release.yml` → `ghcr.io/<owner>/styxrouter:latest`) are included; see [DOCKER.md](DOCKER.md) for the four settings you need and how to run it.
-
-## npm / Bun CLI (`@styxrouter/server`)
-
-The `@styxrouter/server` package is configured to ship a Bun-based `styxrouter` CLI and the compiled administration panel (`prepack` builds `apps/panel/dist` into the tarball). It is not a standalone native binary and requires Bun. The package was not found on the public npm registry on 2026-10-28; installation below requires a published release.
-
-```bash
-# Install globally with Bun and run from any directory
-bun add -g @styxrouter/server
-DATA_DIR=~/.styx INITIAL_PASSWORD=... JWT_SECRET=... API_KEY_SECRET=... STORAGE_ENCRYPTION_KEY=... styxrouter
-```
-
-Publishing remains blocked on the provenance and licensing review described in [CREDITS.md](CREDITS.md); the example is not release clearance.
+The root [LICENSE](LICENSE) records an MIT grant, but the retained tree is not
+verified as MIT-only. The former Hailuo executor contained a GPL-3.0-source port
+from gpt4free; it is excluded from the current tree, not retained Git history.
+[CREDITS.md](CREDITS.md) preserves notices, pinned evidence, and unresolved
+provenance questions. These records do not relicense the project or establish
+legal clearance. npm publication remains disabled; use Docker or a source checkout.
