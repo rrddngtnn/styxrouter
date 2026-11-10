@@ -23,6 +23,7 @@ import { DASH } from "../lib/format.ts";
 import { useFetch } from "../lib/useFetch.ts";
 import { EmptyState, LoadingState } from "../components/PageStates.tsx";
 import { ProviderIcon } from "../components/ProviderIcon.tsx";
+import { AccountModelTest } from "../components/AccountModelTest.tsx";
 import { TableScroll } from "../components/TableScroll.tsx";
 import "./providers.css";
 import { filterProviders } from "../lib/provider-search.ts";
@@ -1108,7 +1109,8 @@ export function ProviderDetail() {
                       {results[a.id] ?? (a.lastError ? a.lastError.replace(/\s+/g, " ").slice(0, 80) : "")}
                     </td>
                     <td className="row-actions">
-                      <button type="button" className="btn-ghost" disabled={locked} onClick={() => test(a.id)}>{tr("Test")}</button>
+                      <button type="button" className="btn-ghost" disabled={locked} onClick={() => test(a.id)} title="Credential check, not model inference">{tr("Test")}</button>
+                      <AccountModelTest account={a} disabled={locked} />
                       {!isApiKey && (
                         <button
                           type="button"

@@ -33,10 +33,35 @@ and keep secrets out of Git, logs, and issue reports.
 The panel authenticates with a password and an HTTP-only session cookie.
 Management APIs require that session except for public health and auth routes.
 The provider workspace's **Test model** uses `POST /api/model-test` with the
-session, a configured exact model ID, and a matching browser Origin. It sends a
-fixed short prompt and returns success or failure without exposing upstream
-output. Charges may apply. Limits are per process: one active probe, five-second
-spacing, and a ten-second deadline.
+session, a configured exact model ID, and a matching browser Origin. The account
+row's **Test Model** additionally sends `connectionId` and pins both the exact
+account and canonical model through existing executor routing. Credential testing
+and catalog discovery remain separate; an inference failure never means a catalog
+check passed. No router API key is created or required for this management action.
+
+The fixed short prompt may incur charges. An account result includes a separate
+inference status, bounded sanitized output, finish reason, known usage counters
+(otherwise unknown), and observation timestamp. Results remain in panel memory;
+probe prompts, raw errors, output and credentials are not persisted in call logs.
+Unsupported specialty model types or providers without a chat executor return
+explicit `unsupported`, never a passing credential/catalog result. Account model
+rules, authoritative catalogs, cooldowns and availability remain enforced; there
+is no sibling-account/model fallback or semantic-cache success.
+
+Limits are per process: one active probe, five-second spacing, ten-second deadline,
+1 KiB request JSON, 64 KiB parsed response and 2,048 output characters. A timed-out
+executor that ignores cancellation retains the active slot until its work settles.
+The pre-existing model-only probe keeps its minimal `{ok}` response. Account probes
+accept nonempty text only with `stop` or `length` terminal reasons; unknown/error
+finish reasons fail closed. Missing usage is returned as `null`, not zero usage.
+
+The synthetic browser-to-Hono regression is
+`bun run server:test tests/account-model-browser-integration.test.ts`. It requires
+`PLAYWRIGHT_MODULE` (an absolute Playwright module path) and `CHROMIUM_PATH`;
+without those dependencies it is explicitly skipped. Set `STYX_BROWSER_TMPDIR`
+to a short disposable directory if Chromium's Unix socket path would be too long.
+It uses normal fixture login, the real account dialog and Hono probe route, and a
+fetch-fenced synthetic upstream, never production credentials.
 
 Client inference at `/v1/chat/completions`, `/v1/messages`, and `/v1/responses`
 requires a router key in `Authorization: Bearer <key>`. A session alone cannot

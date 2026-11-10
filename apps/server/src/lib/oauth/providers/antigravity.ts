@@ -173,9 +173,7 @@ async function postExchangeAntigravity(
     console.log("Failed to load code assist:", error);
   }
 
-  if (projectId) {
-    void onboardAntigravityUser(config, headers, tierId, metadata).catch(() => {});
-  } else if (config.onboardUserEndpoints.length > 0) {
+  if (!projectId && config.onboardUserEndpoints.length > 0) {
     // Accounts without an existing Cloud Code project need one bounded inline
     // onboarding attempt before loadCodeAssist can discover their project.
     let onboardedWithoutProject = false;

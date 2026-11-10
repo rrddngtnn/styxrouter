@@ -69,7 +69,8 @@ try {
         // runner-clean-env-regression.test.ts). A test that needs JWT_SECRET,
         // API_KEY_SECRET, STORAGE_ENCRYPTION_KEY or INITIAL_PASSWORD must set them
         // itself (process.env.X = ...) before importing the server.
-        STYX_TEST_MODE: "1" },
+        STYX_TEST_MODE: "1",
+        ...Object.fromEntries(["PLAYWRIGHT_MODULE", "CHROMIUM_PATH", "LD_LIBRARY_PATH", "STYX_BROWSER_TMPDIR"].filter(key => process.env[key]).map(key => [key, process.env[key]])) },
       stdin: "inherit", stdout: "inherit", stderr: "inherit",
     });
     if (child.exitCode !== 0) failed++;

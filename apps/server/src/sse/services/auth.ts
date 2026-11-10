@@ -3157,7 +3157,7 @@ export async function markAccountUnavailable(
       return { shouldFallback: true, cooldownMs: lockout.cooldownMs };
     }
 
-    const errorMsg = describeUpstreamFailure(errorText);
+    const errorMsg = isPanelProbeLogContext() ? "Panel model inference failed" : describeUpstreamFailure(errorText);
 
     // T09: Codex per-scope lockout (do not block the whole account globally).
     if (

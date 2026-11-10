@@ -10,7 +10,7 @@ test('real server authenticates UI probe and routes dynamic node to mock upstrea
  const node: any = await createProviderNode({type:'openai-compatible',name:'Probe fixture',prefix:'probefixture',apiType:'chat',baseUrl:'https://probe-fixture.invalid/v1'});
  await createProviderConnection({provider:node.id,authType:'apikey',apiKey:'upstream-fixture-secret',name:'fixture',isActive:true,providerSpecificData:{prefix:'probefixture',apiType:'chat',baseUrl:'https://probe-fixture.invalid/v1'}} as any);
  const key = (await createApiKey('probe-fixture','test-machine')).key;
- const proc=spawn(process.execPath,[join(import.meta.dir,'helpers/provider-model-probe-server.ts')],{cwd:join(import.meta.dir,'..'),env:{...process.env,STYX_TEST_MODE:'1',JWT_SECRET:'fixture-jwt-secret-01234567890123456789',INITIAL_PASSWORD:'fixture-password'},stdio:['ignore','pipe','pipe']});
+ const proc=spawn(process.execPath,['--no-env-file',join(import.meta.dir,'helpers/provider-model-probe-server.ts')],{cwd:join(import.meta.dir,'..'),env:{...process.env,STYX_TEST_MODE:'1',JWT_SECRET:'fixture-jwt-secret-01234567890123456789',INITIAL_PASSWORD:'fixture-password'},stdio:['ignore','pipe','pipe']});
  let output=''; proc.stdout!.on('data',x=>output+=x); proc.stderr!.on('data',x=>output+=x);
  try {
   const base = await new Promise<string>((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('server startup timeout '+output)),30000);proc.stdout!.on('data',()=>{const m=output.match(/STYX_TEST_LISTENING:(\d+)\r?\n/);if(m){clearTimeout(timer);resolve(`http://127.0.0.1:${m[1]}`)}});proc.once('exit',()=>reject(Error('server exited '+output)));});

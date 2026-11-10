@@ -4,12 +4,14 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { extendQuotaSyncTimeout } from "./quotaSyncTimeout.ts";
 import { serveStatic } from "hono/bun";
 import { handleChat, markExactTargetProbe } from "../src/sse/handlers/chat.ts";
+import { readBoundedProbeJson, sanitizeProbeOutput, isCompletedProbeChoice } from "./modelProbeResult.ts";
 import { runWithPanelProbeLogContext } from "../src/lib/panelProbeLogContext.ts";
 import { initTranslators } from "../open-sse/translator/index.ts";
-import { getProviderConnections } from "../src/lib/db/providers.ts";
+import { getProviderConnectionById, getProviderConnections } from "../src/lib/db/providers.ts";
 import { REGISTRY } from "../open-sse/config/providers/index.ts";
 import { getProviderLabel } from "../src/shared/constants/providers.ts";
 import { getSettings } from "../src/lib/db/settings.ts";
@@ -30,7 +32,7 @@ import { createV1Api } from "./v1.ts";
 import { startProviderLimitsAutoSync } from "./providerLimitsSync.ts";
 import { startSessionAccountAffinityCleanup } from "../src/lib/db/sessionAccountAffinity.ts";
 import { createModelSyncApi } from "./modelSync.ts";
-import { createProviderModelsApi, isExplicitProviderModel } from "./providerModels.ts";
+import { createProviderModelsApi, isExplicitProviderModel, accountProbeCapability } from "./providerModels.ts";
 import { createRoutingTraceApi } from "./routingTrace.ts";
 import { executeTokenHealthPass, tokenSchedulerHealth } from "./tokenSchedulerHealth";
 import { createProcessHealthApi } from "./processHealth.ts";
@@ -218,7 +220,7 @@ let panelProbeNextAt = 0;
 
 // Session-only, fixed-prompt model probe. Never forward client headers, options,
 // or upstream response bodies; this is not a general-purpose inference API.
-app.post("/api/model-test", async (c) => {
+app.post("/api/model-test", bodyLimit({ maxSize: 1024, onError: c => c.json({ error: "Request too large" }, 413) }), async (c) => {
   c.header("Cache-Control", "no-store");
   if (!c.req.header("origin") || foreignOrigin(c) || c.req.header("sec-fetch-site") === "cross-site") return c.json({ error: "Cross-origin request refused" }, 403);
   // Without an explicit public origin, require an exact scheme/host match.
@@ -226,7 +228,7 @@ app.post("/api/model-test", async (c) => {
   if (process.env.STYX_TRUSTED_PUBLIC_ORIGIN === undefined && c.req.header("origin") !== new URL(c.req.url).origin) return c.json({ error: "Cross-origin request refused" }, 403);
   if (!(c.req.header("content-type") || "").toLowerCase().startsWith("application/json")) return c.json({ error: "Invalid request" }, 400);
   const input = await c.req.json().catch(() => null);
-  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 1 || typeof input.model !== "string" || !/^[A-Za-z0-9_][A-Za-z0-9_.:+@-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.:+@-]*)+$/.test(input.model) || input.model.length > 256) return c.json({ error: "Invalid model" }, 400);
+  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(key => !["model", "connectionId"].includes(key)) || (input.connectionId !== undefined && (typeof input.connectionId !== "string" || !/^[A-Za-z0-9-]{1,100}$/.test(input.connectionId))) || typeof input.model !== "string" || !/^[A-Za-z0-9_][A-Za-z0-9_.:+@-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.:+@-]*)+$/.test(input.model) || input.model.length > 256) return c.json({ error: "Invalid model" }, 400);
   if (panelProbeActive || Date.now() < panelProbeNextAt) return c.json({ error: "Probe rate limited" }, 429);
   panelProbeActive = true;
   const controller = new AbortController();
@@ -239,18 +241,33 @@ app.post("/api/model-test", async (c) => {
   });
   const work = (async () => {
   try {
+    let account: any = null;
+    if (input.connectionId !== undefined) {
+      account = await getProviderConnectionById(input.connectionId);
+      if (!account || !account.isActive) return c.json({ ok: false, status: "unavailable", error: "account_unavailable" }, 400);
+      const capability = await accountProbeCapability(account.provider, input.model);
+      if (!capability.supported) return c.json({ ok: false, status: "unsupported", error: capability.reason, observedAt: new Date().toISOString() }, 400);
+    }
     if (!(await isExplicitProviderModel(input.model))) return c.json({ error: "Invalid model" }, 400);
     if (controller.signal.aborted) return c.json({ ok: false }, 504);
     panelProbeNextAt = Date.now() + 5000;
     await ensureTranslators();
     const body = { model: input.model, messages: [{ role: "user", content: "Reply with OK." }], max_tokens: 8, stream: false };
     if (controller.signal.aborted) return c.json({ ok: false }, 504);
-    const request = new Request(new URL("/v1/chat/completions", c.req.url), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+    const request = new Request(new URL("/v1/chat/completions", c.req.url), { method: "POST", headers: { "content-type": "application/json", ...(account ? { "x-styx-connection": account.id } : {}) }, body: JSON.stringify(body), signal: controller.signal });
     markExactTargetProbe(request, input.model);
     const response = await runWithPanelProbeLogContext(() => handleChat(request as any, null, body));
-    if (!response.ok) return c.json({ ok: false }, response.status as any);
-    const result = await response.json().catch(() => null) as any;
+    if (!response.ok) return c.json(account ? { ok: false, status: "failed", error: "inference_failed", httpStatus: response.status, connectionId: account.id, model: input.model, observedAt: new Date().toISOString() } : { ok: false }, response.status as any);
+    const result = await readBoundedProbeJson(response, controller.signal).catch(() => null) as any;
     if (!result || result.error || !Array.isArray(result.choices) || !result.choices.some((choice: any) => choice?.message?.role === "assistant")) return c.json({ ok: false }, 502);
+    if (account) {
+      const choice = result.choices.find((choice: any) => choice?.message?.role === "assistant");
+      if (!isCompletedProbeChoice(choice)) return c.json({ ok: false, status: "failed", error: "incomplete_completion" }, 502);
+      const output = sanitizeProbeOutput(choice.message.content, [account.apiKey, account.accessToken, account.refreshToken, account.idToken]);
+      const usage: Record<string, number> = {};
+      for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"]) if (Number.isSafeInteger(result.usage?.[key]) && result.usage[key] >= 0) usage[key] = result.usage[key];
+      return c.json({ ok: true, status: "success", connectionId: account.id, model: input.model, output, finishReason: choice.finish_reason, usage: Object.keys(usage).length ? usage : null, observedAt: new Date().toISOString() });
+    }
     return c.json({ ok: true });
   } catch {
     return c.json({ ok: false }, 500);

@@ -1297,6 +1297,7 @@ async function handleChatImplementation(
       sessionAffinityKey,
       forceLiveComboTest: isComboLiveTest,
       forcedConnectionId: requestedConnectionId,
+      allowedConnectionIds: exactTargetProbe() && requestedConnectionId ? [requestedConnectionId] : undefined,
       explicitConnectionPin: Boolean(requestedConnectionId),
       correlationId: reqId,
       conversationId,

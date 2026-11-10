@@ -120,6 +120,24 @@ async function inventory(p: NonNullable<Awaited<ReturnType<typeof provider>>>, a
   return { rows, manual: manual as Model[], malformedSync };
 }
 
+export async function accountProbeCapability(providerId: string, model: string) {
+  const p = await provider(providerId);
+  if (!p || !model.startsWith(`${p.prefix}/`)) return { supported: false, reason: "invalid_inventory" } as const;
+  const { rows } = await inventory(p);
+  const row = specialtyRows(p, [...rows.values()]).find(row => row.id === model.slice(p.prefix.length + 1));
+  if (!row) return { supported: false, reason: "invalid_inventory" } as const;
+  const node = await getProviderNodeById(providerId) as any;
+  const type = row.type;
+  if ((type && type !== "chat" && type !== "text") || (node && node.apiType && !["chat", "responses"].includes(node.apiType))) return { supported: false, reason: "unsupported_model_type" } as const;
+  // Ambiguous prefixes must not select a different compatible node.
+  if (!(await isExplicitProviderModel(model))) return { supported: false, reason: "invalid_inventory" } as const;
+  try {
+    const { getExecutor } = await import("../open-sse/executors/index.ts");
+    getExecutor(node ? (node.type === "anthropic-compatible" ? `anthropic-compatible-${node.id}` : `openai-compatible-${node.apiType === "responses" ? "responses" : "chat"}-${node.id}`) : providerId);
+  } catch { return { supported: false, reason: "unsupported_provider" } as const; }
+  return { supported: true, reason: null } as const;
+}
+
 export async function isExplicitProviderModel(model: string): Promise<boolean> {
   const slash = model.indexOf("/");
   if (slash < 1) return false;

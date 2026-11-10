@@ -3780,7 +3780,9 @@ export async function handleChatCore({
   // the normal providerFailure classification (record-only in probe mode).
   if (
     (providerResponse.status === HTTP_STATUS.UNAUTHORIZED ||
-      providerResponse.status === HTTP_STATUS.FORBIDDEN) &&
+      (providerResponse.status === HTTP_STATUS.FORBIDDEN &&
+        provider !== "antigravity" &&
+        provider !== "agy")) &&
     !hadStreamOptions && // Skip refresh if failure may be from stream_options removal, not auth
     !(await shouldIsolateProbeFailures())
   ) {
@@ -4245,12 +4247,28 @@ export async function handleChatCore({
             `[provider] Node ${errorConnectionId} OAuth token invalid (${statusCode}) — token refresh available`
           );
         } else if (errorType === PROVIDER_ERROR_TYPES.PROJECT_ROUTE_ERROR) {
-          // Cloud Code 403 with stale project: not a ban, keep account active.
+          // Cloud Code 403 with stale project or account verification challenge:
+          // not a permanent ban, keep account active. When VALIDATION_REQUIRED is
+          // present, exclude the connection for a cooldown window so routing rotates
+          // to healthy sibling accounts instead of hammering the locked account.
           await updateProviderConnection(errorConnectionId, {
             lastErrorType: errorType,
             lastError: message,
             errorCode: statusCode,
           });
+          const rawErrStr = `${message} ${typeof upstreamErrorBody === "string" ? upstreamErrorBody : JSON.stringify(upstreamErrorBody ?? "")}`;
+          if (
+            !(await shouldIsolateProbeFailures()) &&
+            (rawErrStr.includes("VALIDATION_REQUIRED") ||
+              /verify your account to continue/i.test(rawErrStr))
+          ) {
+            try {
+              const { setConnectionRateLimitUntil } = await import("@/lib/db/providers");
+              setConnectionRateLimitUntil(errorConnectionId, Date.now() + 15 * 60 * 1000);
+            } catch {
+              // DB write failure must never break the fallback loop
+            }
+          }
           console.warn(
             `[provider] Node ${errorConnectionId} project routing error (${statusCode}) — not banning`
           );
