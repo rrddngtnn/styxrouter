@@ -30,6 +30,17 @@ collisions remain editable and removable, revealing the registry row on deletion
 Compatible nodes do not inherit their prefix's specialty registry. The default Models page and `/v1/models` remain the
 served catalog; listing does not verify live dispatch.
 
+## Exact identity and cleanup
+
+Registry rows must be unique within each canonical provider by their exact local
+ID. Provider alias keys may intentionally reference the same registry. Discovery
+normalizes repeated exact IDs within one account; repeated IDs across accounts
+remain necessary entitlement records, not deletion candidates. Custom manual
+metadata is an overlay and must not be discarded merely because discovery or a
+registry contains the same ID. Display-name matches, other provider prefixes,
+case differences, dated versions, and effort suffixes do not establish duplicates.
+Specialty listing identities can retain distinct endpoint subtypes for one ID.
+
 ## 1. Canonical model ID: `provider/model-id`
 
 The usual explicit provider route has a slash-delimited ID; unprefixed model

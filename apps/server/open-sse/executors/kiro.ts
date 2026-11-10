@@ -347,6 +347,23 @@ export class KiroExecutor extends BaseExecutor {
     });
 
     if (!response.ok) {
+      // This service-wide client gate is not an OAuth failure. Normalize before
+      // chatCore can refresh credentials or classify the 403 as an account ban.
+      if (response.status === 403) {
+        const raw = await response.clone().text();
+        let message = raw.trim();
+        try { message = JSON.parse(raw)?.message; } catch { /* plain-text errors */ }
+        if (message === "This version of Kiro is no longer supported. Please update to the latest version of Kiro to continue.") {
+          return {
+            response: Response.json({ error: {
+              message,
+              type: "upstream_error",
+              code: "upstream_client_unsupported",
+            } }, { status: 502 }),
+            url, headers, transformedBody,
+          };
+        }
+      }
       return { response, url, headers, transformedBody };
     }
 

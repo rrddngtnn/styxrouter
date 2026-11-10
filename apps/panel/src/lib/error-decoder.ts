@@ -58,18 +58,37 @@ export function decodeUpstreamError(input: {
     };
   }
 
+  if (input.provider === "kiro" && (status === 403 || status === 502) &&
+      rawError.replace(/^\[(?:403|502)\]:\s*/, "") === "This version of Kiro is no longer supported. Please update to the latest version of Kiro to continue.") {
+    return {
+      code: "UPSTREAM_CLIENT_UNSUPPORTED",
+      title: "Kiro client version is no longer supported",
+      summary: "Kiro rejected the client contract, not the account credentials.",
+      recommendedAction: "Update the router's Kiro client contract to the current official supported client. Retest after the update; changing account tokens will not fix this rejection.",
+    };
+  }
+
   if (
     status === 401 ||
-    status === 403 ||
     /expiredtoken|token.*expired|invalid_api_key|authentication_error|unauthorized|re-authenticate/i.test(lower)
   ) {
     return {
       code: "UPSTREAM_AUTH_EXPIRED",
-      title: "Upstream credential expired or rejected (401/403)",
+      title: "Upstream credential expired or rejected",
       summary:
         "The access token, refresh token, or API key for this account was rejected by the upstream vendor.",
       recommendedAction:
         "Open Providers → select this provider → run Test on the account, or re-authenticate / re-import a fresh token.",
+    };
+  }
+
+  if (status === 403) {
+    const blocked = /\baccount\b.*\b(banned|suspended|deactivated|disabled)\b|\b(banned|suspended|deactivated)\b.*\baccount\b/i.test(rawError);
+    return {
+      code: blocked ? "UPSTREAM_ACCOUNT_BLOCKED" : "UPSTREAM_FORBIDDEN",
+      title: blocked ? "Upstream account blocked" : "Upstream access denied (403)",
+      summary: blocked ? "The provider explicitly reports an account restriction." : "The provider denied this request. HTTP 403 alone does not establish expired credentials or an account ban.",
+      recommendedAction: blocked ? "Review the provider's account restriction and contact its support before enabling this account again." : "Inspect the upstream reason and verify model permissions, plan access, and provider policy before changing credentials.",
     };
   }
 

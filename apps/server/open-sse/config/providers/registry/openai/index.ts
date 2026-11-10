@@ -41,7 +41,6 @@ export const openaiProvider: RegistryEntry = {
     { id: "gpt-4.1-nano", name: "GPT-4.1 Nano", contextLength: 1047576 },
     { id: "gpt-4o", name: "GPT-4o", contextLength: 128000 },
     { id: "gpt-4o-2024-11-20", name: "GPT-4o (Nov 2024)", contextLength: 128000 },
-    { id: "gpt-4o", name: "GPT-4o", contextLength: 128000 },
     { id: "gpt-4o-mini", name: "GPT-4o Mini", contextLength: 128000 },
     { id: "o3", name: "O3", contextLength: 200000, unsupportedParams: REASONING_UNSUPPORTED },
     {
