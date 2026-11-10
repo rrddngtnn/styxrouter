@@ -16,7 +16,7 @@ test("status is authenticated, no-store, passive, and follows each product pin a
     if (s.startsWith(base + "/")) return original(url, init);
     outgoing.push(s);
     if (s.includes("antigravity-cli-auto-updater")) return failCli ? new Response("unavailable", { status: 503 }) : Response.json({ version: "7.6.5" });
-    if (s.includes("antigravity-auto-updater")) return Response.json([{ version: "8.7.6" }]);
+    if (s.includes("antigravity-ide-auto-updater")) return Response.json([{ version: "8.7.6" }]);
     return new Response("blocked", { status: 503 });
   }) as typeof fetch;
   try {

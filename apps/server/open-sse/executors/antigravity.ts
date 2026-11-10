@@ -1,4 +1,5 @@
 import crypto, { randomUUID } from "crypto";
+import { preflightUnsupportedClient } from "./antigravity/unsupportedClientPreflight.ts";
 import {
   BaseExecutor,
   mergeUpstreamExtraHeaders,
@@ -1404,6 +1405,11 @@ export class AntigravityExecutor extends BaseExecutor {
     signal: AbortSignal | null | undefined,
     log: SafeAntigravityLog
   ): Promise<SsePassthroughResult> {
+    const checked = await preflightUnsupportedClient(response);
+    if (response.ok && !checked.ok) {
+      return { response: checked, url, headers: finalHeaders, transformedBody };
+    }
+    response = checked;
     if (!stream && response.ok && response.body) {
       return this.collectStreamToResponse(
         response,

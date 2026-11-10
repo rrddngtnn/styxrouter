@@ -1,5 +1,5 @@
 const ANTIGRAVITY_IDE_RELEASE_FEED_URL =
-  "https://antigravity-auto-updater-974169037036.us-central1.run.app/releases";
+  "https://antigravity-ide-auto-updater-974169037036.us-central1.run.app/releases";
 // Match the darwin/arm64 identity emitted by antigravityHeaders.ts, not the host platform.
 const ANTIGRAVITY_CLI_RELEASE_URL =
   "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/darwin_arm64.json";

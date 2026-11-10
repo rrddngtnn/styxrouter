@@ -65,7 +65,7 @@ test("concurrent refreshes share one request per source and use fixed credential
   const requests = [getZcodeVersion(true), getZcodeVersion(true), resolveAntigravityIdeVersion(fetch, true), resolveAntigravityIdeVersion(fetch, true), resolveAntigravityCliVersion(fetch, true), resolveAntigravityCliVersion(fetch, true)];
   release();
   expect(await Promise.all(requests)).toEqual(["4.0.0", "4.0.0", "2.3.0", "2.3.0", "1.3.0", "1.3.0"]);
-  expect(calls.map(call => call.url).sort()).toEqual(["https://api.github.com/repos/zai-org/ZCode/tags", "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/darwin_arm64.json", "https://antigravity-auto-updater-974169037036.us-central1.run.app/releases"].sort());
+  expect(calls.map(call => call.url).sort()).toEqual(["https://api.github.com/repos/zai-org/ZCode/tags", "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/darwin_arm64.json", "https://antigravity-ide-auto-updater-974169037036.us-central1.run.app/releases"].sort());
   for (const call of calls) {
     expect(call.init.redirect).toBe("error");
     expect(new Headers(call.init.headers).has("authorization")).toBe(false);

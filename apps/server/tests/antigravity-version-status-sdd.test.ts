@@ -15,7 +15,7 @@ test("authenticated HTTP status reports independent observations, pins and effec
   let ide = "9.0.0", cli = "8.0.0", fail = false;
   globalThis.fetch = (async (input, init) => {
     if (String(input).startsWith(base)) return original(input, init);
-    if (!String(input).includes("antigravity-auto-updater") && !String(input).includes("antigravity-cli-auto-updater")) return new Response("blocked", { status: 503 });
+    if (!String(input).includes("antigravity-ide-auto-updater") && !String(input).includes("antigravity-cli-auto-updater")) return new Response("blocked", { status: 503 });
     outbound++;
     if (fail) return new Response("failed", { status: 503 });
     return String(input).includes("antigravity-cli-auto-updater") ? Response.json({ version: cli }) : Response.json([{ version: ide }]);

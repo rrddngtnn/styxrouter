@@ -2035,6 +2035,12 @@ async function handleSingleModelChat(
         return result.response;
       }
 
+      // Client contract rejection is not account health or model availability.
+      // Stop before transport retries, emergency fallback, and cooldown bookkeeping.
+      if (provider === "antigravity" && result.errorCode === "upstream_client_unsupported") {
+        return withSelectedConnectionHeader(result.response, credentials.connectionId);
+      }
+
       if (result.errorCode === "IMPORTED_TOKEN_REAUTH_REQUIRED" ||
           result.errorCode === "IMPORTED_TOKEN_FORBIDDEN") {
         return withSelectedConnectionHeader(result.response, credentials.connectionId);
