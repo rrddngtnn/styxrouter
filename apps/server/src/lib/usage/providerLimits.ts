@@ -568,6 +568,12 @@ export async function maybeClearRecoveredQuotaState(
   usage: JsonRecord
 ): Promise<ProviderConnectionLike> {
   if (!hasUsableQuota(usage)) return connection;
+  // A quota balance is not evidence that a generation-frequency throttle recovered.
+  // Keep generic 429 streaks until a real request succeeds; retain the existing
+  // quota_exhausted recovery policy for providers with authoritative reset windows.
+  if (String(connection.errorCode) === "429" && connection.lastErrorType !== "quota_exhausted") {
+    return connection;
+  }
   if (isTerminalStatusForQuotaRecovery(connection.testStatus)) return connection;
   if (hasActiveCooldown(connection)) {
     // #11355 made an active rateLimitedUntil an unconditional stop, which is right

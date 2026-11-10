@@ -2431,7 +2431,7 @@ async function handleSingleModelChat(
                 (failureKind === "rate_limit" || failureKind === "transient")
               ),
               isCombo,
-              upstreamRetryAfterMs: provider === "codebuddy-cn" && result.status === 429 ? result.retryAfterMs : undefined,
+              upstreamRetryAfterMs: result.status === 429 ? result.retryAfterMs : undefined,
             }
           );
 

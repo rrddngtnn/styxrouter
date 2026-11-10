@@ -21,6 +21,8 @@ export function capScaledCooldownMs(
   fallbackMaxMs: number
 ): number {
   const cap =
-    typeof maxCooldownMs === "number" && maxCooldownMs > 0 ? maxCooldownMs : fallbackMaxMs;
+    typeof maxCooldownMs === "number" && Number.isFinite(maxCooldownMs) && maxCooldownMs > 0
+      ? maxCooldownMs
+      : fallbackMaxMs;
   return Math.min(cooldownMs, cap);
 }

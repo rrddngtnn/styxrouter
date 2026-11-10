@@ -1490,6 +1490,10 @@ export async function getProviderCredentials(
     for (const c of connections) {
       if (
         c.backoffLevel > 0 &&
+        // A rate-limit cooldown expiring permits selection; it does not prove
+        // recovery. Keep the streak until a successful request clears it.
+        String(c.errorCode) !== "429" &&
+        c.lastErrorType !== "rate_limited" &&
         !isTerminalConnectionStatus(c) &&
         !isAccountUnavailable(c.rateLimitedUntil)
       ) {
@@ -3079,8 +3083,13 @@ export async function markAccountUnavailable(
     const cachedQuotaResetMs = parseFutureDateMs(cachedQuotaResetAt);
     const cooldownMs = terminalStatus
       ? 0
-      : provider === "codebuddy-cn" && status === 429 && typeof options.upstreamRetryAfterMs === "number" && Number.isFinite(options.upstreamRetryAfterMs) && options.upstreamRetryAfterMs > 0
-        ? options.upstreamRetryAfterMs
+      : status === 429 &&
+          (provider === "codebuddy-cn" || effectiveProviderProfile?.useUpstreamRetryHints === true) &&
+          typeof options.upstreamRetryAfterMs === "number" &&
+          Number.isFinite(options.upstreamRetryAfterMs) && options.upstreamRetryAfterMs > 0
+        // The local maximum bounds computed backoff, not a valid upstream minimum.
+        // Retain the parser's 24-hour safety ceiling for direct callers too.
+        ? Math.max(Math.min(options.upstreamRetryAfterMs, 86_400_000), rawCooldownMs)
         : cachedQuotaResetMs
           ? cachedQuotaResetMs - Date.now()
           : rawCooldownMs;

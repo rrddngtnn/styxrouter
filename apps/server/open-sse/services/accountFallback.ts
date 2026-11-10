@@ -1553,7 +1553,11 @@ export function checkFallbackError(
   if (rg) return rg;
   const errorStr = (errorText || "").toString();
   const profile = profileOverride ?? (provider ? getProviderProfile(provider) : null);
-  const maxBackoffSteps = profile?.maxBackoffSteps ?? BACKOFF_CONFIG.maxLevel;
+  const configuredBackoffSteps = profile?.maxBackoffSteps;
+  const maxBackoffSteps = typeof configuredBackoffSteps === "number" &&
+    Number.isFinite(configuredBackoffSteps) && configuredBackoffSteps >= 0
+    ? Math.floor(configuredBackoffSteps)
+    : BACKOFF_CONFIG.maxLevel;
   const retryableStatuses = new Set([
     HTTP_STATUS.REQUEST_TIMEOUT,
     HTTP_STATUS.RATE_LIMITED,
