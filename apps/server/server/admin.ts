@@ -97,7 +97,7 @@ export function createAdminApi() {
     const pinnedVersion = getAntigravityVersionPin(product);
     const cachedVersion = product === "ide" ? getCachedAntigravityIdeVersion() : getCachedAntigravityCliVersion();
     c.header("Cache-Control", "no-store");
-    return c.json({ cachedVersion, pinnedVersion, effectiveVersion: pinnedVersion ?? cachedVersion, ...getAntigravityVersionObservation(product) });
+    return c.json({ cachedVersion, pinnedVersion, effectiveVersion: pinnedVersion ?? cachedVersion, executionSupported: product === "cli", ...getAntigravityVersionObservation(product) });
   });
 
   api.get("/versions/antigravity/:product/pin", (c) => {

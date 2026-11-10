@@ -250,7 +250,7 @@ export function HealthAndVersionsView({
 
         <VersionDriftRow
           title="Antigravity IDE"
-          subtitle={tr("Outbound Antigravity IDE version header")}
+          subtitle={tr("Standalone IDE diagnostic only; router execution uses Hub or CLI")}
           status={antigravityIde}
           busy={busy}
           onPin={(v) => onPinAntigravity("ide", v)}

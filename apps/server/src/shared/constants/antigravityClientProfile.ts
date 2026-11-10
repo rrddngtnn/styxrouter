@@ -1,25 +1,27 @@
-export const ANTIGRAVITY_CLIENT_PROFILE_VALUES = ["ide", "cli", "hub"] as const;
+export const ANTIGRAVITY_CLIENT_PROFILE_VALUES = ["hub", "cli"] as const;
 
 export type AntigravityClientProfile = (typeof ANTIGRAVITY_CLIENT_PROFILE_VALUES)[number];
 
-export const DEFAULT_ANTIGRAVITY_CLIENT_PROFILE: AntigravityClientProfile = "ide";
+export const DEFAULT_ANTIGRAVITY_CLIENT_PROFILE: AntigravityClientProfile = "hub";
 
 export type AntigravityClientProfileSetting = AntigravityClientProfile;
 
 export const ANTIGRAVITY_CLIENT_PROFILE_OPTIONS: Array<{
   value: AntigravityClientProfileSetting;
-  labelKey: "antigravityClientProfileIde" | "antigravityClientProfileCli";
+  labelKey: "antigravityClientProfileHub" | "antigravityClientProfileCli";
 }> = [
-  { value: "ide", labelKey: "antigravityClientProfileIde" },
+  { value: "hub", labelKey: "antigravityClientProfileHub" },
   { value: "cli", labelKey: "antigravityClientProfileCli" },
 ];
 
 export function normalizeAntigravityClientProfile(value: unknown): AntigravityClientProfile {
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
-    if (normalized === "ide" || normalized === "cli" || normalized === "hub") {
+    if (normalized === "cli" || normalized === "hub") {
       return normalized;
     }
+    // Legacy IDE execution was retired; old saved values transparently use Hub.
+    if (normalized === "ide") return "hub";
     // Read-only compatibility for values persisted before the official CLI profile
     // replaced StyxRouter's synthetic harness/sdk naming. New writes are validated
     // against ANTIGRAVITY_CLIENT_PROFILE_VALUES and cannot reintroduce these aliases.

@@ -7,7 +7,7 @@ import {
 
 export const ANTIGRAVITY_IDE_NODE_API_CLIENT = "google-api-nodejs-client/10.3.0";
 export const ANTIGRAVITY_IDE_NODE_X_GOOG_API_CLIENT = "gl-node/22.21.1";
-// Pin the opt-in compatibility identity to the observed working hub client.
+// Hub execution identity; kept at the observed working version.
 export const ANTIGRAVITY_HUB_VERSION = "2.24.0";
 
 // Antigravity presents the native macOS desktop client fingerprint: the upstream
@@ -43,7 +43,7 @@ export function antigravityIdeNodeUserAgent(version = getAntigravityVersionPin("
 }
 
 export function getAntigravityOAuthUserAgent(profile: AntigravityClientProfile): string {
-  return profile === "cli" ? antigravityCliUserAgent() : antigravityIdeNodeUserAgent();
+  return getAntigravityContentHeaders(profile)["User-Agent"];
 }
 
 export function getAntigravityContentHeaders(
@@ -55,7 +55,7 @@ export function getAntigravityContentHeaders(
       "Content-Type": "application/json",
       "User-Agent": profile === "hub"
         ? `antigravity/hub/${ANTIGRAVITY_HUB_VERSION} ${ANTIGRAVITY_OS_TYPE}/${ANTIGRAVITY_ARCH}`
-        : profile === "cli" ? antigravityCliUserAgent() : antigravityIdeUserAgent(),
+        : antigravityCliUserAgent(),
     },
     accessToken
   );

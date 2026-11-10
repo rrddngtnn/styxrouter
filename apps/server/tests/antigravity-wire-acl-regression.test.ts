@@ -7,7 +7,9 @@ test("authenticated requests enforce alias and wire ACLs and preserve pinned con
   const { createApiKey, updateApiKeyPermissions } = await import("../src/lib/db/apiKeys.ts");
   const { handleChat } = await import("../src/sse/handlers/chat.ts");
   await setMitmAliasAll("antigravity", { "acl-alias": "antigravity/acl-wire" });
-  const connection = await createProviderConnection({ provider: "antigravity", authType: "oauth", accessToken: "synthetic", projectId: "synthetic", isActive: true } as any);
+  // Exercise the supported CLI release-discovery await as the alias-mutation seam.
+  // Hub deliberately has no updater request, so its default cannot drive this race.
+  const connection = await createProviderConnection({ provider: "antigravity", authType: "oauth", accessToken: "synthetic", projectId: "synthetic", isActive: true, providerSpecificData: { clientProfile: "cli" } } as any);
   const wire: string[] = [];
   let mutated = false;
   const old = globalThis.fetch;

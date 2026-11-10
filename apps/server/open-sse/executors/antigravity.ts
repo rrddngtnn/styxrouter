@@ -72,6 +72,7 @@ import {
 } from "./antigravity/proFallbackChain.ts";
 import {
   getAntigravityClientProfile,
+  withResolvedAntigravityClientProfile,
   resolveAntigravityClientVersion,
 } from "../services/antigravityClientProfile.ts";
 import {
@@ -1120,6 +1121,7 @@ export class AntigravityExecutor extends BaseExecutor {
    * exactly the same single call as before (zero extra upstream requests).
    */
   async execute(input: ExecuteInput) {
+    input = { ...input, credentials: withResolvedAntigravityClientProfile(input.credentials) };
     await resolveAntigravityClientVersion(getAntigravityClientProfile(input.credentials));
 
     // Look up the chain by the NORMALLY-resolved upstream id (honours MITM/static aliases).

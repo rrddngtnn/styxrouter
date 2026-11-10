@@ -187,7 +187,7 @@ function buildAntigravityUsageCacheKey(
 async function fetchAntigravityAvailableModelsCached(
   accessToken: string,
   projectId?: string | null,
-  clientProfile: AntigravityClientProfile = "ide",
+  clientProfile: AntigravityClientProfile = "hub",
   options: AntigravityUsageOptions = {}
 ): Promise<unknown> {
   if (!accessToken) throw new Error("Access token is required");
@@ -252,7 +252,7 @@ async function fetchAntigravityAvailableModelsCached(
 async function fetchAntigravityUserQuotaCached(
   accessToken: string,
   projectId?: string | null,
-  clientProfile: AntigravityClientProfile = "ide",
+  clientProfile: AntigravityClientProfile = "hub",
   options: AntigravityUsageOptions = {}
 ): Promise<unknown | null> {
   if (!accessToken || !projectId) return null;

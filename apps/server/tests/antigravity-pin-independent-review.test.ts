@@ -22,7 +22,7 @@ test('pins bind OAuth exchange and executor token refresh headers; malformed inp
       const provider = createAntigravityOAuthProvider(ANTIGRAVITY_CONFIG, product as 'ide'|'cli');
       await provider.exchangeToken(ANTIGRAVITY_CONFIG,'fixture-code','http://localhost/callback');
       const exchange = seen.at(-1)!;
-      const expected = product === 'ide' ? 'antigravity/3.4.5 ' : 'antigravity/cli/6.7.8 ';
+      const expected = product === 'ide' ? 'antigravity/hub/2.24.0 ' : 'antigravity/cli/6.7.8 ';
       expect(exchange.get('user-agent')).toContain(expected);
       await new AntigravityExecutor().refreshCredentials({refreshToken:'fixture-refresh',projectId:'fixture-project',providerSpecificData:{clientProfile:product}} as any);
       expect(seen.at(-1)!.get('user-agent')).toContain(expected);
@@ -48,7 +48,7 @@ test('failed release refresh retains pins during real mocked executor dispatch',
       const result = await new AntigravityExecutor().execute({model:'gemini-3-flash',body:{contents:[{role:'user',parts:[{text:'hi'}]}]},stream:true,credentials:{accessToken:'fixture',projectId:'fixture-project',providerSpecificData:{clientProfile:p}}} as any);
       expect(result.response.status).toBe(200);
     }
-    expect(seen[0]).toContain('antigravity/ide/9.1.1'); expect(seen[1]).toContain('antigravity/cli/9.2.2');
+    expect(seen[0]).toContain('antigravity/hub/2.24.0'); expect(seen[1]).toContain('antigravity/cli/9.2.2');
   } finally { globalThis.fetch = old; if (profile === undefined) delete process.env.STYX_ANTIGRAVITY_CLIENT_PROFILE; else process.env.STYX_ANTIGRAVITY_CLIENT_PROFILE = profile; clearAntigravityVersionCaches(); setAntigravityVersionPin('ide',null); setAntigravityVersionPin('cli',null); }
 });
 

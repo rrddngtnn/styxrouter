@@ -169,12 +169,12 @@ export function getQoderDashscopeCompatHeaders(): Record<string, string> {
   };
 }
 
-export function getAntigravityUserAgent(profile: AntigravityClientProfile = "ide"): string {
+export function getAntigravityUserAgent(profile: AntigravityClientProfile = "hub"): string {
   return getAntigravityContentHeaders(profile)["User-Agent"];
 }
 
 export function getAntigravityProviderHeaders(
-  profile: AntigravityClientProfile = "ide"
+  profile: AntigravityClientProfile = "hub"
 ): Record<string, string> {
   return getAntigravityContentHeaders(profile);
 }

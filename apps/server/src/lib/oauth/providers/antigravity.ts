@@ -1,8 +1,7 @@
 import { ANTIGRAVITY_CONFIG } from "../constants/oauth";
-import type { AntigravityClientProfile } from "@/shared/constants/antigravityClientProfile";
+import { normalizeAntigravityClientProfile, type AntigravityClientProfile } from "@/shared/constants/antigravityClientProfile";
 import {
   getAntigravityContentHeaders,
-  getAntigravityIdeNodeHeaders,
   getAntigravityLoadCodeAssistMetadata,
   getAntigravityOAuthUserAgent,
 } from "@styxrouter/open-sse/services/antigravityHeaders.ts";
@@ -52,9 +51,7 @@ function getPostExchangeHeaders(
   profile: AntigravityClientProfile,
   accessToken: string
 ): Record<string, string> {
-  return profile === "cli"
-    ? getAntigravityContentHeaders("cli", accessToken)
-    : getAntigravityIdeNodeHeaders(accessToken);
+  return getAntigravityContentHeaders(profile, accessToken);
 }
 
 function buildAntigravityAuthUrl(
@@ -261,8 +258,9 @@ function mapAntigravityTokens(
 
 export function createAntigravityOAuthProvider(
   config: AntigravityOAuthConfig,
-  clientProfile: AntigravityClientProfile
+  requestedProfile: AntigravityClientProfile | "ide"
 ) {
+  const clientProfile = normalizeAntigravityClientProfile(requestedProfile);
   return {
     config,
     flowType: "authorization_code" as const,
@@ -274,4 +272,4 @@ export function createAntigravityOAuthProvider(
   };
 }
 
-export const antigravity = createAntigravityOAuthProvider(ANTIGRAVITY_CONFIG, "ide");
+export const antigravity = createAntigravityOAuthProvider(ANTIGRAVITY_CONFIG, "hub");

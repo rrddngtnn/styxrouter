@@ -9,6 +9,7 @@ endpoints. Account rotation and protocol support depend on the provider.
 - [Install from source](docs/install.md)
 - [Configuration and authentication](docs/configuration.md)
 - [Connect clients](docs/harness-connections.md)
+- [Antigravity Hub default and legacy profile compatibility](docs/antigravity-profiles.md)
 - [Documentation index](docs/README.md)
 
 ## Quick start

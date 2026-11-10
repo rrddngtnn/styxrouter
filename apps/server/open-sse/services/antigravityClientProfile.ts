@@ -8,7 +8,6 @@ import { getAntigravityVersionPin } from "@/lib/db/antigravityVersionPin";
 import type { AntigravityCredentialsLike } from "./antigravityIdentity.ts";
 import {
   resolveAntigravityCliVersion,
-  resolveAntigravityIdeVersion,
 } from "./antigravityVersion.ts";
 
 export {
@@ -18,8 +17,15 @@ export {
   type AntigravityClientProfile,
 } from "@/shared/constants/antigravityClientProfile";
 
+const resolvedProfile = Symbol("antigravityClientProfile");
+
+export function withResolvedAntigravityClientProfile<T extends AntigravityProfileCredentials>(credentials: T): T {
+  return { ...credentials, [resolvedProfile]: getAntigravityClientProfile(credentials) };
+}
+
 type AntigravityProfileCredentials = AntigravityCredentialsLike & {
   providerSpecificData?: Record<string, unknown> | null;
+  [resolvedProfile]?: AntigravityClientProfile;
 };
 
 const ABSENT_CONTENT_IDENTITY_HEADERS = [
@@ -34,8 +40,12 @@ const ABSENT_CONTENT_IDENTITY_HEADERS = [
 export function getAntigravityClientProfile(
   credentials?: AntigravityProfileCredentials | null
 ): AntigravityClientProfile {
+  const frozen = credentials?.[resolvedProfile];
+  if (frozen === "hub" || frozen === "cli") return frozen;
   const override = process.env.STYX_ANTIGRAVITY_CLIENT_PROFILE?.trim().toLowerCase();
-  if (override === "hub" || override === "ide" || override === "cli") return override;
+  if (["hub", "ide", "cli", "harness", "sdk"].includes(override ?? "")) {
+    return normalizeAntigravityClientProfile(override);
+  }
   const fromProviderData =
     credentials?.providerSpecificData &&
     typeof credentials.providerSpecificData === "object" &&
@@ -50,7 +60,7 @@ export async function resolveAntigravityClientVersion(
   profile: AntigravityClientProfile
 ): Promise<string> {
   if (profile === "hub") return Promise.resolve(ANTIGRAVITY_HUB_VERSION);
-  const version = await (profile === "cli" ? resolveAntigravityCliVersion() : resolveAntigravityIdeVersion());
+  const version = await resolveAntigravityCliVersion();
   return getAntigravityVersionPin(profile) ?? version;
 }
 
