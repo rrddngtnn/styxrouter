@@ -29,14 +29,14 @@ for (const [path, sha256] of Object.entries(approved)) {
   }
 }
 
-test('login and sidebar share approved light/dark lockups; collapsed sidebar uses approved icon', () => {
+test('login and unified drawer share approved light/dark lockups; favicon retains approved icon', () => {
   for (const path of ['../src/pages/Login.tsx', '../src/components/shell/ShellFrame.tsx']) {
     expect(text(path)).toContain('<BrandMark />');
   }
   const brand = text('../src/components/BrandMark.tsx');
   expect(brand).toContain('brand/styx-lockup.svg');
   expect(brand).toContain('brand/styx-lockup-dark.svg');
-  expect(text('../src/components/shell/ShellFrame.tsx')).toContain('brand/styx-icon.svg');
+  expect(text('../index.html')).toContain('brand/styx-icon.svg');
   expect(text('../index.html')).toContain('%BASE_URL%favicon.ico');
 });
 

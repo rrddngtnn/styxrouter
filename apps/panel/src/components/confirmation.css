@@ -1,0 +1,7 @@
+.styx-confirmation.rt-DialogContent { border:1px solid var(--border-edge); border-radius:12px; max-width:520px; max-height:calc(100dvh - 32px); overflow:auto; padding:24px; background:var(--panel); color:var(--fg); }
+.styx-confirmation-resource { margin:16px 0; padding:12px; border:1px solid var(--border-edge); border-radius:8px; overflow-wrap:anywhere; }
+.styx-confirmation footer { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; padding-bottom:env(safe-area-inset-bottom); }
+.styx-confirmation button,.banked-reset-card button { min-height:44px; }
+.banked-reset-card { border:1px solid var(--accent); border-radius:12px; padding:16px; display:grid; gap:12px; overflow-wrap:anywhere; }
+.banked-reset-card h4,.banked-reset-card p { margin:0; }
+@media(max-width:540px) { .styx-confirmation.rt-DialogContent { width:calc(100% - 16px); padding:16px; max-height:calc(100dvh - 16px); } .styx-confirmation footer button { flex:1; } }

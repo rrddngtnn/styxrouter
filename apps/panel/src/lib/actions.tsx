@@ -1,21 +1,26 @@
+import { useConfirmation, type ConfirmationRequest } from "../components/ConfirmationDialog";
 import { useTranslator } from "./useTranslator.ts";
 import { useRef, useState, type ReactNode } from "react";
 import { Dialog } from "@radix-ui/themes";
 import { toast } from "sonner";
 import { Copy, Check, KeyRound, X } from "lucide-react";
 import { ApiError } from "./api.ts";
+import { createOperationGuard } from "./operation-guard.ts";
 
 /** Runs an async action, tracks busy/error, fires a Sonner toast, and refreshes the list afterwards. */
 export function useAction(onDone?: () => void) {
   const [busy, setBusy] = useState<string | null>(null);
+  const guard = useRef(createOperationGuard());
   const [error, setError] = useState<string | null>(null);
-  async function run<T>(label: string, fn: () => Promise<T>, confirmText?: string): Promise<T | undefined> {
-    if (confirmText && !window.confirm(confirmText)) return undefined;
+  const confirmation = useConfirmation();
+  async function run<T>(label: string, fn: () => Promise<T>, review?: string | ConfirmationRequest): Promise<T | undefined> {
+    return guard.current.run(async () => {
+    if (review && !await confirmation.confirm(typeof review === 'string' ? {title:'Confirm action',description:review,resource:label,action:label.startsWith('revoke')?'Revoke':'Delete',danger:true} : review)) return undefined;
     setBusy(label);
     setError(null);
     try {
       const out = await fn();
-      onDone?.();
+      await onDone?.();
       return out;
     } catch (e) {
       const msg = e instanceof ApiError || e instanceof Error ? e.message : String(e);
@@ -25,8 +30,9 @@ export function useAction(onDone?: () => void) {
     } finally {
       setBusy(null);
     }
+    });
   }
-  return { busy, error, run, clearError: () => setError(null) };
+  return { busy, error, run, confirmationDialog: confirmation.dialog, clearError: () => setError(null) };
 }
 
 /**

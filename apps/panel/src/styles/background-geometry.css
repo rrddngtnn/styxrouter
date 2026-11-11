@@ -1,0 +1,52 @@
+/* Original, non-tiled ribbon lattice. Local tokens do not change B boundary roles. */
+.geometry-quiet-space {
+  --motif-ink: #454e4c;
+  --motif-rose: #c36e73;
+  --motif-intensity: .16;
+  --motif-rose-intensity: .22;
+  --motif-ribbon-mask: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 256 176'%3E%3Cg fill='none' stroke='black' stroke-width='1.4' stroke-linejoin='round'%3E%3Cpath d='M-40 146 64 42 168 146 272 42M-40 160 64 56 168 160 272 56M-40 174 64 70 168 174 272 70M-40 188 64 84 168 188 272 84'/%3E%3Cpath d='M-40 42 64 146 168 42 272 146M-40 56 64 160 168 56 272 160M-40 70 64 174 168 70 272 174M-40 84 64 188 168 84 272 188'/%3E%3C/g%3E%3C/svg%3E");
+  flex: 1 0 0;
+  min-height: 0;
+  max-height: 176px;
+  margin-block-start: -16px; /* Cancel the nav gap; adds zero scrolling demand. */
+  position: relative;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+:root[data-theme="dark"] .geometry-quiet-space {
+  --motif-ink: #a8b9b3;
+  --motif-rose: #e1a1a0;
+  --motif-intensity: .14;
+  --motif-rose-intensity: .22;
+}
+.geometry-ribbon {
+  position: absolute;
+  inset: 20px -20px 0 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.geometry-ribbon::before, .geometry-ribbon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--motif-ink);
+  opacity: var(--motif-intensity);
+  mask-image: var(--motif-ribbon-mask);
+  mask-size: 256px 176px;
+  mask-position: right bottom;
+  mask-repeat: no-repeat;
+  pointer-events: none;
+}
+.geometry-ribbon::after {
+  background-color: var(--motif-rose);
+  opacity: var(--motif-rose-intensity);
+  clip-path: polygon(56% 0, 100% 0, 100% 100%);
+}
+.is-collapsed .geometry-quiet-space { display: none; }
+@media (max-width: 860px) {
+  .geometry-quiet-space { max-height: 112px; }
+  .geometry-ribbon { left: 46%; right: -36px; }
+  .geometry-ribbon::before, .geometry-ribbon::after { mask-size: 220px 151px; }
+}
+@media (forced-colors: active) { .geometry-quiet-space { visibility: hidden; } }

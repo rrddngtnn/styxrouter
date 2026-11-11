@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { MemoryRouter } from "react-router-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 
 test("normalizes versioned URLs and rejects credential-bearing or non-HTTP URLs", () => {
@@ -29,10 +30,10 @@ test("invalid base URL renders a recoverable validation error, not a page crash"
   const previous = Object.getOwnPropertyDescriptor(globalThis, "location");
   Object.defineProperty(globalThis, "location", { configurable: true, value: { origin: "https://", port: "", hostname: "localhost" } });
   try {
-    const html = renderToStaticMarkup(<Tools />);
+    const html = renderToStaticMarkup(<MemoryRouter><Tools /></MemoryRouter>);
     expect(html).toContain('role="alert"');
     expect(html).toContain("Router base URL");
-    expect(html).toMatch(/disabled=""[^>]*><svg[^]*?Test connection/);
+    expect(html).toMatch(/disabled="">Router request test/);
     expect(html).not.toContain("tools-snippet-body");
   } finally {
     if (previous) Object.defineProperty(globalThis, "location", previous);
@@ -94,8 +95,8 @@ test("backend port input is independent of the browser reverse-proxy port", () =
   expect(source).toContain('const [localPort, setLocalPort] = useState("20128")');
   expect(source).toContain('placeholder="20128"');
   expect(source).toContain('onChange={(e) => setLocalPort(e.target.value)}');
-  expect(source).toContain('placeholder="user@example.org"');
-  expect(source.match(/activeTunnel\.recommendedBase\(localPort\.trim\(\) \|\| "20128"/g)).toHaveLength(2);
+  expect(source).toContain('[sshHost,setSshHost]=useState("host.example")');
+  expect(source).toContain('recommendedBase(localPort.trim()||"20128",publicHost)');
 });
 
 test("custom backend ports remain usable across all tunnel modes", () => {

@@ -1,4 +1,13 @@
 /* The link is the card body; the footer action is an independent link. */
+/* Deliberate action columns avoid a lone destructive control wrapping at desktop widths. */
+.provider-accounts-table .provider-account-actions {
+  display: grid;
+  grid-template-columns: repeat(3, max-content);
+  justify-content: end;
+  gap: 8px;
+}
+.provider-account-actions > button { width: 100%; }
+
 .provider-accounts-table { overflow-x: auto; max-width: 100%; }
 .provider-account-search label { min-width: 0; }
 .provider-account-search input { min-width: 0; max-width: 100%; }

@@ -1,7 +1,15 @@
+import { DropdownMenu } from "@radix-ui/themes";
+import {saveResourceAnchor,useResourceAnchor} from "../lib/resource-anchor";
+import { useMobile } from "../lib/use-mobile";
+import { useLocation } from "react-router-dom";
+import { TagFilter } from "../components/TagFilter.tsx";
+import {usePageReady} from "../lib/page-ready";
+import {ReadFreshness} from "../components/OperationalUI";
+import {CardFrame} from "../components/OperationalUI";
 import { useTranslator } from "../lib/useTranslator.ts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, KeyRound, Layers, LayoutGrid, Link2, List, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { ArrowLeft, KeyRound, LayoutGrid, Link2, List, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { usePreferences } from "../lib/preferences.tsx";
 import {
@@ -18,6 +26,7 @@ import {
   type BulkResult,
 } from "../lib/account-management.ts";
 import { api, type JsonValue } from "../lib/api.ts";
+import {useConfirmation} from "../components/ConfirmationDialog";
 import { Modal, useAction } from "../lib/actions.tsx";
 import { DASH } from "../lib/format.ts";
 import { useFetch } from "../lib/useFetch.ts";
@@ -91,17 +100,19 @@ const blankNode = { type: "openai-compatible", name: "", prefix: "", apiType: "c
 export function Providers() {
   const tr = useTranslator();
   const [searchParams, setSearchParams] = useSearchParams();
+  const mobile = useMobile();
   const initialTab = searchParams.get("tab");
   const tab: Tab =
     initialTab === "apikey" || initialTab === "custom" || initialTab === "network"
       ? initialTab
       : "oauth";
-  const setTab = (next: Tab) => setSearchParams({ tab: next }, { replace: true });
+  const setTab = (next: Tab) => { const updated=new URLSearchParams(searchParams); updated.set("tab",next); setSearchParams(updated); };
 
   const state = useFetch<ProvidersResponse>("/api/providers");
   const accountsState = useFetch<{ connections?: Account[] }>("/api/connections");
   const nodesState = useFetch<{ nodes?: Node[] }>("/api/provider-nodes");
   const [editingNode, setEditingNode] = useState<"new" | null>(null);
+  const nodeCanClose = useRef<() => Promise<boolean>>(async () => true);
   const [search, setSearch] = useState("");
   const { providerView, setProviderView } = usePreferences();
 
@@ -148,14 +159,17 @@ export function Providers() {
   return (
     <div className="page">
       <h1>{tr("Providers")}</h1>
+      {[state,accountsState,nodesState].map((state,index)=><ReadFreshness key={index} state={state}/>)}
       <p className="muted">{tr("Select any provider card to open its dedicated page — connect OAuth accounts, add or bulk-import API keys, and run bulk actions on that provider’s accounts.")}</p>
 
       {state.status === "loading" && <LoadingState label={tr("Loading providers")} />}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
 
-      {state.status === "ok" && (
+      {(
         <>
-          <div className="tabs" role="tablist">
+          {mobile ? <label className="mobile-category-select">{tr("Provider category")}<select value={tab} onChange={e=>setTab(e.target.value as Tab)}>
+            <option value="oauth">{tr("OAuth Logins")}</option><option value="apikey">{tr("API Keys")}</option><option value="custom">{tr("Custom Providers")}</option><option value="network">{tr("Proxies & Error Rules")}</option>
+          </select></label> : <div className="tabs" role="tablist">
             <button
               role="tab"
               aria-selected={tab === "oauth"}
@@ -184,7 +198,7 @@ export function Providers() {
               onClick={() => setTab("network")}
             >{tr("Proxies & Error Rules")}
             </button>
-          </div>
+          </div>}
 
           {tab === "network" ? (
             <ProviderNetworkRulesPanel />
@@ -219,7 +233,7 @@ export function Providers() {
               </button>
             </div>
           </div>
-          {tab !== "custom" ? (
+          {state.status !== "ok" && tab !== "custom" ? <p role="status">{tr("Provider inventory unavailable")}</p> : tab !== "custom" ? (
             <div className={providerView === "rows" ? "provider-grid provider-grid-rows" : "provider-grid"}>
               {list.map((p) => (
                 <ProviderCard
@@ -246,13 +260,14 @@ export function Providers() {
               </div>
               <Modal
                 open={editingNode === "new"}
-                onOpenChange={(open) => {
-                  if (!open) setEditingNode(null);
+                onOpenChange={async (open) => {
+                  if (!open && await nodeCanClose.current()) setEditingNode(null);
                 }}
                 title={tr("New custom provider")}
                 description={tr("Register an OpenAI- or Anthropic-compatible upstream endpoint under its own routing prefix.")}
               >
                 <NodeForm
+                  registerClose={(check) => { nodeCanClose.current = check; }}
                   onCancel={() => setEditingNode(null)}
                   onDone={() => {
                     setEditingNode(null);
@@ -326,7 +341,7 @@ export function ProviderCard({ provider, tab, view = "cards", accounts, activeAc
   const tr = useTranslator();
   const name = provider.name ?? provider.id;
   const href = `/providers/${encodeURIComponent(provider.id)}?tab=${tab}`;
-  return <article className={`provider-card identity-card${view === "rows" ? " provider-card-row" : ""}`}>
+  return <CardFrame as="article" kind="provider" className={`provider-card identity-card${view === "rows" ? " provider-card-row" : ""}`}>
     <Link to={href} className="provider-card-main">
       <ProviderIcon providerId={provider.id} label={name} />
       <div className="provider-card-info">
@@ -342,7 +357,7 @@ export function ProviderCard({ provider, tab, view = "cards", accounts, activeAc
     <footer><Link to={href} className="btn-add provider-card-action" aria-label={`${accounts !== null && accounts > 0 ? tr("Manage") : accounts === 0 ? tr("Connect") : tr("Manage")} ${name}`}>
       {accounts !== null && accounts > 0 ? tr("Manage ({0})", {0: String(accounts)}) : accounts === 0 ? tr("Connect") : tr("Manage")}
     </Link></footer>
-  </article>;
+  </CardFrame>;
 }
 
 function CustomNodeCard({ node, view, accounts, activeAccounts }: {
@@ -350,7 +365,7 @@ function CustomNodeCard({ node, view, accounts, activeAccounts }: {
 }) {
   const tr = useTranslator();
   const href = `/providers/${encodeURIComponent(node.id)}?tab=custom`;
-  return <article className={`provider-card identity-card${view === "rows" ? " provider-card-row" : ""}`}>
+  return <CardFrame as="article" kind="provider" className={`provider-card identity-card${view === "rows" ? " provider-card-row" : ""}`}>
     <Link to={href} className="provider-card-main">
       <ProviderIcon providerId={`custom:${node.id}`} label={node.name} />
       <div className="provider-card-info">
@@ -367,10 +382,10 @@ function CustomNodeCard({ node, view, accounts, activeAccounts }: {
     <footer><Link to={href} className="btn-add provider-card-action" aria-label={`${tr("Manage")} ${node.name}`}>
       {accounts !== null && accounts > 0 ? tr("Manage ({0})", {0: String(accounts)}) : tr("Manage")}
     </Link></footer>
-  </article>;
+  </CardFrame>;
 }
 
-function NodeForm({ node, onDone, onCancel }: { node?: Node; onDone: () => void; onCancel: () => void }) {
+function NodeForm({ node, onDone, onCancel, registerClose }: { node?: Node; onDone: () => void; onCancel: () => void; registerClose: (check: () => Promise<boolean>) => void }) {
   const tr = useTranslator();
   const editing = Boolean(node);
   const [form, setForm] = useState(
@@ -386,6 +401,10 @@ function NodeForm({ node, onDone, onCancel }: { node?: Node; onDone: () => void;
         }
       : { ...blankNode },
   );
+  const initialForm = useRef(JSON.stringify(form));
+  const confirmation = useConfirmation();
+  const canClose = async () => JSON.stringify(form) === initialForm.current || await confirmation.confirm({title:tr("Discard unsaved changes?"),description:tr("Unsaved provider settings will be lost."),resource:tr("Custom provider settings"),action:tr("Discard changes"),danger:true});
+  useEffect(() => { registerClose(canClose); return () => registerClose(async () => true); }, [form]);
   const { busy, error, run } = useAction(onDone);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -410,6 +429,7 @@ function NodeForm({ node, onDone, onCancel }: { node?: Node; onDone: () => void;
 
   return (
     <form className="stack-form" onSubmit={submit}>
+      {confirmation.dialog}
       <label>{tr("Name")}<input value={form.name} onChange={set("name")} required maxLength={200} />
       </label>
       <label>{tr("Wire format")}<select value={form.type} onChange={set("type")} disabled={editing}>
@@ -439,16 +459,24 @@ function NodeForm({ node, onDone, onCancel }: { node?: Node; onDone: () => void;
         <button type="submit" className="btn-add" disabled={busy !== null || !form.name.trim() || !form.baseUrl.trim()}>
           {busy === "save" ? "…" : editing ? tr("Save") : tr("Create")}
         </button>
-        <button type="button" className="btn-ghost" onClick={onCancel}>{tr("Cancel")}</button>
+        <button type="button" className="btn-ghost" onClick={async () => { if (await canClose()) onCancel(); }}>{tr("Cancel")}</button>
       </div>
     </form>
   );
 }
 
 export function ProviderDetail() {
+  const confirmation = useConfirmation();
+  const reviewLock = useRef(false);
   const tr = useTranslator();
   const { providerId = "" } = useParams<{ providerId: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const mobile = useMobile();
+  const location = useLocation();
+  const listScroll = useRef(0);
+  const wasInspecting = useRef(false);
+  const inspect = searchParams.get("tab") === "models" || searchParams.get("tab") === "import" ? null : searchParams.get("inspect");
+
   const navigate = useNavigate();
 
   const state = useFetch<ProvidersResponse>("/api/providers");
@@ -469,6 +497,7 @@ export function ProviderDetail() {
     state.reload();
     accountsState.reload();
     nodesState.reload();
+    flowsState.reload();
     setTagRevision(r => r + 1);
   };
 
@@ -491,6 +520,16 @@ export function ProviderDetail() {
     () => accountsForProvider(allAccounts, providerId, backTab),
     [allAccounts, providerId, backTab],
   );
+  const inspected = inspect ? providerAccounts.find(a => a.id === inspect) : null;
+  const anchorKey=`${location.pathname}?auth=${backTab}:${location.state?.accountInspect?location.state?.listEntry:location.key}`;
+  useResourceAnchor(anchorKey,!loading,mobile&&!inspect,"[data-resource-anchor]");
+  const openAccount = (id: string) => { saveResourceAnchor(anchorKey,"[data-resource-anchor]");listScroll.current = window.scrollY; const next = new URLSearchParams(searchParams); next.set("inspect", id); setSearchParams(next, {state: {accountInspect: true,listEntry:location.key}}); };
+  const closeAccount = () => { if (location.state?.accountInspect) navigate(-1); else { const next = new URLSearchParams(searchParams); next.delete("inspect"); setSearchParams(next, {replace: true}); } };
+  useEffect(() => {
+    if (!mobile) return;
+    if (inspect) { wasInspecting.current=true; window.scrollTo(0,0); document.getElementById("account-inspect-heading")?.focus({preventScroll:true}); }
+    else if (wasInspecting.current) { wasInspecting.current=false; document.getElementById("provider-connected-accounts-heading")?.focus({preventScroll:true}); /* entry anchor restores after ready */ }
+  }, [inspect, mobile, inspected?.id]);
   const activeCount = useMemo(
     () => providerAccounts.filter((a) => a.isActive && a.testStatus === "active").length,
     [providerAccounts],
@@ -501,10 +540,12 @@ export function ProviderDetail() {
   const [addingKey, setAddingKey] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [editingNode, setEditingNode] = useState(false);
+  const nodeCanClose = useRef<() => Promise<boolean>>(async () => true);
   const [label, setLabel] = useState("");
   const [apiKey, setApiKey] = useState("");
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectionMode,setSelectionMode] = useState(false);
   const [accountSearch, setAccountSearch] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [tagFilter, setTagFilter] = useState("");
@@ -531,8 +572,15 @@ export function ProviderDetail() {
   const [editingRulesAccount, setEditingRulesAccount] = useState<Account | null>(null);
   const [excludedModelsText, setExcludedModelsText] = useState("");
 
-  const { busy, error: actionError, run } = useAction(refresh);
-  const locked = busy !== null || bulkBusy;
+  const reconcileInventory = async () => {
+    // A successful write response alone does not verify the displayed inventory.
+    try {
+      await Promise.all([api.get('/api/providers'),api.get('/api/connections'),api.get('/api/provider-nodes')]);
+    } catch { throw new Error(tr('Write acknowledged; inventory refresh failed. Reload before another action.')); }
+    finally { refresh(); }
+  };
+  const { busy, error: actionError, run, confirmationDialog } = useAction(reconcileInventory);
+  const locked = busy !== null || bulkBusy || accountsState.status !== "ok" || accountsState.stale || state.status !== "ok" || state.stale || nodesState.status !== "ok" || nodesState.stale;
   const rotatingAccount = useMemo(
     () => (rotatingId ? providerAccounts.find((a) => a.id === rotatingId) ?? null : null),
     [rotatingId, providerAccounts],
@@ -560,7 +608,7 @@ export function ProviderDetail() {
     const out = await run(
       "del-node",
       () => api.delete(`/api/provider-nodes/${target.node!.id}`),
-      `Delete custom provider "${target.label}"? Its accounts stay but lose their route.`,
+      {title:tr("Delete custom provider?"),description:tr("Its accounts stay but lose their route."),resource:`${target.label} / ${target.node.id}`,action:tr("Delete"),danger:true},
     );
     if (out) {
       toast.success(`Deleted custom provider "${target.label}"`);
@@ -570,7 +618,11 @@ export function ProviderDetail() {
 
   async function bulk(action: BulkAction) {
     const ids = selectedAccounts(visibleAccounts, selected);
-    if (locked || ids.length === 0) return;
+    if (locked || reviewLock.current || ids.length === 0) return;
+    reviewLock.current = true;
+    const accepted = await confirmation.confirm({title:tr(action === "delete" ? "Delete selected accounts?" : action === "disable" ? "Disable selected accounts?" : action === "enable" ? "Enable selected accounts?" : "Review selected accounts"),description:`${ids.length} accounts from ${target?.label ?? providerId}. Only this snapshot will change.`+(action === "delete" ? " Stored credentials will be removed." : ""),resource:ids.map(id=>`${visibleAccounts.find(a=>a.id===id)?.name ?? "Account"} / ${id}`).join("\n"),action:tr(action === "delete" ? "Delete" : action === "disable" ? "Disable" : action === "enable" ? "Enable" : "Continue"),danger:true});
+    reviewLock.current = false;
+    if(!accepted) return;
     setBulkBusy(true);
     setBulkResults([]);
     try {
@@ -642,6 +694,76 @@ export function ProviderDetail() {
     }
   }
 
+  function accountActions(a: Account) {
+    const isApiKey = a.authType === "apikey" || a.authType === "api_key";
+    const failing = a.testStatus !== null && a.testStatus !== "active";
+    const labelText = a.name ?? a.id.slice(0, 8);
+    return <div className="row-actions">                      <button type="button" className="btn-ghost" disabled={locked} onClick={() => test(a.id)} title="Credential check, not model inference">{tr("Test")}</button>
+                      <AccountModelTest account={a} disabled={locked} />
+                      {!isApiKey && (
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          disabled={locked}
+                          title={tr("Force an immediate OAuth refresh_token exchange and extend access_token expiry")}
+                          onClick={() => refreshToken(a.id)}
+                        >
+                          {busy === `refresh-tok-${a.id}` ? "…" : tr("Refresh token")}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        disabled={locked}
+                        onClick={() => {
+                          setEditingRulesAccount(a);
+                          setExcludedModelsText((a.excludedModels ?? []).join("\n"));
+                        }}
+                      >
+                        {tr("Model rules")}
+                      </button>
+                      {isApiKey && (
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          disabled={locked}
+                          onClick={() => {
+                            setRotatingId(a.id);
+                            setNewKey("");
+                          }}
+                        >{tr("Rotate key")}</button>
+                      )}
+                      {(failing || a.backoffLevel > 0) && (
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          disabled={locked}
+                          onClick={() => run(`cool-${a.id}`, () => api.post(`/api/connections/${a.id}/release-cooldown`))}
+                        >{tr("Clear error")}</button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        disabled={locked}
+                        onClick={() => run(`toggle-${a.id}`, () => api.patch(`/api/connections/${a.id}`, { isActive: !a.isActive }))}
+                      >
+                        {a.isActive ? tr("Disable") : tr("Enable")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-danger"
+                        disabled={locked}
+                        onClick={() =>
+                          run(
+                            `del-${a.id}`,
+                            () => api.delete(`/api/connections/${a.id}`),
+                            {title:tr("Delete provider account?"),description:tr("Its stored credentials are removed."),resource:`${target?.label ?? a.provider} / ${labelText} / ${a.id}`,action:tr("Delete"),danger:true},
+                          )
+                        }
+                      >{tr("Delete")}</button>
+</div>;
+  }
+  usePageReady(!loading || !!target);
   if (loading && !target) {
     return (
       <div className="page">
@@ -655,17 +777,21 @@ export function ProviderDetail() {
     return (
       <div className="page">
         <p><Link to={backHref}>{tr("← All Providers")}</Link></p>
-        <h1>{tr("Provider not found")}</h1>
+        <h1>{state.status === 'error' || nodesState.status === 'error' ? tr("Unable to load provider") : tr("Provider not found")}</h1>
+        <ReadFreshness resource="Providers" state={state}/><ReadFreshness resource="Custom Providers" state={nodesState}/><ReadFreshness resource="Provider accounts" state={accountsState}/>
         <p className="muted">{tr("No provider or custom endpoint matches")}<code>{providerId}</code>.</p>
       </div>
     );
   }
 
   const ids = selectedAccounts(visibleAccounts, selected);
-  const status = activeCount > 0 ? "ok" : providerAccounts.length === 0 ? "disabled" : "down";
+  const status = activeCount > 0 ? "ok" : providerAccounts.length === 0 ? "disabled" : providerAccounts.every(a => a.testStatus === null) ? "unknown" : "down";
 
   return (
     <div className="page">
+      {confirmation.dialog}{confirmationDialog}
+      {[["Providers",state],["Provider accounts",accountsState],["Custom Providers",nodesState],["OAuth providers",flowsState]].map(([resource,reader])=><ReadFreshness key={resource as string} resource={resource as string} state={reader as typeof state}/>)}
+      {!(mobile && inspect) && <>
       <p style={{ marginBottom: 12 }}>
         <Link to={backHref} className="back-link">
           <ArrowLeft size={14} />
@@ -673,15 +799,15 @@ export function ProviderDetail() {
         </Link>
       </p>
 
-      <div className="section-head" style={{ alignItems: "flex-start", marginBottom: 20 }}>
+      <div className="section-head provider-context-head" style={{ alignItems: "flex-start", marginBottom: 20 }}>
         <div>
           <h1 style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 10 }}>
-            {target.label}
+            <ProviderIcon providerId={providerId} label={String(target.label)} size={24}/>{target.label}
             <code className="provider-id">{target.code}</code>
             <span className="vendor-badge">{target.badge}</span>
           </h1>
           <div className="provider-meta" style={{ fontSize: 14 }}>
-            <span className={`health ${status}`}>{status === "disabled" ? tr("no accounts") : status}</span>
+            <span className={`health ${accountsState.stale || accountsState.status !== "ok" ? "unknown" : status}`}>{accountsState.stale ? tr("stale") : accountsState.status !== "ok" ? tr("unknown") : status === "disabled" ? tr("no accounts") : status}</span>
             <span>
               {providerAccounts.length > 0
                 ? tr("{0}/{1} active accounts", {0: String(activeCount),1: String(providerAccounts.length)})
@@ -706,12 +832,15 @@ export function ProviderDetail() {
                 <KeyRound size={14} />
                 <span>{tr("Add API key")}</span>
               </button>
-              <button type="button" className="btn-ghost" onClick={() => setBulkOpen(true)}>
-                <Layers size={14} />
-                <span>{tr("Bulk import")}</span>
-              </button>
+
             </>
           )}
+          {mobile ? <DropdownMenu.Root><DropdownMenu.Trigger><button type="button" className="btn-ghost" aria-label={tr("Provider actions")}>•••</button></DropdownMenu.Trigger><DropdownMenu.Content>
+            {(backTab === "apikey" || backTab === "custom") && target.canApiKey && <DropdownMenu.Item onSelect={() => setBulkOpen(true)}>{tr("Bulk import")}</DropdownMenu.Item>}
+            <DropdownMenu.Item onSelect={refresh}>{tr("Reload")}</DropdownMenu.Item>
+            {target.isCustomNode && <><DropdownMenu.Item onSelect={() => setEditingNode(true)}>{tr("Edit endpoint")}</DropdownMenu.Item><DropdownMenu.Separator/><DropdownMenu.Item color="red" disabled={locked} onSelect={() => void deleteNode()}>{tr("Delete provider")}</DropdownMenu.Item></>}
+          </DropdownMenu.Content></DropdownMenu.Root> : <>
+            {(backTab === "apikey" || backTab === "custom") && target.canApiKey && <button type="button" className="btn-ghost" onClick={() => setBulkOpen(true)}>{tr("Bulk import")}</button>}
           {target.isCustomNode && (
             <>
               <button type="button" className="btn-ghost" onClick={() => setEditingNode(true)}>
@@ -728,9 +857,11 @@ export function ProviderDetail() {
             <RefreshCw size={14} />
             <span>{tr("Reload")}</span>
           </button>
+          </>}
         </div>
       </div>
 
+      </>}
       {flow?.flowType && (
         <Modal
           open={connecting}
@@ -817,11 +948,12 @@ export function ProviderDetail() {
       {target.node && (
         <Modal
           open={editingNode}
-          onOpenChange={setEditingNode}
+          onOpenChange={async (open) => { if (open || await nodeCanClose.current()) setEditingNode(open); }}
           title={tr("Edit {0} endpoint", {0: String(target.label)})}
           description={tr("Update the upstream base URL, API type, or path overrides.")}
         >
           <NodeForm
+            registerClose={(check) => { nodeCanClose.current = check; }}
             node={target.node}
             onCancel={() => setEditingNode(false)}
             onDone={() => {
@@ -936,7 +1068,7 @@ export function ProviderDetail() {
         )}
       </Modal>
 
-      <nav className="provider-workspace-tabs" aria-label={tr("Provider workspace")}>
+      {!(mobile && inspect) && <nav className="provider-workspace-tabs" aria-label={tr("Provider workspace")}>
         {(
           !target.isCustomNode
             ? ([ ["accounts", "Accounts"], ["models", "Models"], ["import", "Import"] ] as const)
@@ -946,19 +1078,46 @@ export function ProviderDetail() {
             key={id}
             aria-current={detailTab === id ? "page" : undefined}
             className={detailTab === id ? "active" : ""}
-            to={id === "accounts" ? `?tab=${encodeURIComponent(backTab)}` : `?tab=${id}&auth=${encodeURIComponent(backTab)}`}
+            to={(() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete("inspect");
+              if (id === "accounts") { next.set("tab", backTab); next.delete("auth"); }
+              else { next.set("tab", id); next.set("auth", backTab); }
+              return `?${next.toString()}`;
+            })()}
           >
             {tr(title)}
           </Link>
         ))}
-      </nav>
+      </nav>}
       {detailTab === "models" && <ProviderModels key={providerId} providerId={providerId} />}
       {detailTab === "import" && <ProviderImport key={providerId} providerId={providerId} onSaved={refresh} />}
-      {detailTab === "accounts" && <section className="accounts card" style={{ marginTop: 16 }}>
+      {mobile && inspect && <section className="account-inspect">
+        <button type="button" className="btn-ghost back-link" onClick={closeAccount}>{tr("← Accounts")}</button>
+        <h1 id="account-inspect-heading" tabIndex={-1}>{inspected?.name ?? tr("Account details")}</h1>
+        {inspected ? <>
+          <p>{target.label} · {target.code}</p>
+          <dl className="account-facts">
+            <dt>{tr("Account ID")}</dt><dd><code>{inspected.id}</code><button type="button" className="btn-ghost" onClick={() => navigator.clipboard?.writeText(inspected.id)}>{tr("Copy")}</button></dd>
+            <dt>{tr("Auth")}</dt><dd>{inspected.authType ?? "oauth"}</dd>
+            <dt>{tr("Status")}</dt><dd>{inspected.isActive ? tr("Enabled") : tr("Disabled")} · {inspected.testStatus ?? tr("unchecked")}</dd>
+            <dt>{tr("Backoff")}</dt><dd>{inspected.backoffLevel}</dd>
+            <dt>{tr("Cooldown")}</dt><dd>{inspected.rateLimitedUntil ?? tr("unknown")}</dd>
+            <dt>{tr("Expiry")}</dt><dd>{inspected.tokenExpiresAt ?? tr("unknown")}</dd>
+            <dt>{tr("Tags")}</dt><dd>{inspected.tags?.join(", ") || DASH}</dd>
+            <dt>{tr("Excluded model patterns")}</dt><dd>{inspected.excludedModels?.join(", ") || DASH}</dd>
+            <dt>{tr("Last result / error")}</dt><dd>{results[inspected.id] ?? inspected.lastError ?? DASH}</dd>
+          </dl>
+          {accountActions(inspected)}
+          {actionError && <p role="alert" className="bad">{actionError}</p>}
+        </> : <p role="status">{accountsState.status === "loading" ? tr("Loading accounts") : tr("Account not found")}</p>}
+      </section>}
+      {detailTab === "accounts" && !(mobile && inspect) && <section className="accounts card" style={{ marginTop: 16 }}>
         <div className="section-head" style={{ marginBottom: 12 }}>
           <h2 id="provider-connected-accounts-heading" tabIndex={-1} style={{ margin: 0 }}>{tr("Connected accounts")}<span className="tab-count">{providerAccounts.length}</span>
           </h2>
-          {visibleAccounts.length > 0 && (
+          {mobile && visibleAccounts.length > 0 && <button type="button" className="btn-ghost" aria-pressed={selectionMode} onClick={() => { setSelectionMode(value => !value); setSelected(new Set()); }}>{tr(selectionMode ? "Cancel selection" : "Select")}</button>}
+          {visibleAccounts.length > 0 && (!mobile || selectionMode) && (
             <div className="toolbar" style={{ margin: 0 }}>
               <label className="check">
                 <input
@@ -974,7 +1133,7 @@ export function ProviderDetail() {
                   }}
                 />{tr("Select all visible (")}{ids.length}/{visibleAccounts.length})
               </label>
-              {(
+              {ids.length > 0 && <DropdownMenu.Root><DropdownMenu.Trigger><button type="button" className="btn-ghost" disabled={locked}>{tr("Actions")} ({ids.length})</button></DropdownMenu.Trigger><DropdownMenu.Content> {(
                 [
                   ["enable", "Enable"],
                   ["disable", "Disable"],
@@ -983,19 +1142,11 @@ export function ProviderDetail() {
                   ["delete", "Delete selected"],
                 ] as const
               ).map(([action, text]) => (
-                <button
-                  key={action}
-                  type="button"
-                  className={action === "delete" ? "btn-danger" : "btn-ghost"}
-                  disabled={locked || ids.length === 0}
-                  onClick={() => { if (action === "disable" || action === "delete" || action === "cooldown") { setBatchValue(""); setBatchError(""); setBatchDialog(action); } else void bulk(action); }}
-                >
-                  {tr(text)}
-                </button>
+                <DropdownMenu.Item key={action} color={action === "delete" ? "red" : undefined} disabled={locked} onSelect={() => { if (action === "cooldown") { setBatchValue(""); setBatchError(""); setBatchDialog(action); } else void bulk(action); }}>{tr(text)}</DropdownMenu.Item>
               ))}
               {([ ["rename", "Rename selected"], ["add", "Add tag"], ["remove", "Remove tag"] ] as const).map(([action, text]) => (
-                <button key={action} type="button" className="btn-ghost" disabled={locked || ids.length === 0} onClick={() => { setBatchValue(""); setBatchError(""); setBatchDialog(action); }}>{tr(text)}</button>
-              ))}
+                <DropdownMenu.Item key={action} disabled={locked} onSelect={() => { setBatchValue(""); setBatchError(""); setBatchDialog(action); }}>{tr(text)}</DropdownMenu.Item>
+              ))}</DropdownMenu.Content></DropdownMenu.Root>}
             </div>
           )}
         </div>
@@ -1012,11 +1163,9 @@ export function ProviderDetail() {
             value={accountSearch} disabled={locked} onChange={(event) => { setAccountSearch(event.target.value); setSelected(new Set()); }} />
           </label>
           {accountSearch && <button type="button" className="btn-ghost" disabled={locked} onClick={() => { setAccountSearch(""); setSelected(new Set()); }}>{tr("Clear search")}</button>}
-          <form onSubmit={event => { event.preventDefault(); const value = tagInput.trim(); if (value) setTagFilter(value); }} className="panel-provider-search">
-            <label>{tr("Filter by tag")}<input type="search" aria-label={tr("Filter by tag")} maxLength={64} value={tagInput} disabled={locked} onChange={event => setTagInput(event.target.value)} /></label>
-            <button type="submit" className="btn-ghost" disabled={locked || !tagInput.trim()}>{tr("Apply tag filter")}</button>
-            {tagFilter && <button type="button" className="btn-ghost" disabled={locked} onClick={() => { setTagFilter(""); setTagInput(""); }}>{tr("Clear tag filter")}</button>}
-          </form>
+          <TagFilter value={tagInput} applied={tagFilter} onChange={setTagInput} disabled={locked} tr={tr}
+            onApply={() => { const value = tagInput.trim(); if (value) setTagFilter(value); }}
+            onClear={() => { setTagFilter(""); setTagInput(""); }} />
           <small className="muted provider-result-count" role="status">{visibleAccounts.length} / {providerAccounts.length} {tr("accounts")}</small>
         </div>
         {tagFilter && !tagReady && <p role="status">{tr("Loading tag filter…")}</p>}
@@ -1043,7 +1192,14 @@ export function ProviderDetail() {
           <EmptyState title={tr("No matching accounts")} description={tr("Try another account name or tag.")} />
         ) : (
           <>
-          <TableScroll label="Connected accounts" stickySelection>
+          {mobile ? <ul className="account-resource-list" aria-label={tr("Connected accounts")}>
+            {visibleAccounts.map(a => <li key={a.id} data-resource-anchor={a.id} className={selected.has(a.id) ? "selected" : ""}>
+              {selectionMode && <label className="account-select"><input type="checkbox" aria-label={tr("Select {0}", {0: a.name ?? a.id})} checked={selected.has(a.id)} disabled={locked} onChange={e => { const checked=e.target.checked; setSelected(previous => { const next=new Set(previous); checked ? next.add(a.id) : next.delete(a.id); return next; }); }} /></label>}
+              <div><button type="button" className="account-resource-name" onClick={() => openAccount(a.id)}>{a.name ?? a.id.slice(0,8)}</button>
+              <p>{a.authType ?? "oauth"} · {a.isActive ? tr("Enabled") : tr("Disabled")}</p>
+              <p className="muted">{tr("Credentials")}: {a.testStatus ?? tr("unchecked")}<CredentialExpiryHint expiresAt={a.tokenExpiresAt}/></p></div>
+            </li>)}
+          </ul> : <TableScroll label="Connected accounts" stickySelection>
           <table className="table">
             <thead>
               <tr>
@@ -1100,7 +1256,7 @@ export function ProviderDetail() {
                     <td>
                       <span className="auth-type">{isApiKey ? "apikey" : a.authType ?? "oauth"}</span>
                     </td>
-                    <td className={!a.isActive ? "muted" : failing ? "bad" : "ok"}>
+                    <td className={!a.isActive || a.testStatus === null ? "muted" : failing ? "bad" : "ok"}>
                       {!a.isActive ? tr("disabled") : a.testStatus ?? tr("unchecked")}
                       {a.backoffLevel > 0 ? ` · backoff ${a.backoffLevel}` : ""}
                       <CredentialExpiryHint expiresAt={a.tokenExpiresAt} />
@@ -1108,77 +1264,15 @@ export function ProviderDetail() {
                     <td className="cell-error" title={a.lastError ?? undefined}>
                       {results[a.id] ?? (a.lastError ? a.lastError.replace(/\s+/g, " ").slice(0, 80) : "")}
                     </td>
-                    <td className="row-actions">
-                      <button type="button" className="btn-ghost" disabled={locked} onClick={() => test(a.id)} title="Credential check, not model inference">{tr("Test")}</button>
-                      <AccountModelTest account={a} disabled={locked} />
-                      {!isApiKey && (
-                        <button
-                          type="button"
-                          className="btn-ghost"
-                          disabled={locked}
-                          title={tr("Force an immediate OAuth refresh_token exchange and extend access_token expiry")}
-                          onClick={() => refreshToken(a.id)}
-                        >
-                          {busy === `refresh-tok-${a.id}` ? "…" : tr("Refresh token")}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        disabled={locked}
-                        onClick={() => {
-                          setEditingRulesAccount(a);
-                          setExcludedModelsText((a.excludedModels ?? []).join("\n"));
-                        }}
-                      >
-                        {tr("Model rules")}
-                      </button>
-                      {isApiKey && (
-                        <button
-                          type="button"
-                          className="btn-ghost"
-                          disabled={locked}
-                          onClick={() => {
-                            setRotatingId(a.id);
-                            setNewKey("");
-                          }}
-                        >{tr("Rotate key")}</button>
-                      )}
-                      {(failing || a.backoffLevel > 0) && (
-                        <button
-                          type="button"
-                          className="btn-ghost"
-                          disabled={locked}
-                          onClick={() => run(`cool-${a.id}`, () => api.post(`/api/connections/${a.id}/release-cooldown`))}
-                        >{tr("Clear error")}</button>
-                      )}
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        disabled={locked}
-                        onClick={() => run(`toggle-${a.id}`, () => api.patch(`/api/connections/${a.id}`, { isActive: !a.isActive }))}
-                      >
-                        {a.isActive ? tr("Disable") : tr("Enable")}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-danger"
-                        disabled={locked}
-                        onClick={() =>
-                          run(
-                            `del-${a.id}`,
-                            () => api.delete(`/api/connections/${a.id}`),
-                            `Delete account “${labelText}”? Its stored credentials are removed.`,
-                          )
-                        }
-                      >{tr("Delete")}</button>
+                    <td className="provider-account-actions">
+                      {accountActions(a)}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          </TableScroll>
+          </TableScroll>}
           </>
         )}
       </section>}

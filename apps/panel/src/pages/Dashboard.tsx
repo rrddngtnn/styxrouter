@@ -1,3 +1,4 @@
+import {ReadFreshness,CardFrame} from "../components/OperationalUI";
 import { useTranslator } from "../lib/useTranslator.ts";
 import { useState } from "react";
 import { RefreshCw } from "lucide-react";
@@ -11,8 +12,9 @@ import { useNow } from "../lib/useNow.ts";
 import { providerHealth } from "./dashboard-data.ts";
 import { TrafficGraph, type ChartMetric } from "./dashboard-traffic.tsx";
 import "./dashboard.css";
+import { StatusBadge } from "../components/OperationalUI.tsx";
 
-type State<T> = { status: string; data?: T | null; error?: Error | null };
+type State<T> = { stale?:boolean; lastSuccessAt?:string|null; status: string; data?: T | null; error?: Error | null };
 interface Log { id: string; timestamp: string; model?: string; status?: number; duration?: number; error?: string | null }
 interface Props {
   range: string; onRange: (range: string) => void; now: number;
@@ -87,6 +89,7 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
   }
 
   return <div className="page dashboard-page">
+    {[health,stats,conns,provs,nodes,logs].map((state,index)=>state && <ReadFreshness key={index} state={state}/>)}
     <div className="section-head">
       <div>
         <h1 style={{ marginBottom: 4 }}>{tr("Overview")}</h1>
@@ -95,7 +98,7 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
             {health.status === "ok" ? tr("Gateway unhealthy") : tr("Gateway status unavailable")}
           </span>
         ) : (
-          <p className="muted" style={{ margin: 0 }}>{tr("Real-time gateway throughput, upstream account pools, and live model dispatch.")}</p>
+          <p className="muted" style={{ margin: 0 }}>{tr("Process reachable")} · {tr("Historical traffic and credential checks; inference is verified separately.")}</p>
         )}
       </div>
       <div className="row-actions">
@@ -116,11 +119,11 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
     </div>
     {health.status === "error" && statusMessage(health)}
     <dl className="dashboard-summary">
-      <div><dt>{tr("Requests ·")} {range}</dt><dd>{summary ? int(summary.totalRequests) : "—"}</dd><small className="muted">{summary ? tr("{0} est. cost", {0: String(usd(summary.totalCost))}) : "\u00a0"}</small></div>
-      <div><dt>{tr("Tokens")}</dt><dd>{summary ? num(summary.totalTokens) : "—"}</dd><small className="muted">{summary ? tr("{0} in · {1} out", {0: String(num(summary.promptTokens)),1: String(num(summary.completionTokens))}) : "\u00a0"}</small></div>
-      <div><dt>{tr("Success rate")}</dt><dd>{summary ? pctText(summary.successRatePct) : "—"}</dd><small className="muted">{summary ? tr("{0} failed", {0: String(int(Math.max(0, summary.totalRequests - Math.round(summary.totalRequests * (summary.successRatePct / 100)))))}) : "\u00a0"}</small></div>
-      <div><dt>{tr("Average latency")}</dt><dd>{summary ? ms(summary.avgLatencyMs) : "—"}</dd><small className="muted">{tr("end-to-end dispatch")}</small></div>
-      <div><dt>{tr("Accounts enabled")}</dt><dd>{conns.status === "ok" ? `${accounts.filter(a => a.isActive).length}/${accounts.length}` : "—"}</dd><small className={problems.length > 0 ? "bad" : "muted"}>{conns.status === "ok" ? (problems.length > 0 ? tr("{0} needing attention", {0: String(problems.length)}) : tr("{0} provider pools", {0: String(pools.length)})) : "\u00a0"}</small></div>
+      <CardFrame as="div" kind="metric"><dt>{tr("Requests ·")} {range}</dt><dd>{summary ? int(summary.totalRequests) : "—"}</dd><small className="muted">{summary ? tr("{0} est. cost", {0: String(usd(summary.totalCost))}) : "\u00a0"}</small></CardFrame>
+      <CardFrame as="div" kind="metric"><dt>{tr("Tokens")}</dt><dd>{summary ? num(summary.totalTokens) : "—"}</dd><small className="muted">{summary ? tr("{0} in · {1} out", {0: String(num(summary.promptTokens)),1: String(num(summary.completionTokens))}) : "\u00a0"}</small></CardFrame>
+      <CardFrame as="div" kind="metric"><dt>{tr("Success rate")}</dt><dd>{summary ? pctText(summary.successRatePct) : "—"}</dd><small className="muted">{summary ? tr("{0} failed", {0: String(int(Math.max(0, summary.totalRequests - Math.round(summary.totalRequests * (summary.successRatePct / 100)))))}) : "\u00a0"}</small></CardFrame>
+      <CardFrame as="div" kind="metric"><dt>{tr("Average latency")}</dt><dd>{summary ? ms(summary.avgLatencyMs) : "—"}</dd><small className="muted">{tr("end-to-end dispatch")}</small></CardFrame>
+      <CardFrame as="div" kind="metric"><dt>{tr("Accounts enabled")}</dt><dd>{conns.status === "ok" ? `${accounts.filter(a => a.isActive).length}/${accounts.length}` : "—"}</dd><small className={problems.length > 0 ? "bad" : "muted"}>{conns.status === "ok" ? (problems.length > 0 ? tr("{0} needing attention", {0: String(problems.length)}) : tr("{0} provider pools", {0: String(pools.length)})) : "\u00a0"}</small></CardFrame>
     </dl>
     <div className="dashboard-primary">
       <section className="dashboard-region">
@@ -140,11 +143,11 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
         {stats.status === "ok" ? <TrafficGraph days={stats.data?.dailyTrend ?? []} metric={metric} /> : statusMessage(stats)}
       </section>
       <section className="dashboard-region">
-        <div className="section-head"><h2>{tr("Provider health")}</h2><Link to="/providers">{tr("Manage →")}</Link></div>
+        <div className="section-head"><h2>{tr("Credential checks")}</h2><Link to="/providers">{tr("Manage →")}</Link></div>
         {conns.status !== "ok" ? statusMessage(conns) : pools.length ? (
           <ul className="dashboard-list">
             {pools.map(pool => {
-              const pct = pool.active > 0 ? Math.round(((pool.healthy + pool.unchecked) / pool.active) * 100) : 0;
+              const pct = pool.active > 0 ? Math.round((pool.healthy / pool.active) * 100) : 0;
               const barTone = pool.problems ? "bad" : pool.healthy > 0 ? "ok" : pool.unchecked > 0 ? "warn" : "ok";
               return (
                 <li key={pool.id}>
@@ -153,11 +156,11 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
                     <small>{pool.active}/{pool.total} {tr("enabled")}</small>
                   </div>
                   <span className={pool.problems ? "bad" : "muted"}>
-                    {pool.healthy} {tr("checked healthy ·")} {pool.unchecked} {tr("unchecked")}{pool.problems ? ` · ${pool.problems} ${tr("problems")}` : ""}
+                    {pool.healthy} {tr("credential checks passed ·")} <StatusBadge state={pool.problems ? "error" : pool.unchecked ? "unknown" : "success"}>{pool.unchecked} {tr("unchecked")}{pool.problems ? ` · ${pool.problems} ${tr("problems")}` : ""}</StatusBadge>
                   </span>
-                  <div className="meter" style={{ marginTop: 4 }}>
-                    <div className={`meter-fill ${barTone}`} style={{ width: `${pool.active === 0 ? 0 : Math.max(8, pct)}%` }} />
-                  </div>
+                  {pool.healthy > 0 && <div className="meter" aria-label={tr("Credential checks passed")} style={{ marginTop: 4 }}>
+                    <div className={`meter-fill ${barTone}`} style={{ width: `${pct}%` }} />
+                  </div>}
                 </li>
               );
             })}
@@ -211,7 +214,7 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
         ) : <p className="muted">{tr("No model usage recorded in this range.")}</p>}
       </section>
 
-      <section className="dashboard-region">
+      <CardFrame kind="attention" className={`dashboard-region dashboard-attention${problems.length ? " has-problems" : ""}`}>
         <div className="section-head"><h2>{tr("Account problems")}</h2><Link to="/quota">{tr("Quotas →")}</Link></div>
         {conns.status !== "ok" ? statusMessage(conns) : problems.length ? (
           <ul className="dashboard-list">
@@ -229,7 +232,7 @@ export function DashboardView({ range, onRange, now, health, stats, conns, provs
             ))}
           </ul>
         ) : <p className="muted">{tr("No account problems reported. Unchecked accounts are listed in provider health.")}</p>}
-      </section>
+      </CardFrame>
     </div>
   </div>;
 }

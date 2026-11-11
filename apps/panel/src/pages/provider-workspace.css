@@ -1,4 +1,4 @@
-.provider-workspace-tabs { display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid var(--border); margin:20px 0 16px; }
+.provider-workspace-tabs { display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid var(--border-divider); margin:20px 0 16px; }
 .provider-workspace-tabs a { display:inline-flex; align-items:center; min-height:44px; padding:0 14px; color:var(--muted); text-decoration:none; border-bottom:2px solid transparent; }
 .provider-workspace-tabs a.active { color:var(--fg); border-bottom-color:var(--accent); font-weight:600; }
 .provider-workspace-tabs a:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
@@ -8,7 +8,7 @@
 .provider-models > label, .provider-import > label { display:flex; flex-direction:column; gap:6px; max-width:32rem; margin:12px 0; }
 .provider-models input, .provider-import select, .provider-import textarea { max-width:100%; }
 .provider-model-list { list-style:none; margin:16px 0 0; padding:0; }
-.provider-model-list li { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:14px 0; border-top:1px solid var(--border); min-width:0; }
+.provider-model-list li { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:14px 0; border-top:1px solid var(--border-divider); min-width:0; }
 .provider-model-list li > div:first-child { min-width:0; overflow-wrap:anywhere; }
 .provider-model-list code { overflow-wrap:anywhere; }
 .provider-import .stack-form { margin-top:16px; width:100%; min-width:0; max-width:40rem; }

@@ -1,0 +1,14 @@
+.quota-account-identity { display:flex; align-items:flex-start; gap:8px; min-width:0; }
+.quota-account-identity > div { min-width:0; }
+.quota-account-identity h3 { overflow-wrap:anywhere; }
+.quota-account-identity small { display:block; margin-bottom:4px; }
+.quota-account { border-color:var(--border-edge); }
+.quota-window-select { display:grid; gap:6px; font-size:14px; }
+.quota-window-select select { width:100%; min-height:44px; font-size:16px; }
+.quota-window-inspector > .btn-ghost { min-height:44px; margin-block:8px; }
+.quota-exact-values { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; padding:12px; background:var(--panel-2); border:1px solid var(--border-subtle); border-radius:8px; }
+.quota-exact-values dd { margin:0; overflow-wrap:anywhere; }
+.quota-exact-values dt { color:var(--fg-secondary); }
+.quota-remaining { margin:8px 0; }
+.quota-more summary { min-height:44px; display:flex; align-items:center; cursor:pointer; }
+@media(max-width:600px) { .quota-account header { flex-wrap:wrap; gap:12px; } .quota-exact-values { grid-template-columns:1fr; } }

@@ -1,7 +1,29 @@
 import { useTranslator } from "../lib/useTranslator.ts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
-import { useAction } from "../lib/actions.tsx";
+/** Own each flow request; cancellation never retries a potentially committed exchange. */
+function useFlowAction() {
+  const controller = useRef(new AbortController());
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const running = useRef(false);
+  useEffect(() => {
+    if (controller.current.signal.aborted) controller.current = new AbortController();
+    const current = controller.current;
+    return () => { current.abort(); };
+  }, []);
+  async function run<T>(label: string, request: (signal: AbortSignal) => Promise<T>) {
+    const signal = controller.current.signal;
+    if (signal.aborted || running.current) return;
+    running.current = true;
+    setBusy(label); setError(null);
+    try { const result = await request(signal); return signal.aborted ? undefined : result; }
+    catch (error) { if (!signal.aborted) setError(error instanceof Error ? error.message : String(error)); }
+    finally { running.current = false; if (!signal.aborted) setBusy(null); }
+    return undefined;
+  }
+  return {busy, error, run, signal: controller.current.signal};
+}
 
 export type FlowType = "authorization_code" | "authorization_code_pkce" | "device_code" | "import_token";
 
@@ -12,21 +34,35 @@ const drop = (o: Json) => Object.fromEntries(Object.entries(o).filter(([, v]) =>
 /** Connect one OAuth account. The flow depends on the provider; all of them end in a saved account. */
 export function OAuthConnect({ provider, flow, legacyDevice, redirectUri, onDone, onClose }: { provider: string; flow: FlowType; legacyDevice?: boolean; redirectUri?: string; onDone: () => void; onClose: () => void }) {
   const tr = useTranslator();
+  const active = useRef(true);
+  const [cancelled, setCancelled] = useState(false);
+  const cancel = () => { active.current = false; setCancelled(true); onClose(); };
+  const pendingFinish = useRef(false);
   const finish = () => {
+    if (!active.current) return;
+    if (document.hidden) { pendingFinish.current = true; return; }
+    active.current = false;
     onDone();
     onClose();
   };
+  useEffect(() => {
+    active.current = true;
+    const visible = () => { if (!document.hidden && pendingFinish.current) finish(); };
+    document.addEventListener("visibilitychange", visible);
+    return () => { active.current = false; document.removeEventListener("visibilitychange", visible); };
+  }, []);
+  if (cancelled) return null;
   return (
     <div className="editor">
       {flow === "device_code" ? (
-        <DeviceFlow provider={provider} legacy={legacyDevice === true} onDone={finish} />
+        <DeviceFlow key={`${provider}:${legacyDevice}`} provider={provider} legacy={legacyDevice === true} onDone={finish} />
       ) : flow === "import_token" ? (
-        <TokenImport provider={provider} onDone={finish} />
+        <TokenImport key={provider} provider={provider} onDone={finish} />
       ) : (
-        <CodeFlow provider={provider} redirectUri={redirectUri} onDone={finish} />
+        <CodeFlow key={`${provider}:${redirectUri}`} provider={provider} redirectUri={redirectUri} onDone={finish} />
       )}
       <div>
-        <button type="button" className="btn-ghost" onClick={onClose}>{tr("Cancel")}</button>
+        <button type="button" className="btn-ghost" onClick={cancel}>{tr("Cancel")}</button>
       </div>
     </div>
   );
@@ -37,10 +73,10 @@ function CodeFlow({ provider, redirectUri, onDone }: { provider: string; redirec
   const tr = useTranslator();
   const [auth, setAuth] = useState<Json | null>(null);
   const [pasted, setPasted] = useState("");
-  const { busy, error, run } = useAction();
+  const { busy, error, run } = useFlowAction();
 
   async function start() {
-    const d = await run("start", () => api.get<Json>(`/api/oauth/${provider}/authorize${redirectUri ? `?redirect_uri=${encodeURIComponent(redirectUri)}` : ""}`));
+    const d = await run("start", signal => api.get<Json>(`/api/oauth/${provider}/authorize${redirectUri ? `?redirect_uri=${encodeURIComponent(redirectUri)}` : ""}`, signal));
     if (!d) return;
     const url = text(d.authUrl);
     if (!url) return void setAuth({ unsupported: text(d.error) ?? "This provider cannot start a browser login." });
@@ -61,8 +97,8 @@ function CodeFlow({ provider, redirectUri, onDone }: { provider: string; redirec
       // not a URL: the user pasted the bare code
     }
     if (!code) return;
-    const done = await run("exchange", () =>
-      api.post(`/api/oauth/${provider}/exchange`, drop({ code, redirectUri: text(auth.redirectUri) ?? "http://localhost:8080/callback", codeVerifier: text(auth.codeVerifier), state })),
+    const done = await run("exchange", signal =>
+      api.post(`/api/oauth/${provider}/exchange`, drop({ code, redirectUri: text(auth.redirectUri) ?? "http://localhost:8080/callback", codeVerifier: text(auth.codeVerifier), state }), signal),
     );
     if (done) onDone();
   }
@@ -101,11 +137,11 @@ function DeviceFlow({ provider, legacy, onDone }: { provider: string; legacy: bo
   const tr = useTranslator();
   const [dev, setDev] = useState<Json | null>(null);
   const [status, setStatus] = useState("");
-  const { busy, error, run } = useAction();
+  const { busy, error, run } = useFlowAction();
 
   // Same shape as the generic device-code response, so the rest of the component does not care which route answered.
-  const startLegacy = async (): Promise<Json> => {
-    const r = await api.post<Json>(`/api/oauth/${provider}/init`);
+  const startLegacy = async (signal: AbortSignal): Promise<Json> => {
+    const r = await api.post<Json>(`/api/oauth/${provider}/init`, undefined, signal);
     return { device_code: r.state, user_code: r.userCode, verification_uri_complete: r.authUrl, interval: r.interval, expires_in: r.expiresIn };
   };
 
@@ -120,20 +156,27 @@ function DeviceFlow({ provider, legacy, onDone }: { provider: string; legacy: bo
   useEffect(() => {
     if (!dev || !deviceCode) return;
     let stop = false;
+    const controller = new AbortController();
+
     const every = Math.max(3, Number(dev.interval) || 5) * 1000;
     const until = Date.now() + (Number(dev.expires_in) || 900) * 1000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let wake: (() => void) | undefined;
     const tick = async () => {
       while (!stop && Date.now() < until) {
-        await new Promise((r) => setTimeout(r, every));
+        await new Promise<void>((resolve) => { wake = resolve; timer = setTimeout(resolve, every); });
         if (stop) return;
+        if (document.hidden) continue;
         try {
           const r = legacy
-            ? await api.get<Json>(`/api/oauth/${provider}/poll?state=${encodeURIComponent(deviceCode)}`)
-            : await api.post<Json>(`/api/oauth/${provider}/poll`, drop({ deviceCode, codeVerifier: text(dev.codeVerifier), extraData: (extraData && Object.keys(extraData as object).length ? extraData : undefined) as never }));
+            ? await api.get<Json>(`/api/oauth/${provider}/poll?state=${encodeURIComponent(deviceCode)}`, controller.signal)
+            : await api.post<Json>(`/api/oauth/${provider}/poll`, drop({ deviceCode, codeVerifier: text(dev.codeVerifier), extraData: (extraData && Object.keys(extraData as object).length ? extraData : undefined) as never }), controller.signal);
+          if (stop || controller.signal.aborted) return;
           if (r.success || r.ok) return void onDone();
           if (!r.pending && !legacy) return void setStatus(text(r.errorDescription) ?? text(r.error) ?? "The vendor rejected the login.");
           setStatus("Waiting for you to approve...");
         } catch (e) {
+          if (stop || controller.signal.aborted) return;
           return void setStatus(e instanceof Error ? e.message : String(e));
         }
       }
@@ -141,7 +184,9 @@ function DeviceFlow({ provider, legacy, onDone }: { provider: string; legacy: bo
     };
     void tick();
     return () => {
-      stop = true;
+      stop = true; controller.abort();
+      clearTimeout(timer); wake?.();
+
     };
   }, [dev]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -150,7 +195,7 @@ function DeviceFlow({ provider, legacy, onDone }: { provider: string; legacy: bo
       {!dev && (
         <>
           <p className="muted">{tr("You will get a short code to type on the vendor's page.")}</p>
-          <div><button type="button" className="btn-add" disabled={busy !== null} onClick={async () => { const d = await run("start", () => (legacy ? startLegacy() : api.get<Json>(`/api/oauth/${provider}/device-code`))); if (d) setDev(d); }}>{busy ? "..." : tr("Get code")}</button></div>
+          <div><button type="button" className="btn-add" disabled={busy !== null} onClick={async () => { const d = await run("start", signal => (legacy ? startLegacy(signal) : api.get<Json>(`/api/oauth/${provider}/device-code`, signal))); if (d) setDev(d); }}>{busy ? "..." : tr("Get code")}</button></div>
         </>
       )}
       {dev && (
@@ -169,7 +214,7 @@ function DeviceFlow({ provider, legacy, onDone }: { provider: string; legacy: bo
 function TokenImport({ provider, onDone }: { provider: string; onDone: () => void }) {
   const tr = useTranslator();
   const [token, setToken] = useState("");
-  const { busy, error, run } = useAction();
+  const { busy, error, run } = useFlowAction();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -182,7 +227,7 @@ function TokenImport({ provider, onDone }: { provider: string; onDone: () => voi
         // keep as text; the server will say if it is unusable
       }
     }
-    const done = await run("import", () => api.post(`/api/oauth/${provider}/import-token`, { token: value as never }));
+    const done = await run("import", signal => api.post(`/api/oauth/${provider}/import-token`, { token: value as never }, signal));
     if (done) onDone();
   }
 

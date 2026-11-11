@@ -1,4 +1,10 @@
+import {useWorkspaceURL} from "../lib/workspace-url";
+import {ProgressiveFilters,InspectionFallback} from "../components/ProgressiveFilters";
+import {useFilterQuery,pageValues,pageSizes} from "../lib/filter-query";
+import {ResourceInspector,ResourceRows,ResourceRow,useResourceInspection} from "../components/ResourceWorkspace";
+import {ReadFreshness} from "../components/OperationalUI";
 import { useTranslator } from "../lib/useTranslator.ts";
+import { useWorkspaceTabs } from "../lib/workspace-tabs.ts";
 import { useEffect, useMemo, useState } from "react";
 import { Copy, Play, Radio, RefreshCw, Terminal } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
@@ -7,12 +13,13 @@ import { EmptyState, LoadingState } from "../components/PageStates.tsx";
 import { TableScroll } from "../components/TableScroll.tsx";
 import { Pagination } from "../components/Pagination.tsx";
 import { WebhookAlertsSection } from "../components/settings/HealthAndVersionsSettings.tsx";
-import { Modal } from "../lib/actions.tsx";
+
 import { api } from "../lib/api.ts";
 import { decodeUpstreamError } from "../lib/error-decoder.ts";
 import { DASH, int, ms, when } from "../lib/format.ts";
 import { paginationState } from "../lib/pagination.ts";
 import { useFetch } from "../lib/useFetch.ts";
+import { pollEligible } from "../lib/polling.ts";
 
 export function buildActivityReplayCurl(row: {
   path?: string;
@@ -56,35 +63,29 @@ export interface CallLog {
 
 export function Activity() {
   const tr = useTranslator();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [limit, setLimit] = useState(250);
-  const [onlyErrors, setOnlyErrors] = useState(() => searchParams.get("errors") === "true");
-  const [q, setQ] = useState(() => searchParams.get("q") ?? "");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [searchParams] = useSearchParams();
+  const query=useFilterQuery({errors:["false","true"],limit:["100","250","500"],page:pageValues,size:pageSizes},{errors:"false",limit:"250",page:"1",size:"20"});
+  const limit=Number(query.values.limit),onlyErrors=query.values.errors==="true",page=Number(query.values.page),pageSize=Number(query.values.size);
+  const [q,setQ]=useState(()=>searchParams.get("q")??"");
+  const setLimit=(n:number)=>query.commit({limit:String(n),page:"1"});const setPage=(n:number)=>query.commit({page:String(n)});const setPageSize=(n:number)=>query.commit({size:String(n),page:"1"});
   const [selected, setSelected] = useState<CallLog | null>(null);
   const [liveTail, setLiveTail] = useState(false);
-  const [workspaceTab, setWorkspaceTab] = useState<"logs" | "webhooks">("logs");
+  const [workspaceTab, setWorkspaceTab] = useWorkspaceURL(["logs","webhooks"] as const,"logs");
+  const workspaceTabs = useWorkspaceTabs(workspaceTab);
   const [dryRunNote, setDryRunNote] = useState<string | null>(null);
   const [dryRunBusy, setDryRunBusy] = useState(false);
 
-  const toggleErrors = (checked: boolean) => {
-    setOnlyErrors(checked);
-    setPage(1);
-    const next = new URLSearchParams(searchParams);
-    if (checked) next.set("errors", "true");
-    else next.delete("errors");
-    setSearchParams(next, { replace: true });
-  };
+  const toggleErrors=(checked:boolean)=>query.commit({errors:String(checked),page:"1"});
+  useEffect(()=>setQ(searchParams.get("q")??""),[searchParams.get("q")]);
 
   const state = useFetch<CallLog[]>(`/api/usage/call-logs?limit=${limit}`);
   useEffect(() => {
-    if (!liveTail) return;
+    if (!liveTail || workspaceTab !== "logs") return;
     const timer = setInterval(() => {
-      state.reload();
+      if(pollEligible({enabled:liveTail,visible:document.visibilityState==="visible",active:workspaceTab==="logs",pending:state.pending}))state.reload();
     }, 3000);
     return () => clearInterval(timer);
-  }, [liveTail, state.reload]);
+  }, [liveTail, workspaceTab, state.pending, state.reload]);
   const provs = useFetch<{ providers?: { id: string; name?: string }[] }>("/api/providers");
   const nodes = useFetch<{ nodes?: { id: string; name: string; prefix: string | null }[] }>("/api/provider-nodes");
   const providerNames = useMemo(() => {
@@ -113,11 +114,15 @@ export function Activity() {
     });
   }, [state, onlyErrors, q, providerNames]);
 
+  const inspection=useResourceInspection(state.data??[],row=>String(row.id));
+  const activeEntry=inspection.mobile?inspection.selected:selected;
   const pg = paginationState(rows.length, pageSize, page);
+  useEffect(()=>{if(state.status==="ok"&&page!==pg.page)query.commit({page:String(pg.page)},true);},[page,pg.page,state.status==="ok"]);
   const pageRows = rows.slice(Math.max(0, pg.start - 1), pg.end);
 
   return (
-    <div className="page">
+    <div className={`page ${inspection.mobile&&inspection.inspect?"r6-detail-page":""}`}>
+      <ReadFreshness state={state} /><ReadFreshness resource="Providers" state={provs}/><ReadFreshness resource="Custom Providers" state={nodes}/>
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
           <h1 style={{ marginBottom: 4 }}>{tr("Activity")}</h1>
@@ -144,10 +149,11 @@ export function Activity() {
         </div>
       </div>
 
-      <div className="tabs" role="tablist" aria-label={tr("Activity workspace")}>
+      {inspection.mobile ? <label className="mobile-category-select">{tr("Activity workspace")}<select aria-label={tr("Activity workspace")} value={workspaceTab} onChange={e=>setWorkspaceTab(e.target.value as typeof workspaceTab)}><option value="logs">{tr("Request Log")}</option><option value="webhooks">{tr("Alert Webhooks")}</option></select></label> : <div className="tabs" role="tablist" onKeyDown={workspaceTabs.onKeyDown} aria-label={tr("Activity workspace")}>
         <button
           type="button"
           role="tab"
+          {...workspaceTabs.tabProps("logs")}
           aria-selected={workspaceTab === "logs"}
           className={workspaceTab === "logs" ? "tab active" : "tab"}
           onClick={() => setWorkspaceTab("logs")}
@@ -158,19 +164,21 @@ export function Activity() {
         <button
           type="button"
           role="tab"
+          {...workspaceTabs.tabProps("webhooks")}
           aria-selected={workspaceTab === "webhooks"}
           className={workspaceTab === "webhooks" ? "tab active" : "tab"}
           onClick={() => setWorkspaceTab("webhooks")}
         >
           <span>{tr("Alert Webhooks")}</span>
         </button>
-      </div>
+      </div>}
 
+      <div {...workspaceTabs.panelProps}>
       {workspaceTab === "webhooks" && <WebhookAlertsSection />}
       {workspaceTab === "logs" && (
         <>
 
-      <div className="toolbar">
+      {inspection.mobile ? <div className="toolbar"><input type="search" aria-label={tr("Filter by model, provider, account, key, or error…")} placeholder={tr("Filter by model, provider, account, key, or error…")} value={q} onChange={e=>{setQ(e.target.value);setPage(1);}}/><ProgressiveFilters value={{errors:String(onlyErrors),limit:String(limit)}} defaults={{errors:"false",limit:"250"}} onApply={v=>query.commit({...v,page:"1"})}>{(draft,setDraft)=><><label><input type="checkbox" checked={draft.errors==="true"} onChange={e=>setDraft({...draft,errors:String(e.target.checked)})}/>{tr("errors only")}</label><label>{tr("Fetch window")}<select aria-label={tr("Fetch window")} value={draft.limit} onChange={e=>setDraft({...draft,limit:e.target.value})}>{[100,250,500].map(n=><option key={n} value={n}>{tr("Last {0} requests",{0:String(n)})}</option>)}</select></label></>}</ProgressiveFilters><span className="muted">{rows.length} {tr("requests")}</span></div> : <div className="toolbar">
         <input
           type="search"
           placeholder={tr("Filter by model, provider, account, key, or error…")}
@@ -188,7 +196,6 @@ export function Activity() {
           value={limit}
           onChange={(e) => {
             setLimit(Number(e.target.value));
-            setPage(1);
           }}
           aria-label={tr("Fetch window")}
         >
@@ -200,6 +207,8 @@ export function Activity() {
           {rows.length} {tr(rows.length === 1 ? "request" : "requests")}
         </span>
       </div>
+
+      }
 
       {state.status === "loading" && <LoadingState label={tr("Loading recent requests")} />}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
@@ -228,10 +237,10 @@ export function Activity() {
         />
       )}
 
-      {state.status === "ok" && rows.length > 0 && (
+      {!(inspection.mobile && inspection.inspect) && state.status === "ok" && rows.length > 0 && (
         <>
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <TableScroll label={tr("Activity table")} stickyPrimary>
+            {inspection.mobile ? <ResourceRows label={tr("Requests")}>{pageRows.map(r=><ResourceRow key={r.id} title={r.model??DASH} onOpen={()=>inspection.open(r)} summary={<>{when(r.timestamp)} · HTTP {r.status??DASH}<p>{resolveProvider(r)} · {ms(r.duration)}</p><p>{r.account??DASH}</p></>}/>)}</ResourceRows> : <TableScroll label={tr("Activity table")} stickyPrimary>
             <table className="table">
               <thead>
                 <tr>
@@ -289,7 +298,7 @@ export function Activity() {
                 })}
               </tbody>
             </table>
-            </TableScroll>
+            </TableScroll>}
           </div>
           <Pagination
             total={rows.length}
@@ -304,52 +313,53 @@ export function Activity() {
         </>
       )}
 
-      <Modal
-        open={selected !== null}
+      <ResourceInspector
+        open={inspection.mobile?!!inspection.inspect:activeEntry !== null}
         onOpenChange={(open) => {
           if (!open) {
-            setSelected(null);
+            if(inspection.mobile)inspection.close();else setSelected(null);
             setDryRunNote(null);
           }
         }}
-        title={tr("Request detail — HTTP {0}", {0: String(selected?.status ?? "—")})}
-        description={selected ? `${when(selected.timestamp)} · ${selected.method ?? "POST"} ${selected.path ?? "/v1/chat/completions"}` : ""}
+        title={tr("Request detail — HTTP {0}", {0: String(activeEntry?.status ?? "—")})}
+        description={activeEntry ? `${when(activeEntry.timestamp)} · ${activeEntry.method ?? "POST"} ${activeEntry.path ?? "/v1/chat/completions"}` : ""}
         maxWidth="620px"
       >
-        {selected && (
+        {!activeEntry && <InspectionFallback loading={state.pending}/>}
+        {activeEntry && (
           <div className="stack-form" style={{ maxWidth: "100%" }}>
             <div className="two-col" style={{ gap: 12 }}>
               <div>
                 <small className="muted">{tr("Model")}</small>
                 <div>
-                  <code>{selected.model ?? DASH}</code>
+                  <code>{activeEntry.model ?? DASH}</code>
                 </div>
               </div>
               <div>
                 <small className="muted">{tr("Provider / Account")}</small>
                 <div>
-                  {resolveProvider(selected)} · <code>{selected.account ?? DASH}</code>
+                  {resolveProvider(activeEntry)} · <code>{activeEntry.account ?? DASH}</code>
                 </div>
               </div>
               <div>
                 <small className="muted">{tr("Client API key")}</small>
-                <div>{selected.apiKeyName ?? DASH}</div>
+                <div>{activeEntry.apiKeyName ?? DASH}</div>
               </div>
               <div>
                 <small className="muted">{tr("Latency & Tokens")}</small>
                 <div>
-                  {ms(selected.duration)} ·{" "}
-                  {selected.tokens ? tr("{0} in / {1} out", {0: String(int(selected.tokens.in)),1: String(int(selected.tokens.out))}) : DASH}
+                  {ms(activeEntry.duration)} ·{" "}
+                  {activeEntry.tokens ? tr("{0} in / {1} out", {0: String(int(activeEntry.tokens.in)),1: String(int(activeEntry.tokens.out))}) : DASH}
                 </div>
               </div>
             </div>
-            {(selected.error || (selected.status != null && selected.status >= 400)) ? (
+            {(activeEntry.error || (activeEntry.status != null && activeEntry.status >= 400)) ? (
               <div>
                 {(() => {
                   const decoded = decodeUpstreamError({
-                    provider: selected.provider ?? selected.providerDisplay,
-                    status: selected.status,
-                    error: selected.error,
+                    provider: activeEntry.provider ?? activeEntry.providerDisplay,
+                    status: activeEntry.status,
+                    error: activeEntry.error,
                   });
                   return decoded ? (
                     <div className="card" style={{ padding: 12, marginBottom: 12 }}>
@@ -364,7 +374,7 @@ export function Activity() {
                     </div>
                   ) : null;
                 })()}
-                {selected.error && (
+                {activeEntry.error && (
                   <>
                     <div className="section-head" style={{ marginBottom: 6 }}>
                       <small className="bad">{tr("Upstream error message")}</small>
@@ -372,7 +382,7 @@ export function Activity() {
                         type="button"
                         className="btn-ghost"
                         onClick={() =>
-                          navigator.clipboard?.writeText(selected.error ?? "").then(() => toast.success("Copied error message"))
+                          navigator.clipboard?.writeText(activeEntry.error ?? "").then(() => toast.success("Copied error message"))
                         }
                       >
                         <Copy size={13} />
@@ -384,15 +394,15 @@ export function Activity() {
                         margin: 0,
                         padding: 12,
                         borderRadius: 6,
-                        background: "#08090a",
+                        background: "var(--panel-2)",
                         border: "1px solid rgba(248, 113, 113, 0.35)",
-                        color: "#fca5a5",
+                        color: "var(--bad)",
                         fontSize: 14,
                         whiteSpace: "pre-wrap",
                         overflowWrap: "anywhere",
                       }}
                     >
-                      {selected.error}
+                      {activeEntry.error}
                     </pre>
                   </>
                 )}
@@ -411,7 +421,7 @@ export function Activity() {
                 className="btn-ghost"
                 onClick={() => {
                   const origin = typeof location !== "undefined" ? location.origin : "http://127.0.0.1:20128";
-                  const cmd = buildActivityReplayCurl(selected, origin);
+                  const cmd = buildActivityReplayCurl(activeEntry, origin);
                   navigator.clipboard?.writeText(cmd).then(() => toast.success("Copied cURL command"));
                 }}
               >
@@ -423,11 +433,11 @@ export function Activity() {
                 className="btn-ghost"
                 disabled={dryRunBusy}
                 onClick={async () => {
-                  const target = selected.comboName
-                    ? selected.comboName
-                    : selected.provider && selected.model && !selected.model.includes("/")
-                      ? `${selected.provider}/${selected.model}`
-                      : selected.model ?? "";
+                  const target = activeEntry.comboName
+                    ? activeEntry.comboName
+                    : activeEntry.provider && activeEntry.model && !activeEntry.model.includes("/")
+                      ? `${activeEntry.provider}/${activeEntry.model}`
+                      : activeEntry.model ?? "";
                   if (!target) return;
                   setDryRunBusy(true);
                   setDryRunNote(null);
@@ -453,13 +463,14 @@ export function Activity() {
                 <Play size={13} />
                 <span>{dryRunBusy ? "…" : tr("Dry-run route")}</span>
               </button>
-              <button type="button" className="btn-ghost" onClick={() => { setSelected(null); setDryRunNote(null); }}>{tr("Close")}</button>
+              <button type="button" className="btn-ghost" onClick={() => { if(inspection.mobile)inspection.close();else setSelected(null); setDryRunNote(null); }}>{tr("Close")}</button>
             </div>
           </div>
         )}
-      </Modal>
+      </ResourceInspector>
         </>
       )}
+      </div>
     </div>
   );
 }

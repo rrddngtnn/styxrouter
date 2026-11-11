@@ -1,11 +1,12 @@
+import {useConfirmation} from "../components/ConfirmationDialog";
+import {ReadFreshness} from "../components/OperationalUI";
 import { useTranslator } from "../lib/useTranslator.ts";
-import { useState } from "react";
-import { Check, Copy, Globe, KeyRound, Network, Play, Sparkles, Terminal } from "lucide-react";
-import { toast } from "sonner";
+import { useWorkspaceTabs } from "../lib/workspace-tabs.ts";
+import { useState, useEffect, useRef } from "react";
+import {ToolSnippet, ToolsApiReference, useToolsCopy} from "../components/ToolsWorkbench";
 import { api } from "../lib/api.ts";
-import { SecretBanner, useAction } from "../lib/actions.tsx";
+import { SecretBanner } from "../lib/actions.tsx";
 import { ModelPicker, type CatalogOption } from "../components/ModelPicker.tsx";
-import { TableScroll } from "../components/TableScroll.tsx";
 import { useFetch } from "../lib/useFetch.ts";
 import "./tools.css";
 
@@ -324,10 +325,13 @@ export function buildTunnelSnippets(
   localPort: string,
   publicHost: string,
   sshTarget: string,
+  options?: {sshPort: string; remotePort: string},
 ): { title: string; file: string; body: string }[] {
   const port = localPort.trim() || "20128";
   const host = publicHost.trim() || "styx.example.com";
   const ssh = sshTarget.trim() || "user@your-vps-ip";
+  const sshPort = options?.sshPort ?? "22", remotePort = options?.remotePort ?? port;
+  for (const value of [sshPort, remotePort]) if (!/^\d+$/.test(value) || Number(value)<1 || Number(value)>65535) throw new Error("Port must be an integer from 1 to 65535.");
   if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) throw new Error("Port must be an integer from 1 to 65535.");
   const hostname = /^(?=.{1,253}$)[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?$/;
   if (["cloudflared", "tailscale", "caddy"].includes(mode) && (!hostname.test(host) || host.split(".").some(label => !label || label.length > 63 || label.startsWith("-") || label.endsWith("-")))) throw new Error("Enter a DNS hostname only (no scheme, port, or path).");
@@ -352,12 +356,12 @@ export function buildTunnelSnippets(
         {
           title: "Foreground SSH local port-forward (run on your laptop; Ctrl-C to stop)",
           file: "bash / zsh",
-          body: `ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 127.0.0.1:${port}:127.0.0.1:${port} ${ssh}\n\n# Now point local Claude Code / Codex / OpenCode at:\n# http://127.0.0.1:${port}`,
+          body: `ssh -N ${options ? `-p ${sshPort} ` : ""}-o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 127.0.0.1:${port}:127.0.0.1:${remotePort} ${ssh}\n\n# Now point local Claude Code / Codex / OpenCode at:\n# http://127.0.0.1:${port}`,
         },
         {
           title: "Persistent SSH config profile",
           file: "~/.ssh/config",
-          body: `Host styx-tunnel\n  HostName ${ssh.includes("@") ? ssh.split("@")[1] : ssh}\n${ssh.includes("@") ? `  User ${ssh.split("@")[0]}\n` : ""}  ExitOnForwardFailure yes\n  LocalForward 127.0.0.1:${port} 127.0.0.1:${port}\n  ServerAliveInterval 30\n  ServerAliveCountMax 3\n\n# Connect with: ssh -N styx-tunnel (Ctrl-C to stop)`,
+          body: `Host styx-tunnel\n  HostName ${ssh.includes("@") ? ssh.split("@")[1] : ssh}\n${ssh.includes("@") ? `  User ${ssh.split("@")[0]}\n` : ""}  ExitOnForwardFailure yes\n  Port ${sshPort}\n  LocalForward 127.0.0.1:${port} 127.0.0.1:${remotePort}\n  ServerAliveInterval 30\n  ServerAliveCountMax 3\n\n# Connect with: ssh -N styx-tunnel (Ctrl-C to stop)`,
         },
       ];
     case "cloudflared":
@@ -402,445 +406,54 @@ export function buildTunnelSnippets(
   }
 }
 
+import {useFilterQuery} from "../lib/filter-query";
 export function Tools() {
-  const tr = useTranslator();
-  const [workspaceTab, setWorkspaceTab] = useState<"harnesses" | "tunnels" | "endpoints">("harnesses");
-  const [tool, setTool] = useState<AnyToolId>("claude-code");
-  const [tunnelMode, setTunnelMode] = useState<TunnelModeId>("ssh");
-  const [base, setBase] = useState(() => location.origin);
-  const [key, setKey] = useState("");
-  const [model, setModel] = useState("");
-  const [localPort, setLocalPort] = useState("20128");
-  const [publicHost, setPublicHost] = useState(() =>
-    location.hostname && location.hostname !== "127.0.0.1" && location.hostname !== "localhost"
-      ? location.hostname
-      : "styx.yourdomain.com",
-  );
-  const [sshTarget, setSshTarget] = useState("user@your-vps-ip");
-  const [fresh, setFresh] = useState<{ title: string; key: string } | null>(null);
-  const [probing, setProbing] = useState(false);
-  const [probeResult, setProbeResult] = useState<{
-    ok: boolean;
-    status: number;
-    latencyMs: number;
-    reply: string;
-  } | null>(null);
-
-  const models = useFetch<{ data?: CatalogOption[] }>("/v1/models?configuredOnly=true&prefix=canonical");
-  const catalog = models.status === "ok" ? models.data.data ?? [] : [];
-  const defaultModel =
-    catalog.find((m) => m.owned_by && m.owned_by !== "combo")?.id ??
-    catalog[0]?.id ??
-    "antigravity/gemini-4-argon-high";
-
-  const { busy, error, run } = useAction();
-
-  const activeSpec = ALL_TOOLS.find((t) => t.id === tool) ?? ALL_TOOLS[0]!;
-  const activeTunnel = TUNNEL_MODES.find((m) => m.id === tunnelMode) ?? TUNNEL_MODES[0]!;
-  const shownBase = base.trim() || "http://127.0.0.1:20128";
-  const hasRealKey = key.trim().length > 0;
-  const shownKey = hasRealKey ? key.trim() : "YOUR_STYX_KEY";
-  const shownModel = model.trim() || defaultModel;
-
-  async function makeKey() {
-    const name = `${activeSpec.name}`.slice(0, 40);
-    const made = await run("key", () => api.post<{ key: string; name: string }>("/api/keys", { name }));
-    if (made) {
-      setKey(made.key);
-      setFresh({ title: `New key “${made.name}”`, key: made.key });
-      toast.success(`Generated & filled API key for ${made.name}`);
-    }
-  }
-
-  async function runLiveProbe() {
-    if (!hasRealKey) {
-      toast.error("Paste an API key or click “Generate key” first to run a live test.");
-      return;
-    }
-    setProbing(true);
-    setProbeResult(null);
-    const started = performance.now();
-    try {
-      const res = await fetch(`${normalizeRouterBase(shownBase)}/v1/chat/completions`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${key.trim()}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: shownModel,
-          messages: [{ role: "user", content: "Reply with the word ok." }],
-          max_tokens: 16,
-        }),
-      });
-      const latencyMs = Math.round(performance.now() - started);
-      const payload: any = await res.json().catch(() => null);
-      if (!res.ok) {
-        const errMsg = payload?.error?.message ?? payload?.error ?? res.statusText;
-        setProbeResult({ ok: false, status: res.status, latencyMs, reply: String(errMsg) });
-        toast.error(`Test failed (${res.status})`);
-      } else {
-        const text =
-          payload?.choices?.[0]?.message?.content ??
-          payload?.choices?.[0]?.reasoning_content ??
-          JSON.stringify(payload).slice(0, 120);
-        setProbeResult({ ok: true, status: res.status, latencyMs, reply: String(text).trim() || "(empty response)" });
-        toast.success(`200 OK in ${latencyMs}ms`);
-      }
-    } catch (e) {
-      const latencyMs = Math.round(performance.now() - started);
-      const msg = e instanceof Error ? e.message : String(e);
-      setProbeResult({ ok: false, status: 0, latencyMs, reply: msg });
-      toast.error(`Connection error: ${msg}`);
-    } finally {
-      setProbing(false);
-    }
-  }
-
-  // Invalid intermediate input must not crash the page while the user edits.
-  let snippets: ReturnType<typeof buildSnippets> = [];
-  let tunnelSnippets: ReturnType<typeof buildTunnelSnippets> = [];
-  let snippetError = "";
-  let tunnelError = "";
-  try { snippets = buildSnippets(tool, shownBase, shownKey, shownModel); }
-  catch (e) { snippetError = e instanceof Error ? e.message : "Invalid connection settings."; }
-  try { tunnelSnippets = buildTunnelSnippets(tunnelMode, localPort, publicHost, sshTarget); }
-  catch (e) { tunnelError = e instanceof Error ? e.message : "Invalid tunnel settings."; }
-
-  return (
-    <div className="page tools-page">
-      <div className="section-head" style={{ marginBottom: 16 }}>
-        <div>
-          <h1 style={{ marginBottom: 4 }}>{tr("Connect tools")}</h1>
-          <p className="muted" style={{ margin: 0 }}>
-            {tr("Generate ready-to-paste client configs, tunnel setups (Local, SSH, Cloudflare, Tailscale, Caddy), and test live dispatch.")}
-          </p>
-        </div>
-        <div className="row-actions" style={{ flexWrap: "wrap" }}>
-          <button type="button" className="btn-ghost" disabled={busy !== null} onClick={makeKey}>
-            <KeyRound size={14} />
-            <span>{busy === "key" ? tr("Generating…") : tr("Generate key for {0}", {0: String(activeSpec.name)})}</span>
-          </button>
-          <button type="button" className="btn-add" disabled={probing || !!snippetError} onClick={runLiveProbe}>
-            <Play size={14} />
-            <span>{probing ? tr("Testing…") : tr("Test connection")}</span>
-          </button>
-        </div>
-      </div>
-
-      {fresh && <SecretBanner title={fresh.title} secret={fresh.key} onDismiss={() => setFresh(null)} />}
-
-      <section className="card tools-config-card">
-        <div className="tools-config-grid">
-          <label className="tools-field">
-            <span>{tr("Router base URL")}</span>
-            <input
-              type="text"
-              value={base}
-              placeholder="http://127.0.0.1:20128"
-              onChange={(e) => setBase(e.target.value.replace(/\/+$/, ""))}
-            />
-            <small className="muted" style={{ overflowWrap: "anywhere" }}>{tr("Current origin:")}<code>{location.origin}</code>{tr(". Use loopback or your tunnel URL.")}</small>
-          </label>
-
-          <label className="tools-field">
-            <span>{tr("Client API key")}</span>
-            <input
-              type="password"
-              autoComplete="off"
-              placeholder={tr("Paste sk-… or click Generate key above")}
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-            />
-            <small className={hasRealKey ? "ok" : "muted"}>
-              {hasRealKey
-                ? tr("Key injected into snippets ({0}…)", {0: String(key.trim().slice(0, 10))})
-                : tr("Using placeholder YOUR_STYX_KEY — generate or paste a key before copying.")}
-            </small>
-          </label>
-
-          <div className="tools-field">
-            <ModelPicker
-              label={tr("Target model (default: {0})", {0: String(defaultModel)})}
-              value={model}
-              onChange={setModel}
-              catalog={catalog}
-            />
-          </div>
-        </div>
-        {error && <p className="bad" style={{ margin: "10px 0 0" }}>{error}</p>}
-      </section>
-
-      {probeResult && (
-        <section
-          className={`card tools-probe-banner ${probeResult.ok ? "probe-ok" : "probe-bad"}`}
-          role="status"
-        >
-          <div className="section-head">
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <Sparkles size={15} />
-              <strong>
-                {probeResult.ok ? tr("Live dispatch succeeded") : tr("Live dispatch failed")}
-              </strong>
-              <code className="provider-id">
-                {probeResult.status ? `HTTP ${probeResult.status}` : "NETWORK"} · {probeResult.latencyMs}ms
-              </code>
-              <code className="provider-id">{shownModel}</code>
-            </div>
-            <button type="button" className="btn-ghost" onClick={() => setProbeResult(null)}>{tr("Dismiss")}</button>
-          </div>
-          <pre className="tools-probe-reply">{probeResult.reply}</pre>
-        </section>
-      )}
-
-      <div className="tabs" role="tablist" aria-label={tr("Integration mode")} style={{ flexWrap: "wrap" }}>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={workspaceTab === "harnesses"}
-          className={workspaceTab === "harnesses" ? "tab active" : "tab"}
-          onClick={() => setWorkspaceTab("harnesses")}
-        >
-          <Terminal size={14} />
-          <span>{tr("Client Harnesses & SDKs")}</span>
-          <span className="tab-count">{ALL_TOOLS.length}</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={workspaceTab === "tunnels"}
-          className={workspaceTab === "tunnels" ? "tab active" : "tab"}
-          onClick={() => setWorkspaceTab("tunnels")}
-        >
-          <Network size={14} />
-          <span>{tr("Tunnels & Network Exposure")}</span>
-          <span className="tab-count">{TUNNEL_MODES.length}</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={workspaceTab === "endpoints"}
-          className={workspaceTab === "endpoints" ? "tab active" : "tab"}
-          onClick={() => setWorkspaceTab("endpoints")}
-        >
-          <Globe size={14} />
-          <span>{tr("Wire Protocol Matrix")}</span>
-        </button>
-      </div>
-
-      {workspaceTab === "harnesses" && (
-        <div className="tools-workspace">
-          <div className="tools-selector" role="tablist" aria-label={tr("Client tools")}>
-            {ALL_TOOLS.map((t) => {
-              const active = t.id === tool;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  className={active ? "tools-tab active" : "tools-tab"}
-                  onClick={() => setTool(t.id)}
-                >
-                  <div className="tools-tab-top">
-                    <strong>{t.name}</strong>
-                    <span className="vendor-badge">{tr(t.badge)}</span>
-                  </div>
-                  <small>{tr(t.summary)}</small>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="tools-output">
-            {!hasRealKey && (
-              <div className="tools-key-notice">
-                <span>
-                  {tr("Snippets currently contain")} <code>YOUR_STYX_KEY</code>{tr(". Click")}{" "}
-                  <strong>{tr("Generate key for")} {activeSpec.name}</strong> {tr("to inject a working Bearer token automatically.")}
-                </span>
-              </div>
-            )}
-            {snippetError && <p className="bad" role="alert">{snippetError}</p>}
-            {snippets.map((s, i) => (
-              <SnippetCard key={`${tool}-${i}`} title={s.title} file={s.file} body={s.body} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {workspaceTab === "tunnels" && (
-        <div className="tools-workspace">
-          <div className="tools-selector" role="tablist" aria-label={tr("Tunnel topologies")}>
-            {TUNNEL_MODES.map((m) => {
-              const active = m.id === tunnelMode;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  className={active ? "tools-tab active" : "tools-tab"}
-                  onClick={() => setTunnelMode(m.id)}
-                >
-                  <div className="tools-tab-top">
-                    <strong>{tr(m.name)}</strong>
-                    <span className="vendor-badge">{tr(m.badge)}</span>
-                  </div>
-                  <small>{tr(m.summary)}</small>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="tools-output">
-            <section className="card" style={{ padding: 14 }}>
-              <div className="tools-config-grid">
-                <label className="tools-field">
-                  <span>{tr("Local StyxRouter port")}</span>
-                  <input
-                    type="text"
-                    value={localPort}
-                    placeholder="20128"
-                    onChange={(e) => setLocalPort(e.target.value)}
-                  />
-                </label>
-                <label className="tools-field">
-                  <span>{tr("Public / Tailnet hostname")}</span>
-                  <input
-                    type="text"
-                    value={publicHost}
-                    placeholder="styx.yourdomain.com"
-                    onChange={(e) => setPublicHost(e.target.value)}
-                  />
-                </label>
-                <label className="tools-field">
-                  <span>{tr("VPS SSH target (for SSH tunnel)")}</span>
-                  <input
-                    type="text"
-                    value={sshTarget}
-                    placeholder="user@example.org"
-                    onChange={(e) => setSshTarget(e.target.value)}
-                  />
-                </label>
-              </div>
-              <div className="row-actions" style={{ marginTop: 12, flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  className="btn-add"
-                  disabled={!!tunnelError}
-                  onClick={() => {
-                    const nextBase = activeTunnel.recommendedBase(localPort.trim() || "20128", publicHost || "styx.yourdomain.com");
-                    setBase(nextBase);
-                    toast.success(`Base URL updated to ${nextBase}`);
-                  }}
-                >
-                  <span>
-                    {tr("Use")} {activeTunnel.recommendedBase(localPort.trim() || "20128", publicHost || "styx.yourdomain.com")} {tr("in harness snippets")}
-                  </span>
-                </button>
-              </div>
-            </section>
-
-            {tunnelError && <p className="bad" role="alert">{tunnelError}</p>}
-            {tunnelSnippets.map((s, i) => (
-              <SnippetCard key={`${tunnelMode}-${i}`} title={s.title} file={s.file} body={s.body} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {workspaceTab === "endpoints" && (
-        <section className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <TableScroll label={tr("StyxRouter wire protocol endpoints")} stickyPrimary>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>{tr("Endpoint Path")}</th>
-                  <th>{tr("Wire Protocol")}</th>
-                  <th>{tr("Auth Header")}</th>
-                  <th>{tr("Compatible Harnesses")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>{shownBase}/v1/chat/completions</code></td>
-                  <td>OpenAI Chat Completions (SSE & JSON)</td>
-                  <td><code>Authorization: Bearer &lt;key&gt;</code></td>
-                  <td>Hermes Agent, OpenCode, Aider, Cursor, Cline, Roo Code, Continue, Factory Droid, Goose</td>
-                </tr>
-                <tr>
-                  <td><code>{shownBase}/v1/messages</code></td>
-                  <td>Anthropic Messages API (with Thinking blocks)</td>
-                  <td><code>x-api-key: &lt;key&gt;</code> or <code>Bearer</code></td>
-                  <td>Claude Code CLI, Anthropic Python/TS SDK</td>
-                </tr>
-                <tr>
-                  <td><code>{shownBase}/v1/responses</code></td>
-                  <td>OpenAI Responses API (Stateful & Reasoning)</td>
-                  <td><code>Authorization: Bearer &lt;key&gt;</code></td>
-                  <td>OpenAI Codex CLI (<code>wire_api = "responses"</code>), OpenAI SDK</td>
-                </tr>
-                <tr>
-                  <td><code>{shownBase}/v1/models</code></td>
-                  <td>Model Discovery Catalog</td>
-                  <td><code>Authorization: Bearer &lt;key&gt;</code></td>
-                  <td>All IDEs and CLIs for dynamic model dropdown population</td>
-                </tr>
-                <tr>
-                  <td><code>{shownBase}/v1/embeddings</code></td>
-                  <td>OpenAI Embeddings Wire</td>
-                  <td><code>Authorization: Bearer &lt;key&gt;</code></td>
-                  <td>Codebase indexers (Continue, Roo Code, RAG pipelines)</td>
-                </tr>
-              </tbody>
-            </table>
-          </TableScroll>
-        </section>
-      )}
-    </div>
-  );
-}
-
-function SnippetCard({ title, file, body }: { title: string; file: string; body: string }) {
-  const tr = useTranslator();
-  const [copied, setCopied] = useState(false);
-  return (
-    <section className="tools-snippet-card">
-      <header className="tools-snippet-head">
-        <div className="tools-snippet-meta">
-          <Terminal size={14} />
-          <strong>{tr(title)}</strong>
-          <code>{file}</code>
-        </div>
-        <button
-          type="button"
-          className="btn-ghost"
-          onClick={() =>
-            navigator.clipboard?.writeText(body).then(
-              () => {
-                setCopied(true);
-                toast.success(`Copied ${file} snippet`);
-                setTimeout(() => setCopied(false), 2000);
-              },
-              () => setCopied(false),
-            )
-          }
-        >
-          {copied ? (
-            <>
-              <Check size={13} />
-              <span>{tr("Copied")}</span>
-            </>
-          ) : (
-            <>
-              <Copy size={13} />
-              <span>{tr("Copy snippet")}</span>
-            </>
-          )}
-        </button>
-      </header>
-      <pre className="tools-snippet-body">{body}</pre>
-    </section>
-  );
+ const t=useToolsCopy(),tr=useTranslator();
+ const confirmation=useConfirmation();const reviewLock=useRef(false);const intentVersion=useRef(0);
+ const query=useFilterQuery({tab:["harnesses","tunnels","endpoints"],client:ALL_TOOLS.map(c=>c.id),tunnel:TUNNEL_MODES.map(m=>m.id),example:Array.from({length:30},(_,i)=>String(i))},{tab:"harnesses",client:"claude-code",tunnel:"ssh",example:"0"});
+ const tab=query.values.tab,tool=query.values.client as AnyToolId,tunnel=query.values.tunnel as TunnelModeId;
+ const tabs=useWorkspaceTabs(tab);const [search,setSearch]=useState("");
+ const [base,setBase]=useState(()=>location.origin),[key,setKey]=useState(""),[model,setModel]=useState("");
+ const [localPort, setLocalPort] = useState("20128");
+ const [publicHost,setPublicHost]=useState("styx.example.com"),[sshUser,setSshUser]=useState("user"),[sshHost,setSshHost]=useState("host.example"),[sshPort,setSshPort]=useState("22"),[remotePort,setRemotePort]=useState("20128");
+ const [fresh,setFresh]=useState<{title:string;key:string}|null>(null),[keyBusy,setKeyBusy]=useState(false),[keyError,setKeyError]=useState("");const keyLock=useRef(false);
+ const [probing,setProbing]=useState(false),[probeResult,setProbeResult]=useState<{ok:boolean;status:number;latencyMs:number;reply:string;target:string;model:string}|null>(null);
+ const probe=useRef<AbortController|null>(null);
+ useEffect(()=>{intentVersion.current++;return()=>{intentVersion.current++;};},[base,key,model,tool,tab]);
+ useEffect(()=>{probe.current?.abort();probe.current=null;setProbing(false);setProbeResult(null);return ()=>{probe.current?.abort();probe.current=null;};},[base,key,model,tool,tab]);
+ const models=useFetch<{data?:CatalogOption[]}>("/v1/models?configuredOnly=true&prefix=canonical");const catalog=models.status==="ok"?models.data.data??[]:[];
+ const shownModel=model.trim()||catalog[0]?.id||"",active=ALL_TOOLS.find(c=>c.id===tool)!;
+ let normalized="",validation="";try{if(!base.trim())throw new Error(t("Router base URL is required.","URL dasar router wajib diisi."));normalized=normalizeRouterBase(base);}catch{validation=t("Enter an HTTP(S) URL without credentials, query or fragment.","Masukkan URL HTTP(S) tanpa kredensial, kueri, atau fragmen.");}
+ let snippets:ReturnType<typeof buildSnippets>=[],secretSnippets:ReturnType<typeof buildSnippets>=[];
+ if(!validation){snippets=buildSnippets(tool,normalized,"YOUR_STYX_KEY",shownModel||"provider/model-id");if(key.trim())secretSnippets=buildSnippets(tool,normalized,key.trim(),shownModel||"provider/model-id");}
+ let tunnelSnippets:ReturnType<typeof buildTunnelSnippets>=[],tunnelError="";
+ try{tunnelSnippets=buildTunnelSnippets(tunnel,localPort,publicHost,`${sshUser}@${sshHost}`,{sshPort,remotePort});}catch(e){tunnelError=String((e as Error).message);}
+ const example=Math.min(Number(query.values.example),Math.max(0,(tab==="tunnels"?tunnelSnippets:snippets).length-1));
+ async function makeKey(){if(keyLock.current||reviewLock.current)return;keyLock.current=true;const target={name:active.name.slice(0,40)},version=intentVersion.current;const accepted=await confirmation.confirm({title:t("Create client API key?","Buat kunci API klien?"),description:t("Creates a credential for this client. Save it securely.","Membuat kredensial untuk klien ini. Simpan dengan aman."),resource:active.name,action:t("Create key","Buat kunci"),danger:true});if(!accepted||version!==intentVersion.current){keyLock.current=false;return;}setKeyBusy(true);setKeyError("");try{const made=await api.post<{key:string;name:string}>("/api/keys",target);setKey(made.key);setFresh({title:t("New client API key","Kunci API klien baru"),key:made.key});await api.get("/api/keys");}catch{setKeyError(t("Outcome unknown; reload Client API Keys to reconcile before creating another key.","Hasil belum diketahui; muat ulang Kunci API Klien sebelum membuat kunci lain."));}finally{keyLock.current=false;setKeyBusy(false);}}
+ async function runProbe(){
+  if(probe.current||reviewLock.current||validation||!key.trim()||!shownModel)return;
+  const target=`${normalized}/v1/chat/completions`,selected=shownModel;
+  reviewLock.current=true;const version=intentVersion.current;
+  const accepted=await confirmation.confirm({title:t("Send real router request?","Kirim permintaan router sungguhan?"),description:t("Usage may incur real charges. This does not certify the native client.","Penggunaan dapat menimbulkan biaya nyata. Ini bukan sertifikasi klien asli."),resource:`POST ${target} · ${selected}`,action:t("Send request","Kirim permintaan"),danger:true});
+  reviewLock.current=false;if(!accepted||version!==intentVersion.current)return;
+  const controller=new AbortController();probe.current=controller;setProbing(true);setProbeResult(null);const started=performance.now();
+  const redact=(v:unknown)=>String(v).split(key.trim()).join("[REDACTED]").slice(0,2000);
+  try{const res=await fetch(target,{method:"POST",redirect:"error",signal:controller.signal,headers:{Authorization:`Bearer ${key.trim()}`,"Content-Type":"application/json"},body:JSON.stringify({model:selected,messages:[{role:"user",content:"Reply with the word ok."}],max_tokens:16})});const payload=await res.json().catch(()=>null);if(probe.current!==controller)return;setProbeResult({ok:res.ok,status:res.status,latencyMs:Math.round(performance.now()-started),target,model:selected,reply:redact(res.ok?payload?.choices?.[0]?.message?.content??"(empty response)":payload?.error?.message??res.statusText)});}catch{if(probe.current===controller)setProbeResult({ok:false,status:0,latencyMs:Math.round(performance.now()-started),target,model:selected,reply:t("Request failed; outcome unknown. No automatic retry.","Permintaan gagal; hasil belum diketahui. Tidak diulang otomatis.")});}finally{if(probe.current===controller){probe.current=null;setProbing(false);}}
+ }
+ const groups=[{en:"Coding agents",id:"Agen pemrograman",ids:["claude-code","codex","opencode","aider","hermes-agent","factory-droid","goose"]},{en:"Editors & SDKs",id:"Editor & SDK",ids:["ide","python"]},{en:"HTTP recipes",id:"Resep HTTP",ids:["curl"]}];
+ const filtered=ALL_TOOLS.filter(c=>(c.name+" "+c.summary).toLowerCase().includes(search.toLowerCase()));
+ const names=[["harnesses",t("Connect client","Hubungkan klien")],["tunnels",t("Network access","Akses jaringan")],["endpoints",t("API reference","Referensi API")]];
+ const chooseExample=(list:typeof snippets)=><label className="tools-field">{t("Example","Contoh")}<select value={example} onChange={e=>query.commit({example:e.target.value})}>{list.map((s,i)=><option key={i} value={i}>{tr(s.title)}</option>)}</select></label>;
+ return <div className="page tools-page">{confirmation.dialog}<header className="section-head"><div><h1>{tr("Connect tools")}</h1><p className="muted">{t("Configure a client. Review before copying or sending a request.","Konfigurasikan klien. Tinjau sebelum menyalin atau mengirim permintaan.")}</p></div></header>
+ <div className="tabs tools-workspace-tabs" role="tablist" aria-label={t("Integration mode","Mode integrasi")} onKeyDown={tabs.onKeyDown}>{names.map(([id,label])=><button type="button" key={id} role="tab" {...tabs.tabProps(id!)} aria-selected={tab===id} className={tab===id?"tab tools-tab active":"tab tools-tab"} onClick={()=>query.commit({tab:id!,example:"0"})}>{label}</button>)}</div>
+ <div {...tabs.panelProps}>
+ {tab==="harnesses"&&<><section className="tools-client-choice"><h2>{t("Choose client","Pilih klien")}</h2><div className="tools-picker-grid"><label className="tools-field">{t("Search clients","Cari klien")}<input type="search" value={search} onChange={e=>setSearch(e.target.value)}/></label><label className="tools-field">{t("Client tools","Alat klien")}<select value={tool} onChange={e=>query.commit({client:e.target.value,example:"0"})}>{!filtered.some(c=>c.id===tool)&&<option value={tool}>{active.name}</option>}{groups.map(g=><optgroup key={g.en} label={t(g.en,g.id)}>{filtered.filter(c=>g.ids.includes(c.id)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>)}</select></label></div>{filtered.length===0&&<p role="status">{t("No matching clients","Tidak ada klien yang cocok")}</p>}<p className="muted"><strong>{active.name}</strong> · {active.badge}</p></section>
+ <div className="tools-connection-workbench"><section className="tools-settings"><h2>{t("Connection settings","Pengaturan koneksi")}</h2><label className="tools-field">{t("Router base URL","URL dasar router")}<input required aria-invalid={!!validation} aria-describedby="tools-url-status" value={base} onChange={e=>setBase(e.target.value)} placeholder="http://127.0.0.1:20128"/></label><p id="tools-url-status" role={validation?"alert":"status"} className={validation?"bad":"muted"}>{validation||t("Valid URL format · Not live verified. Recipes normalize /v1 for the selected protocol.","Format URL valid · Belum diverifikasi langsung. Resep menyesuaikan /v1 untuk protokol yang dipilih.")}</p>
+ <label className="tools-field">{t("Client API key","Kunci API klien")}<input type="password" autoComplete="off" value={key} onChange={e=>setKey(e.target.value)}/><small>{t("Kept in this page only. Preview always uses a placeholder.","Hanya di halaman ini. Pratinjau selalu memakai placeholder.")}</small></label><button type="button" className="btn-ghost" disabled={keyBusy} onClick={()=>void makeKey()}>{keyBusy?t("Creating…","Membuat…"):t(`Generate key for ${active.name}`,`Buat kunci untuk ${active.name}`)}</button>{fresh&&<SecretBanner title={fresh.title} secret={fresh.key} onDismiss={()=>setFresh(null)}/ >}{keyError&&<p role="alert">{keyError}</p>}
+ <ModelPicker label={t("Target model","Model tujuan")} value={model} onChange={setModel} catalog={catalog}/><ReadFreshness state={models}/><p className="muted tools-model-source">{t("Source: configured canonical /v1/models catalog. Metadata is not an availability guarantee. Manual IDs are accepted.","Sumber: katalog kanonis /v1/models terkonfigurasi. Metadata bukan jaminan ketersediaan. ID manual diterima.")}</p>{shownModel&&<p className="tools-model-id"><strong>{t("Effective model: ","Model efektif: ")}</strong><code>{shownModel}</code></p>}
+ <div className="tools-request-test"><h3>{t("Router request test","Uji permintaan router")}</h3><p className="muted">POST /v1/chat/completions · {t("May incur real charges. Not native-client certification.","Dapat menimbulkan biaya nyata. Bukan sertifikasi klien asli.")}</p><button type="button" className="btn-add" disabled={probing||!!validation||!key.trim()||!shownModel} onClick={()=>void runProbe()}>{probing?t("Sending…","Mengirim…"):t("Router request test","Uji permintaan router")}</button>{probing&&<button type="button" className="btn-ghost" onClick={()=>{probe.current?.abort();probe.current=null;setProbing(false);}}>{t("Cancel request · outcome may be unknown","Batalkan permintaan · hasil mungkin belum diketahui")}</button>}
+ {probeResult&&<div role="status"><strong>{probeResult.ok?t("Router request succeeded","Permintaan router berhasil"):t("Router request failed","Permintaan router gagal")}</strong><p><code>{probeResult.target}</code></p><code>{probeResult.model} · HTTP {probeResult.status||"NETWORK"} · {probeResult.latencyMs}ms</code><pre className="tools-probe-reply">{probeResult.reply}</pre></div>}</div></section>
+ <section className="tools-output"><h2>{t("Configuration preview","Pratinjau konfigurasi")}</h2><p className="muted">{t("Generated, not executed. Shell examples: bash / zsh only. Back up and merge required fields; never overwrite an existing configuration file.","Dibuat, tidak dijalankan. Contoh shell: bash / zsh saja. Cadangkan dan gabungkan bidang yang diperlukan; jangan timpa berkas konfigurasi yang ada.")}</p>{!!snippets.length&&chooseExample(snippets)}{snippets[example]&&<ToolSnippet {...snippets[example]!} title={tr(snippets[example]!.title)} secretBody={secretSnippets[example]?.body??""}/>}</section></div></>}
+ {tab==="tunnels"&&<section className="tools-network"><h2>{t("Network access","Akses jaringan")}</h2><p className="muted">{t("Recipes only · connection not verified. Nothing is installed or executed.","Hanya resep · koneksi belum diverifikasi. Tidak ada yang dipasang atau dijalankan.")}</p><label className="tools-field">{t("Connection scenario","Skenario koneksi")}<select value={tunnel==="local"?"local":tunnel==="ssh"?"ssh":tunnel==="tailscale"?"private":"public"} onChange={e=>query.commit({tunnel:e.target.value==="private"?"tailscale":e.target.value==="public"?"cloudflared":e.target.value,example:"0"})}><option value="local">{t("Same machine","Mesin yang sama")}</option><option value="ssh">{t("SSH to remote router","SSH ke router jarak jauh")}</option><option value="private">{t("Private tailnet","Tailnet privat")}</option><option value="public">{t("Public HTTPS","HTTPS publik")}</option></select></label><label className="tools-field">{t("Tunnel recipe","Resep tunnel")}<select value={tunnel} onChange={e=>query.commit({tunnel:e.target.value,example:"0"})}>{TUNNEL_MODES.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label><div className="tools-network-grid"><label className="tools-field">{t("Local StyxRouter port","Port StyxRouter lokal")}<input value={localPort} placeholder="20128" onChange={(e) => setLocalPort(e.target.value)}/></label>{tunnel==="ssh"&&<><label className="tools-field">{t("SSH user","Pengguna SSH")}<input value={sshUser} onChange={e=>setSshUser(e.target.value)}/></label><label className="tools-field">{t("SSH host","Host SSH")}<input value={sshHost} onChange={e=>setSshHost(e.target.value)}/></label><label className="tools-field">{t("SSH port","Port SSH")}<input value={sshPort} onChange={e=>setSshPort(e.target.value)}/></label><label className="tools-field">{t("Remote router port","Port router jarak jauh")}<input value={remotePort} onChange={e=>setRemotePort(e.target.value)}/></label></>}{!["local","ssh"].includes(tunnel)&&<label className="tools-field">{t("Public / Tailnet hostname","Hostname publik / tailnet")}<input value={publicHost} onChange={e=>setPublicHost(e.target.value)}/></label>}</div><p className="muted">{t("Keep authentication enabled; protect admin routes before public exposure. Private Serve is not public Funnel. Cursor cloud relay cannot reach loopback or private Serve.","Tetap aktifkan autentikasi; lindungi rute admin sebelum paparan publik. Serve privat bukan Funnel publik. Relay cloud Cursor tidak dapat menjangkau loopback atau Serve privat.")}</p>{tunnelError?<p role="alert" className="bad">{tunnelError}</p>:<><button type="button" className="btn-ghost" onClick={()=>{setBase(TUNNEL_MODES.find(m=>m.id===tunnel)!.recommendedBase(localPort.trim()||"20128",publicHost));query.commit({tab:"harnesses",example:"0"});}}>{t("Use recommended base in client settings","Gunakan URL dasar di pengaturan klien")}</button>{chooseExample(tunnelSnippets)}{tunnelSnippets[example]&&<ToolSnippet {...tunnelSnippets[example]!}/>}</>}</section>}
+ {tab==="endpoints"&&<ToolsApiReference/>}</div></div>;
 }

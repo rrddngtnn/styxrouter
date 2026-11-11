@@ -1,5 +1,7 @@
-import { useState } from "react";
+import {useConfirmation} from "../components/ConfirmationDialog";
+import { useRef, useState } from "react";
 import { api } from "../lib/api.ts";
+import {ReadFreshness} from "../components/OperationalUI";
 import { useFetch } from "../lib/useFetch.ts";
 import { useTranslator } from "../lib/useTranslator.ts";
 import { Modal } from "../lib/actions.tsx";
@@ -9,6 +11,8 @@ interface Row { manualOverlay?: Record<string, unknown> | null; id: string; name
 type Metadata = Parameters<typeof ModelEditor>[0]["model"];
 export function ProviderModels({ providerId }: { providerId: string }) {
   const tr = useTranslator();
+  const confirmation = useConfirmation();
+  const reviewLock = useRef(false);
   const path = `/api/providers/${encodeURIComponent(providerId)}/models`;
   const models = useFetch<{ prefix: string; models: Row[] }>(path);
   const [search, setSearch] = useState("");
@@ -60,7 +64,13 @@ export function ProviderModels({ providerId }: { providerId: string }) {
     } catch (e) { setError(e instanceof Error ? e.message : tr("Could not save model")); } finally { setBusy(false); }
   }
   async function remove(row: Row) {
-    if (busy || !window.confirm(tr("Delete manual model {0}?", {0:row.id}))) return;
+    if (busy || reviewLock.current) return;
+    const target = {...row};
+    reviewLock.current = true;
+    const accepted = await confirmation.confirm({title:tr("Delete manual model?"),description:tr("Remove this manual catalog entry. Upstream models are not deleted."),resource:`${providerId} / ${target.name ?? target.id} / ${target.id}`,action:tr("Delete"),danger:true});
+    reviewLock.current = false;
+    if (!accepted) return;
+    row = target;
     setBusy(true); setError("");
     try { await api.delete(`${path}/${encodeURIComponent(row.id)}`); models.reload(); }
     catch (e) { setError(e instanceof Error ? e.message : tr("Could not delete model")); } finally { setBusy(false); }
@@ -71,7 +81,7 @@ export function ProviderModels({ providerId }: { providerId: string }) {
     catch { setError(tr("Could not load model configuration")); } finally { setBusy(false); }
   }
   return <section className="card provider-models" style={{marginTop:16}}><div className="section-head"><h2>{tr("Models")}</h2><button type="button" className="btn-add" onClick={()=>edit("new")}>{tr("Add model")}</button></div>
-    <p className="muted">{tr("Saving a model does not verify upstream availability.")}</p>
+    {confirmation.dialog}<ReadFreshness resource="Provider models" state={models}/><p className="muted">{tr("Saving a model does not verify upstream availability.")}</p>
     <label>{tr("Search models")}<input type="search" value={search} onChange={e=>setSearch(e.target.value)} /></label>
     {error && <p role="alert" className="bad">{error}</p>}
     {models.status === "loading" && <p role="status">{tr("Loading models")}</p>}

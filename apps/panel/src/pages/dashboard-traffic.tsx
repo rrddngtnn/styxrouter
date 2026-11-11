@@ -33,6 +33,7 @@ export function TrafficGraph({ days, metric = "requests" }: { days: Day[]; metri
         </rect>
       </g>)}
     </svg>
+    <details className="chart-data-alternative"><summary>{tr("View chart data")}</summary><table className="table"><caption>{tr("Daily totals · UTC")}</caption><thead><tr><th>{tr("Date")}</th><th>{tr("Requests")}</th><th>{tr("Tokens")}</th><th>{tr("Cost")}</th></tr></thead><tbody>{days.map(day=><tr key={day.date}><th scope="row">{day.date}</th><td>{int(day.requests)}</td><td>{int(day.totalTokens)}</td><td>{usd(day.cost)}</td></tr>)}</tbody></table></details>
     <div className="dashboard-chart-dates"><span>{days[0]!.date}</span><span>{tr("Daily totals · UTC")}</span><span>{days[days.length - 1]!.date}</span></div>
   </div>;
 }

@@ -5,17 +5,18 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { BrandMark } from "../BrandMark.tsx";
 import { breadcrumbs } from "./breadcrumbs.ts";
 import { NavigationLinks } from "./NavigationLinks.tsx";
+import { DecorativeGeometry } from "./DecorativeGeometry.tsx";
 import { useNavDisclosure } from "./useNavDisclosure.ts";
 import { CommandPalette } from "./CommandPalette.tsx";
 import { usePreferences } from "../../lib/preferences.tsx";
 import "./responsive-navigation.css";
-import type { Language, ThemeMode } from "../../lib/preferences-core.ts";
+import type { Density, Language, ThemeMode } from "../../lib/preferences-core.ts";
 
 export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logout: () => void; children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const nav = useNavDisclosure();
-  const { t, language, setLanguage, theme, setTheme } = usePreferences();
+  const { t, language, setLanguage, theme, setTheme, density, setDensity } = usePreferences();
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   // Route change closes the drawer.
@@ -26,7 +27,7 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
   // around it is `inert` so the rest of the document is unreachable. It stays
   // CSS-mounted while closed so the exit transition can still play.
   useLayoutEffect(() => {
-    if (!nav.open) return;
+    if (nav.desktop || !nav.open) return;
     const drawer = drawerRef.current;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -77,8 +78,76 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
       for (const [element, priorInert] of isolated) element.inert = priorInert;
       triggerRef.current?.focus();
     };
-  }, [nav.open, nav.close]);
+  }, [nav.open, nav.desktop, nav.close]);
 
+  // Track real input events across route renders; never infer modality from a timer
+  // or :focus-visible (browsers may inherit that state from the previous owner).
+  const routeInput = useRef<'keyboard' | 'programmatic'>('programmatic');
+  const routeOpener = useRef<Element | null>(null);
+  const routeActivation = useRef<'keyboard' | 'programmatic' | null>(null);
+  useLayoutEffect(() => {
+    const clearMarker = () => document.querySelectorAll('h1[data-route-focus]').forEach(el => el.removeAttribute('data-route-focus'));
+    const key = (event: KeyboardEvent) => {
+      if (['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
+      routeInput.current = 'keyboard';
+      clearMarker();
+      if (event.key==='Enter' || event.key===' ') routeActivation.current='keyboard';
+    };
+    const pointer = () => { routeInput.current = 'programmatic'; routeActivation.current=null; };
+    const activation = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target.closest('a[href], [role="option"], [role="menuitem"]') : null;
+      routeOpener.current = target;
+      if(target) routeActivation.current=routeInput.current;
+    };
+    const focus = (event: FocusEvent) => {
+      document.querySelectorAll('h1[data-route-focus]').forEach(el => { if (el !== event.target) el.removeAttribute('data-route-focus'); });
+    };
+    document.addEventListener('keydown', key, true);
+    document.addEventListener('pointerdown', pointer, true);
+    document.addEventListener('click', activation, true);
+    document.addEventListener('focusin', focus, true);
+    return () => {
+      document.removeEventListener('keydown', key, true);
+      document.removeEventListener('pointerdown', pointer, true);
+      document.removeEventListener('click', activation, true);
+      document.removeEventListener('focusin', focus, true);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    let completed=false, interacted=false;
+    const modality=routeActivation.current ?? 'programmatic';
+    routeActivation.current=null;
+    const opener=routeOpener.current;
+    routeOpener.current=null;
+    const onInteraction=()=>{interacted=true;};
+    const finish=()=>{
+      if(completed)return;
+      const heading=document.querySelector<HTMLElement>('#main-content h1');
+      if(!heading)return;
+      completed=true;
+      document.title=`${heading.textContent} — StyxRouter`;
+      const focusOwner=document.activeElement;
+      const navigationFocus=opener && (focusOwner===opener || (focusOwner===triggerRef.current && drawerRef.current?.contains(opener)));
+      const unownedFocus=!focusOwner || focusOwner===document.body || focusOwner===document.getElementById('main-content') || focusOwner===heading || navigationFocus;
+      if(!interacted && unownedFocus){
+        heading.tabIndex=-1;
+        if(modality==='programmatic') heading.dataset.routeFocus='programmatic';
+        else heading.removeAttribute('data-route-focus');
+        heading.focus({preventScroll:true});
+      }
+    };
+    const onReady=(event:Event)=>{if((event as CustomEvent<string>).detail===location.pathname)finish();};
+    document.addEventListener('styx:page-ready',onReady);
+    document.addEventListener('pointerdown',onInteraction,true);
+    document.addEventListener('keydown',onInteraction,true);
+    finish();
+    return ()=>{
+      document.removeEventListener('styx:page-ready',onReady);
+      document.removeEventListener('pointerdown',onInteraction,true);
+      document.removeEventListener('keydown',onInteraction,true);
+    };
+  }, [location.pathname]);
   const trail = breadcrumbs(location.pathname);
 
   return <div className="shell shell-responsive">
@@ -94,21 +163,22 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
     >
       <div
         className="shell-drawer"
-        role={nav.open ? "dialog" : undefined}
-        aria-modal={nav.open || undefined}
+        role={!nav.desktop && nav.open ? "dialog" : undefined}
+        aria-modal={(!nav.desktop && nav.open) || undefined}
         aria-label={t("Main navigation")}
         tabIndex={-1}
         ref={drawerRef}
       >
         <div className="shell-dialog-head">
-          {nav.desktop && !nav.isExpanded ? <div className="shell-rail-brand" role="img" aria-label="StyxRouter"><img src={`${import.meta.env.BASE_URL}brand/styx-icon.svg`} alt="" /></div> : <BrandMark />}
-          {!nav.desktop && <button type="button" className="shell-icon-button" aria-label={t("Close navigation")} onClick={nav.close}>
+          <BrandMark />
+          {<button type="button" className="shell-icon-button" aria-label={t("Close navigation")} onClick={nav.close}>
             <X size={16} />
           </button>}
         </div>
         <nav id="styx-nav" className="sidebar shell-drawer-nav" aria-label={t("Main navigation")}>
           {brand}
           <NavigationLinks onNavigate={nav.close} />
+          <DecorativeGeometry />
         </nav>
       </div>
     </div>
@@ -126,10 +196,18 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
         >
           {nav.isExpanded ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
         </button>
-        {trail.length > 1 && <nav className="shell-breadcrumbs" aria-label="Breadcrumb">{trail.map((step,index) => <span key={index}>{index > 0 && <ChevronRight size={14} />}{step.to ? <Link to={step.to}>{t(step.label)}</Link> : <span aria-current="page">{t(step.label)}</span>}</span>)}</nav>}
+        {trail.length > 1 && <nav className="shell-breadcrumbs" aria-label="Breadcrumb"><ol>{trail.map((step,index) => <li key={index}>{index > 0 && <ChevronRight size={14} aria-hidden="true" />}{step.to ? <Link to={step.to}>{t(step.label)}</Link> : <span aria-current="page" title={t(step.label)}>{t(step.label)}</span>}</li>)}</ol></nav>}
+        <Link to="/" className="shell-product" aria-label="StyxRouter"><BrandMark /><img className="shell-product-icon" src={`${import.meta.env.BASE_URL}brand/styx-icon.svg`} alt="" /></Link>
         <CommandPalette />
+        <DropdownMenu.Root><DropdownMenu.Trigger><button type="button" className="shell-icon-button shell-mobile-utilities" aria-label={t("Preferences and session")}>⋯</button></DropdownMenu.Trigger><DropdownMenu.Content>
+          <DropdownMenu.Label>{t("Language")}</DropdownMenu.Label><DropdownMenu.RadioGroup value={language} onValueChange={v=>setLanguage(v as Language)}><DropdownMenu.RadioItem value="en">English</DropdownMenu.RadioItem><DropdownMenu.RadioItem value="id">Indonesia</DropdownMenu.RadioItem></DropdownMenu.RadioGroup>
+          <DropdownMenu.Separator/><DropdownMenu.Label>{t("Appearance")}</DropdownMenu.Label><DropdownMenu.RadioGroup value={theme} onValueChange={v=>setTheme(v as ThemeMode)}><DropdownMenu.RadioItem value="light">{t("Light")}</DropdownMenu.RadioItem><DropdownMenu.RadioItem value="dark">{t("Dark")}</DropdownMenu.RadioItem><DropdownMenu.RadioItem value="system">{t("System theme")}</DropdownMenu.RadioItem></DropdownMenu.RadioGroup>
+          <DropdownMenu.Separator/><DropdownMenu.Label>{t("Density")}</DropdownMenu.Label><DropdownMenu.RadioGroup value={density} onValueChange={v=>setDensity(v as Density)}><DropdownMenu.RadioItem value="comfortable">{t("Comfortable")}</DropdownMenu.RadioItem><DropdownMenu.RadioItem value="compact">{t("Compact")}</DropdownMenu.RadioItem></DropdownMenu.RadioGroup>
+          <DropdownMenu.Separator/><DropdownMenu.Item onSelect={()=>navigate('/settings')}>{t("Settings")}</DropdownMenu.Item><DropdownMenu.Item color="red" onSelect={logout}>{t("Sign out")}</DropdownMenu.Item>
+        </DropdownMenu.Content></DropdownMenu.Root>
         <select className="shell-language" aria-label={t('Language')} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="en">English</option><option value="id">Indonesia</option></select>
         <DropdownMenu.Root><DropdownMenu.Trigger><button type="button" className="shell-icon-button" aria-label={t('Appearance')}>{theme === 'light' ? <Sun size={20}/> : theme === 'dark' ? <Moon size={20}/> : <Monitor size={20}/>}</button></DropdownMenu.Trigger><DropdownMenu.Content><DropdownMenu.RadioGroup value={theme} onValueChange={v => setTheme(v as ThemeMode)}><DropdownMenu.RadioItem value="light">{t('Light')}</DropdownMenu.RadioItem><DropdownMenu.RadioItem value="dark">{t('Dark')}</DropdownMenu.RadioItem><DropdownMenu.RadioItem value="system">{t('System theme')}</DropdownMenu.RadioItem></DropdownMenu.RadioGroup></DropdownMenu.Content></DropdownMenu.Root>
+        <DropdownMenu.Root><DropdownMenu.Trigger><button type="button" className="shell-icon-button" aria-label={t('Density')}><span aria-hidden="true">↕</span></button></DropdownMenu.Trigger><DropdownMenu.Content><DropdownMenu.RadioGroup value={density} onValueChange={v=>setDensity(v as Density)}><DropdownMenu.RadioItem value="comfortable">{t('Comfortable')}</DropdownMenu.RadioItem><DropdownMenu.RadioItem value="compact">{t('Compact')}</DropdownMenu.RadioItem></DropdownMenu.RadioGroup></DropdownMenu.Content></DropdownMenu.Root>
         <DropdownMenu.Root><DropdownMenu.Trigger><button type="button" className="shell-icon-button" aria-label={t("Session menu")}><UserRound size={17} /></button></DropdownMenu.Trigger><DropdownMenu.Content><DropdownMenu.Label>{t("Administrator session")}</DropdownMenu.Label><DropdownMenu.Item onSelect={() => navigate('/settings')}>{t("Settings")}</DropdownMenu.Item><DropdownMenu.Separator /><DropdownMenu.Item color="red" onSelect={logout}>{t("Sign out")}</DropdownMenu.Item></DropdownMenu.Content></DropdownMenu.Root>
       </header>
       <main className="content" id="main-content" tabIndex={-1}><div key={location.pathname} className="page-motion">{children}</div></main>
