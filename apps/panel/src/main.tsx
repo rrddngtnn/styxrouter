@@ -4,6 +4,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { PreferencesProvider } from "./lib/preferences.tsx";
 import "@radix-ui/themes/styles.css";
 import "./main.css";
+import "./components/mobile-workspace.css";
 import { App } from "./App.tsx";
 import { Login } from "./pages/Login.tsx";
 import { Dashboard } from "./pages/Dashboard.tsx";

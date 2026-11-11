@@ -18,4 +18,13 @@
   .table-scroll-selection .table td:nth-child(2) { position: sticky; left: 44px; z-index: 1; background: var(--panel); }
   .table-scroll-selection .table th:nth-child(2) { z-index: 2; }
   .table-scroll-selection .table td:nth-child(2) > .table-identity { display: block; width: 120px; max-width: 120px; overflow-wrap: anywhere; white-space: normal; }
+  /* Reserve a readable identity and a separate action lane at narrow widths.
+     Scroll-into-view must account for the two pinned columns, not put a
+     button's centre underneath their opaque stacking contexts. */
+  .table-scroll-selection:has(.provider-account-actions) { --account-identity-width: clamp(80px, calc(100vw - 310px), 120px); }
+  .table-scroll-selection:has(.provider-account-actions) .table-scroll-region { scroll-padding-inline-start: calc(44px + var(--account-identity-width) + 28px); }
+  .table-scroll-selection:has(.provider-account-actions) .table td:nth-child(2) > .table-identity { width: var(--account-identity-width); max-width: var(--account-identity-width); }
+  .table-scroll-selection .table td.provider-account-actions { display: table-cell; width: 98px; min-width: 98px; box-sizing: border-box; }
+  .provider-account-actions > .row-actions { width: 70px; }
+  .provider-account-actions > .row-actions > button { width: 100%; white-space: normal; }
 }

@@ -8,6 +8,7 @@ import { useAction } from "../../lib/actions.tsx";
 import { when } from "../../lib/format.ts";
 import { useFetch } from "../../lib/useFetch.ts";
 import { usePreferences } from "../../lib/preferences.tsx";
+import {ReadFreshness} from "../OperationalUI";
 import { useTranslator } from "../../lib/useTranslator.ts";
 import {
   OutboundProxyConfigSection,
@@ -40,7 +41,7 @@ export function RoutingPoliciesPanel() {
   const state = useFetch<Record<string, unknown>>("/api/settings");
   if (state.status === "loading") return <LoadingState label={tr("Loading routing policies")} />;
   if (state.status === "error") return <p className="bad">{state.error.message}</p>;
-  return <RoutingPoliciesForm initial={state.data ?? {}} onSaved={state.reload} />;
+  return <><ReadFreshness state={state}/><RoutingPoliciesForm initial={state.data ?? {}} onSaved={state.reload} /></>;
 }
 
 export function RoutingPoliciesForm({
@@ -235,7 +236,7 @@ export function RoutingPoliciesForm({
                 </select>
               </label>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12, alignItems: "end" }}>
+            <div className="policy-numeric-fields">
               <label>
                 {t("Request retries (0–10)")}
                 <input type="number" min={0} max={10} value={requestRetry} onChange={(e) => setRequestRetry(Number(e.target.value))} />
@@ -278,11 +279,11 @@ export function RoutingPoliciesForm({
               </label>
               <label className="check">
                 <input type="checkbox" checked={false} disabled title="Excluded from publication candidate" />
-                <span>{tr("Enable stream recovery (transparent early retry)")}</span>
+                <span>{tr("Enable stream recovery (transparent early retry)")}<small className="disabled-reason">{tr("Unavailable in this build; remains disabled and is not saved.")}</small></span>
               </label>
               <label className="check">
                 <input type="checkbox" checked={false} disabled title="Excluded from publication candidate" />
-                <span>{tr("Continue mid-stream after unexpected disconnect")}</span>
+                <span>{tr("Continue mid-stream after unexpected disconnect")}<small className="disabled-reason">{tr("Unavailable in this build; remains disabled and is not saved.")}</small></span>
               </label>
               <label className="check">
                 <input type="checkbox" checked={watchdogEnabled} onChange={(e) => setWatchdogEnabled(e.target.checked)} />
@@ -328,15 +329,15 @@ export function RoutingPoliciesForm({
               </div>
             )}
             <div className="settings-alias-builder">
-              <input
+              <label>{tr("Alias pattern")}<input
                 type="text"
                 placeholder={tr("Pattern (e.g. gpt-4o*)")}
                 aria-label={tr("Alias pattern")}
                 value={newPattern}
                 onChange={(e) => setNewPattern(e.target.value)}
                 style={{ minWidth: 0 }}
-              />
-              <input
+              /></label>
+              <label>{tr("Alias target")}<input
                 type="text"
                 placeholder="provider/model"
                 aria-label={tr("Alias target")}
@@ -349,7 +350,7 @@ export function RoutingPoliciesForm({
                   }
                 }}
                 style={{ minWidth: 0 }}
-              />
+              /></label>
               <button
                 type="button"
                 className="btn-ghost"
@@ -442,6 +443,8 @@ export function RoutingDecisionTracePanel() {
         </div>
       </div>
 
+      <ReadFreshness state={trace} />
+      {trace.status === "error" && <p role="alert" className="bad">{trace.error.message}</p>}
       {trace.status === "loading" && <LoadingState label={tr("Loading routing decision trace")} />}
       {trace.status === "ok" && filtered.length === 0 && (
         <p className="muted" style={{ margin: 0 }}>{tr("No routing trace events recorded matching this filter.")}</p>
@@ -535,6 +538,7 @@ export function ModelDefaultsPanel() {
   });
 
   if (state.status === "loading") return <LoadingState label={tr("Loading AI & modality defaults")} />;
+  if (state.status === "error") return <ReadFreshness resource="AI defaults" state={state}/>;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -560,14 +564,14 @@ export function ModelDefaultsPanel() {
 
   return (
     <section className="settings-card">
-      <form className="stack-form" onSubmit={save}>
+      <ReadFreshness resource="AI defaults" state={state}/><form className="stack-form" onSubmit={save}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))", gap: 24, alignItems: "start" }}>
           <div style={{ display: "grid", gap: 14 }}>
             <h2 style={{ margin: 0 }}>{tr("Thinking Budget & Codex Service Tier")}</h2>
             <p className="muted" style={{ margin: 0, fontSize: 14 }}>
               {tr("Control how reasoning budgets and effort levels are normalized across Claude, Gemini Argon, GLM, and Codex.")}
             </p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12, alignItems: "end" }}>
+            <div className="policy-numeric-fields">
               <label>
                 {tr("Thinking mode")}
                 <select value={thinkingMode} onChange={(e) => setThinkingMode(e.target.value)}>
@@ -720,9 +724,10 @@ export function ProviderNetworkRulesPanel() {
     );
   }
 
+  if(state.status === "error")return <ReadFreshness resource="Provider error rules" state={state}/>;
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <OutboundProxyConfigSection />
+      <ReadFreshness resource="Provider error rules" state={state}/><OutboundProxyConfigSection />
 
       <section className="settings-card">
         <div className="section-head" style={{ marginBottom: 12 }}>

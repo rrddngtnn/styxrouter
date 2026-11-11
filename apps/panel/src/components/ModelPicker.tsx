@@ -1,5 +1,6 @@
 import { useTranslator } from "../lib/useTranslator.ts";
 import { useId, type KeyboardEventHandler } from "react";
+import {ReadFreshness} from "./OperationalUI";
 import { useFetch } from "../lib/useFetch.ts";
 import "./catalog-controls.css";
 
@@ -23,7 +24,7 @@ export function ModelPicker({ label, value, onChange, onKeyDown, catalog, disabl
     : options.length === 0 ? tr("No configured models. Enter a model ID manually.")
     : tr("Choose a catalog model or enter an ID manually.");
   return <div className="panel-model-picker">
-    <label htmlFor={id}>{tr(label)}</label>
+    {!catalog && <ReadFreshness resource="Model catalog" state={state}/>}<label htmlFor={id}>{tr(label)}</label>
     <input id={id} type="text" list={`${id}-options`} aria-describedby={`${id}-hint`}
       placeholder="provider/model-id" autoComplete="off" value={value} disabled={disabled}
       onChange={(event) => onChange(event.target.value)} onKeyDown={onKeyDown} />

@@ -40,6 +40,7 @@ export function BarChart({ data, format = (n: number) => String(n), height = 140
         );
       })}
     </svg>
+    <details className="chart-data-alternative"><summary>{t("View chart data")}</summary><table className="table"><caption>{t("Chart values")}</caption><thead><tr><th>{t("Label")}</th><th>{t("Value")}</th></tr></thead><tbody>{data.map((row,index)=><tr key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{format(row.value)}</td></tr>)}</tbody></table></details>
     {interactive && <p aria-live="polite" style={{ minHeight: "1.5em", margin: 0 }}>{active !== null && data[active] ? (data[active].title ?? `${data[active].label}: ${format(data[active].value)}`) : ""}</p>}
     </>
   );

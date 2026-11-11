@@ -1,0 +1,37 @@
+.login-gateway { min-height: 100svh; padding: 48px 24px; display: grid; align-items: center; background: var(--bg); color: var(--fg); }
+.login-layout { width: min(100%, 920px); margin-inline: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; }
+.login-identity { min-width: 0; }
+.login-identity .brand { padding: 0; justify-content: flex-start; }
+.login-identity .brand-lockup { width: 256px; }
+.login-console { margin: 20px 0 0; font-size: 16px; color: var(--fg-secondary); }
+.login-ribbon { width: min(100%, 320px); margin-top: 40px; }
+.login-form-panel { min-width: 0; padding: 32px; background: var(--panel); border: 1px solid var(--border-edge); border-radius: var(--radius-panel); }
+.login-form-panel h1 { margin: 0; font-size: 28px; line-height: 1.25; font-weight: 600; }
+.login-form-panel header p { margin: 12px 0 28px; line-height: 1.5; font-size: 16px; color: var(--fg-secondary); }
+.login-form-panel form { display: grid; gap: 12px; }
+.login-form-panel label { font-size: 14px; line-height: 1.5; font-weight: 500; }
+.login-password-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.login-gateway input { width: 100%; min-width: 0; min-height: 48px; padding: 10px 12px; border: 1px solid var(--border-control); border-radius: var(--radius-control); background: var(--panel); color: var(--fg); font: inherit; font-size: 16px; }
+.login-gateway button { min-height: 48px; padding: 10px 12px; border-radius: var(--radius-control); font: inherit; font-size: 16px; font-weight: 500; cursor: pointer; }
+.login-gateway .login-reveal { background: var(--panel); color: var(--fg); border: 1px solid var(--border-control); }
+.login-gateway .login-reveal:hover { background: var(--panel-2); }
+.login-gateway .login-submit { margin-top: 8px; width: 100%; border: 1px solid transparent; background: var(--accent); color: var(--on-primary); }
+.login-gateway .login-submit:hover:not(:disabled) { background: var(--accent-hover); }
+.login-gateway .login-submit:active:not(:disabled) { background: var(--accent-pressed); }
+.login-gateway .login-submit:disabled { background: var(--panel-2); color: var(--muted); border-color: var(--border-control); cursor: wait; }
+.login-gateway :is(input,button):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.login-gateway input[aria-invalid=true] { border-color: var(--bad); }
+.login-gateway .login-error { margin: 0; padding: 12px; border-radius: 8px; font-size: 14px; line-height: 1.5; color: var(--bad); background: var(--danger-bg); overflow-wrap: anywhere; }
+.login-caps { margin: 0; color: var(--warn); font-size: 14px; }
+@media (max-width: 700px) {
+ .login-gateway { padding: 24px 16px; align-items: start; }
+ .login-layout { max-width: 440px; grid-template-columns: minmax(0,1fr); gap: 28px; }
+ .login-identity { display: grid; grid-template-columns: minmax(0,1fr) 64px; column-gap: 16px; align-items: center; }
+ .login-identity .brand-lockup { width: 184px; }
+ .login-console { margin-top: 8px; font-size: 14px; }
+ .login-ribbon { grid-column: 2; grid-row: 1 / 3; margin: 0; width: 64px; }
+ .login-form-panel { padding: 24px 20px; }
+ .login-form-panel h1 { font-size: 24px; }
+}
+@media (max-height: 500px) and (min-width: 701px) { .login-gateway { padding-block: 24px; align-items: start; } .login-ribbon { margin-top: 16px; width: 200px; } }
+@media (forced-colors: active) { .login-form-panel { border-color: CanvasText; } .login-ribbon { display: none; } }

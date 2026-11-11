@@ -150,7 +150,7 @@ test("provider cards show only the selected pool, capped at eight account cards"
   expect(html).not.toContain("100%");
 });
 
-test("Codex quota card surfaces banked reset credits and Redeem reset trigger when callback is provided", () => {
+test("Codex quota card surfaces banked reset credits and inventory review trigger when callback is provided", () => {
   const codexRow: QuotaRow = { ...account("codex-1", "codex"), bankedResetCredits: 2 };
   const html = renderToStaticMarkup(
     <QuotaBrowser
@@ -165,5 +165,6 @@ test("Codex quota card surfaces banked reset credits and Redeem reset trigger wh
   );
   expect(html).toContain("Banked reset credits");
   expect(html).toContain("<strong>2</strong>");
-  expect(html).toContain("Redeem reset");
+  expect(html).toContain("Reset credits");
+  expect(html).not.toContain(">Redeem reset<");
 });

@@ -1,5 +1,10 @@
+import {useWorkspaceURL} from "../lib/workspace-url";
+import {ResourceInspector,ResourceRows,ResourceRow,useResourceInspection} from "../components/ResourceWorkspace";
+import {ReadFreshness} from "../components/OperationalUI";
+import { useWorkspaceTabs } from "../lib/workspace-tabs.ts";
 import { useTranslator } from "../lib/useTranslator.ts";
-import { useState } from "react";
+import {useConfirmation} from "../components/ConfirmationDialog";
+import { useRef, useState } from "react";
 import { usePreferences } from "../lib/preferences.tsx";
 import { filterCombos, visibleSelectedIds } from "../lib/table-search.ts";
 import { Play, Plus } from "lucide-react";
@@ -68,11 +73,14 @@ interface DryRunSimulationResult {
 }
 
 export function Routing() {
+  const confirmation = useConfirmation();
+  const reviewLock = useRef(false);
   const tr = useTranslator();
   const {t} = usePreferences();
   const [search, setSearch] = useState("");
   const state = useFetch<{ combos?: ComboRow[] }>("/api/routing/combos");
   const rows = state.status === "ok" ? state.data.combos ?? [] : [];
+  const inspection=useResourceInspection(rows,row=>String(row.id));
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [models, setModels] = useState("");
@@ -80,28 +88,73 @@ export function Routing() {
   const [editing, setEditing] = useState<ComboRow | null>(null);
   const [dryRunResult, setDryRunResult] = useState<DryRunSimulationResult | null>(null);
   const [dryRunBusy, setDryRunBusy] = useState<string | null>(null);
-  const [workspaceTab, setWorkspaceTab] = useState<"combos" | "policies" | "trace">("combos");
+  const [workspaceTab, setWorkspaceTab] = useWorkspaceURL(["combos","policies","trace"] as const,"combos");
+  const workspaceTabs = useWorkspaceTabs(workspaceTab);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectionMode,setSelectionMode]=useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
-  const { busy, error, run } = useAction(state.reload);
+  const { busy, error, run, confirmationDialog } = useAction(state.reload);
   const locked = busy !== null || bulkBusy;
 
   const shown = filterCombos(rows, search);
   const selectedIds = visibleSelectedIds(shown, selected);
 
+  const comboActions=(r:ComboRow)=>{const i=rows.indexOf(r);return <div className="row-actions">                    <button type="button" className="btn-ghost" disabled={locked || rows.indexOf(r) === 0} onClick={() => move(i, -1)} aria-label={tr("Move up")}>
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      disabled={locked || rows.indexOf(r) === rows.length - 1}
+                      onClick={() => move(i, 1)}
+                      aria-label={tr("Move down")}
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      disabled={locked || dryRunBusy !== null || !r.name}
+                      onClick={() => r.name && void simulateCombo(r.name)}
+                    >
+                      <Play size={13} />
+                      <span>{dryRunBusy === r.name ? "…" : tr("Dry run")}</span>
+                    </button>
+                    <button type="button" className="btn-ghost" disabled={locked} onClick={() => setEditing(r)}>
+                      {t("Edit steps")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      disabled={locked}
+                      onClick={() => run(`toggle-${r.id}`, () => api.put(`/api/routing/combos/${r.id}`, { isActive: !r.enabled }))}
+                    >
+                      {r.enabled ? tr("Disable") : tr("Enable")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-danger"
+                      disabled={locked}
+                      onClick={async () => {
+                        const out = await run(`delete-${r.id}`, () => api.delete(`/api/routing/combos/${r.id}`), {title:tr("Delete routing combo?"),description:tr("Clients using this combo name will lose its fallback route."),resource:`${r.name ?? "Combo"} / ${r.id}`,action:tr("Delete"),danger:true});
+                        if (out) toast.success(`Deleted combo “${r.name}”`);
+                      }}
+                    >
+                      {t("Delete")}
+                    </button></div>;};
+
   async function bulkAction(action: "enable" | "disable" | "delete") {
-    if (locked || selectedIds.length === 0) return;
-    if (
-      action === "delete" &&
-      !window.confirm(`Delete ${selectedIds.length} selected combo${selectedIds.length === 1 ? "" : "s"} permanently?`)
-    ) {
-      return;
-    }
+    if (locked || reviewLock.current || selectedIds.length === 0) return;
+    const ids = [...selectedIds];
+    reviewLock.current = true;
+    const accepted = await confirmation.confirm({title:tr(action === "delete" ? "Delete selected combos?" : action === "disable" ? "Disable selected combos?" : "Enable selected combos?"),description:`${ids.length} selected routing combos. Only these IDs will change.`,resource:ids.map(id=>`${rows.find(r=>r.id===id)?.name ?? "Combo"} / ${id}`).join("\n"),action:tr(action === "delete" ? "Delete" : action === "disable" ? "Disable" : "Enable"),danger:true});
+    reviewLock.current = false;
+    if (!accepted) return;
     setBulkBusy(true);
     let ok = 0;
     let failed = 0;
     try {
-      for (const id of selectedIds) {
+      for (const id of ids) {
         try {
           if (action === "delete") await api.delete(`/api/routing/combos/${encodeURIComponent(id)}`);
           else await api.put(`/api/routing/combos/${encodeURIComponent(id)}`, { isActive: action === "enable" });
@@ -110,7 +163,7 @@ export function Routing() {
           failed += 1;
         }
       }
-      if (failed === 0) toast.success(`Bulk ${action}: ${ok}/${selectedIds.length} succeeded`);
+      if (failed === 0) toast.success(`Bulk ${action}: ${ok}/${ids.length} succeeded`);
       else toast.warning(`Bulk ${action}: ${ok} succeeded, ${failed} failed`);
       if (action === "delete") setSelected(new Set());
     } finally {
@@ -119,6 +172,10 @@ export function Routing() {
     }
   }
 
+  async function closeCreate() {
+    if ((name.trim() || models.trim() || addedModel) && !await confirmation.confirm({title:tr("Discard unsaved changes?"),description:tr("The unsaved routing combo draft will be lost."),resource:tr("New routing combo"),action:tr("Discard changes"),danger:true})) return;
+    setCreating(false); setName(""); setModels(""); setAddedModel("");
+  }
   async function create(e: React.FormEvent) {
     e.preventDefault();
     const list = models.split("\n").map((m) => m.trim()).filter(Boolean);
@@ -154,6 +211,8 @@ export function Routing() {
 
   return (
     <div className="page">
+      {confirmation.dialog}{confirmationDialog}
+      <ReadFreshness state={state} />
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
           <h1 style={{ marginBottom: 4 }}>{t("Routing Combos")}</h1>
@@ -167,10 +226,11 @@ export function Routing() {
         )}
       </div>
 
-      <div className="tabs" role="tablist" aria-label={tr("Routing workspace")}>
+      {inspection.mobile ? <label className="mobile-category-select">{tr("Routing workspace")}<select aria-label={tr("Routing workspace")} value={workspaceTab} onChange={e=>setWorkspaceTab(e.target.value as typeof workspaceTab)}><option value="combos">{tr("Combos")}</option><option value="policies">{tr("Failover & Aliases")}</option><option value="trace">{tr("Decision Trace")}</option></select></label> : <div className="tabs" role="tablist" onKeyDown={workspaceTabs.onKeyDown} aria-label={tr("Routing workspace")}>
         <button
           type="button"
           role="tab"
+          {...workspaceTabs.tabProps("combos")}
           aria-selected={workspaceTab === "combos"}
           className={workspaceTab === "combos" ? "tab active" : "tab"}
           onClick={() => setWorkspaceTab("combos")}
@@ -181,6 +241,7 @@ export function Routing() {
         <button
           type="button"
           role="tab"
+          {...workspaceTabs.tabProps("policies")}
           aria-selected={workspaceTab === "policies"}
           className={workspaceTab === "policies" ? "tab active" : "tab"}
           onClick={() => setWorkspaceTab("policies")}
@@ -190,14 +251,16 @@ export function Routing() {
         <button
           type="button"
           role="tab"
+          {...workspaceTabs.tabProps("trace")}
           aria-selected={workspaceTab === "trace"}
           className={workspaceTab === "trace" ? "tab active" : "tab"}
           onClick={() => setWorkspaceTab("trace")}
         >
           <span>{tr("Decision Trace")}</span>
         </button>
-      </div>
+      </div>}
 
+      <div {...workspaceTabs.panelProps}>
       {workspaceTab === "policies" && <RoutingPoliciesPanel />}
       {workspaceTab === "trace" && <RoutingDecisionTracePanel />}
       {workspaceTab === "combos" && (
@@ -205,14 +268,7 @@ export function Routing() {
 
       <Modal
         open={creating}
-        onOpenChange={(open) => {
-          setCreating(open);
-          if (!open) {
-            setName("");
-            setModels("");
-            setAddedModel("");
-          }
-        }}
+        onOpenChange={(open) => { if(open) setCreating(true); else void closeCreate(); }}
         title={tr("Create routing combo")}
         description={tr("Define a virtual model name and the ordered list of provider/model targets to try on fallback.")}
       >
@@ -255,14 +311,14 @@ export function Routing() {
             <button type="submit" className="btn-add" disabled={busy !== null || !name.trim() || !models.trim()}>
               {busy === "create" ? "…" : tr("Create combo")}
             </button>
-            <button type="button" className="btn-ghost" onClick={() => setCreating(false)}>
+            <button type="button" className="btn-ghost" onClick={closeCreate}>
               {t("Cancel")}
             </button>
           </div>
         </form>
       </Modal>
 
-      <Modal
+      <ResourceInspector
         open={editing !== null}
         onOpenChange={(open) => {
           if (!open) setEditing(null);
@@ -281,8 +337,9 @@ export function Routing() {
             onClose={() => setEditing(null)}
           />
         )}
-      </Modal>
+      </ResourceInspector>
 
+      {inspection.mobile && inspection.inspect ? <ResourceInspector open={editing===null} onOpenChange={open=>{if(!open)inspection.close();}} title={inspection.selected?.name??tr("Combo not found")}><dl className="account-facts">{inspection.selected&&<><dt>{tr("Strategy")}</dt><dd>{inspection.selected.strategy??"priority"}</dd><dt>{tr("Status")}</dt><dd>{inspection.selected.enabled?tr("enabled"):tr("disabled")}</dd><dt>{tr("Target models (one per line, in fallback order)")}</dt><dd><ol>{inspection.selected.models?.map((step,index)=><li key={index}>{stepLabel(step)}</li>)}</ol></dd></>}</dl>{inspection.selected&&comboActions(inspection.selected)}</ResourceInspector> : <>
       <div className="toolbar"><input type="search" aria-label={t("Search routing combos")} placeholder={t("Search routing combos")} value={search} onChange={e=>{setSearch(e.target.value);setSelected(new Set());}} />{search && <button type="button" className="btn-ghost" onClick={()=>{setSearch("");setSelected(new Set());}}>{t("Clear search")}</button>}<span className="muted" role="status">{shown.length} / {rows.length}</span></div>
       {state.status === "ok" && rows.length > 0 && shown.length === 0 && <EmptyState title={t("No matching combos")} />}
       {state.status === "loading" && <LoadingState label={tr("Loading routing combos")} />}
@@ -291,7 +348,8 @@ export function Routing() {
         action={<button type="button" className="btn-add" onClick={() => setCreating(true)}>{t("New combo")}</button>} />}
       {state.status === "ok" && shown.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <div className="section-head" style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+          {inspection.mobile && <button type="button" className="btn-ghost" onClick={()=>{setSelectionMode(value=>!value);setSelected(new Set());}}>{selectionMode?tr("Cancel selection"):tr("Select")}</button>}
+          {(!inspection.mobile || selectionMode) && <div className="section-head" style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
             <label className="check">
               <input
                 type="checkbox"
@@ -333,8 +391,8 @@ export function Routing() {
                 {t("Delete selected")}
               </button>
             </div>
-          </div>
-          <TableScroll label={t("Routing combos table")} stickySelection>
+          </div>}
+          {inspection.mobile ? <ResourceRows label={tr("Routing combos")}>{shown.map(r=><ResourceRow key={r.id} title={r.name??r.id} onOpen={()=>inspection.open(r)} summary={<>{r.enabled?tr("enabled"):tr("disabled")} · {r.strategy??"priority"}<p>{r.steps??r.models?.length??"—"} {tr("steps")}</p></>}>{selectionMode&&<label className="check"><input type="checkbox" aria-label={tr("Select {0}",{0:String(r.name??r.id)})} checked={selected.has(r.id)} disabled={locked} onChange={e=>setSelected(old=>{const next=new Set(old);if(e.target.checked)next.add(r.id);else next.delete(r.id);return next;})}/>{tr("Select")}</label>}</ResourceRow>)}</ResourceRows> : <TableScroll label={t("Routing combos table")} stickySelection>
           <table className="table">
             <thead>
               <tr>
@@ -347,7 +405,7 @@ export function Routing() {
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => { const i = rows.indexOf(r); return (
+              {shown.map((r) => { return (
                 <tr key={r.id}>
                   <td>
                     <input
@@ -379,58 +437,17 @@ export function Routing() {
                   </td>
                   <td className={r.enabled ? "ok" : "muted"}>{r.enabled ? tr("enabled") : tr("disabled")}</td>
                   <td className="row-actions">
-                    <button type="button" className="btn-ghost" disabled={locked || rows.indexOf(r) === 0} onClick={() => move(i, -1)} aria-label={tr("Move up")}>
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      disabled={locked || rows.indexOf(r) === rows.length - 1}
-                      onClick={() => move(i, 1)}
-                      aria-label={tr("Move down")}
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      disabled={locked || dryRunBusy !== null || !r.name}
-                      onClick={() => r.name && void simulateCombo(r.name)}
-                    >
-                      <Play size={13} />
-                      <span>{dryRunBusy === r.name ? "…" : tr("Dry run")}</span>
-                    </button>
-                    <button type="button" className="btn-ghost" disabled={locked} onClick={() => setEditing(r)}>
-                      {t("Edit steps")}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      disabled={locked}
-                      onClick={() => run(`toggle-${r.id}`, () => api.put(`/api/routing/combos/${r.id}`, { isActive: !r.enabled }))}
-                    >
-                      {r.enabled ? tr("Disable") : tr("Enable")}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-danger"
-                      disabled={locked}
-                      onClick={async () => {
-                        const out = await run(`delete-${r.id}`, () => api.delete(`/api/routing/combos/${r.id}`), `Delete combo “${r.name}”?`);
-                        if (out) toast.success(`Deleted combo “${r.name}”`);
-                      }}
-                    >
-                      {t("Delete")}
-                    </button>
+{comboActions(r)}
                   </td>
                 </tr>
               );})}
             </tbody>
           </table>
-          </TableScroll>
+          </TableScroll>}
         </div>
       )}
 
+      </>}
       <Modal
         open={dryRunResult !== null}
         onOpenChange={(open) => {
@@ -500,6 +517,7 @@ export function Routing() {
       </Modal>
         </>
       )}
+      </div>
     </div>
   );
 }

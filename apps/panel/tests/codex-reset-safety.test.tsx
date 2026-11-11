@@ -12,5 +12,5 @@ test("a fresh observation omitting reset credits does not resurrect an old count
 test("stale live reset count is labelled stale rather than actionable fresh inventory", () => {
   const html = render({ a: { data: { _stale: true, bankedResetCredits: 3 } } });
   expect(html).toContain("Banked reset credits");
-  expect(html).toContain("3</strong> (Stale)");
+  expect(html).toContain("3</strong> · Stale");
 });

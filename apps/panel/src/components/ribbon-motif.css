@@ -1,0 +1,5 @@
+/* Original geometry, not a modified supplied logo. Caller owns placement. */
+.styx-ribbon-motif { display: block; width: 100%; height: auto; pointer-events: none; user-select: none; overflow: hidden; }
+.styx-ribbon-motif path { stroke-width: 12; stroke-linecap: round; stroke-linejoin: round; }
+.styx-ribbon-motif .ribbon-base, .styx-ribbon-motif .ribbon-over { stroke: var(--border-divider); }
+.styx-ribbon-motif .ribbon-cross { stroke: var(--border-edge); }

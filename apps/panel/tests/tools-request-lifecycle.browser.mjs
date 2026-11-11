@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {known} from './redesign-api.fixture.mjs';
+const {chromium}=await import(process.env.PLAYWRIGHT_MODULE);const b=await chromium.launch({executablePath:process.env.CHROMIUM_PATH,args:['--no-sandbox']});
+try{const p=await b.newPage();let count=0,release;let hold=true;
+await p.route('**/*',async r=>{const u=new URL(r.request().url());if(u.hostname!=='127.0.0.1')return r.abort();if(!/^\/(api|v1)\//.test(u.pathname))return r.continue();if(r.request().method()!=='GET'){count++;if(hold)await new Promise(resolve=>release=resolve);try{return await r.fulfill({json:{choices:[{message:{content:'late synthetic-secret-sentinel'}}]}});}catch{return;}}return r.fulfill({json:known[u.pathname]??{}});});
+await p.goto('http://127.0.0.1:5198/panel/tools');await p.locator('.tools-client-choice').waitFor();await p.locator('input[type=password]').fill('synthetic-secret-sentinel');
+await p.locator('.tools-request-test > button').first().click();await p.locator('.styx-confirmation').getByRole('button',{name:'Send request',exact:true}).click();await p.waitForTimeout(150);assert.equal(count,1,'same-task guard');
+await p.locator('.tools-request-test > button').nth(1).click();release();await p.waitForTimeout(100);assert.equal(await p.locator('.tools-probe-reply').count(),0,'late cancelled response ignored');
+await p.locator('.tools-request-test > button').first().click();await p.locator('.styx-confirmation').getByRole('button',{name:'Send request',exact:true}).click();await p.waitForTimeout(100);assert.equal(count,2);await p.getByLabel('Target model',{exact:true}).fill('openai/other');release();await p.waitForTimeout(100);assert.equal(await p.locator('.tools-probe-reply').count(),0,'changed identity invalidates result');
+hold=false;await p.locator('.tools-request-test > button').first().click();await p.locator('.styx-confirmation').getByRole('button',{name:'Send request',exact:true}).click();await p.locator('.tools-probe-reply').waitFor();assert.match(await p.locator('.tools-probe-reply').innerText(),/REDACTED/);assert.equal(count,3);await p.waitForTimeout(150);assert.equal(count,3,'no automatic retry');console.log('PASS duplicate guard, explicit cancel, late response, input identity, secret echo redaction, no automatic retry; 3 synthetic requests');
+}finally{await b.close();}

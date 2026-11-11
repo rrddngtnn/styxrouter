@@ -1,4 +1,8 @@
-import { useState } from "react";
+import {useConfirmation} from "../ConfirmationDialog";
+import {applyEmergencyActivation} from "../../lib/emergency-activation";
+import {useMobile} from "../../lib/use-mobile";
+import {ReadFreshness, StatusBadge} from "../OperationalUI";
+import { useRef, useState } from "react";
 import { RefreshCw, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../../lib/api.ts";
@@ -105,6 +109,7 @@ interface VersionRowProps {
 }
 
 function VersionDriftRow({ title, subtitle, status, busy, onPin, onRefresh }: VersionRowProps) {
+  const mobile=useMobile();
   const tr = useTranslator();
   const [draft, setDraft] = useState(status?.pinnedVersion ?? "");
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -121,7 +126,9 @@ function VersionDriftRow({ title, subtitle, status, busy, onPin, onRefresh }: Ve
   };
 
   return (
-    <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+    <details className="cli-version-section" open={!mobile || undefined}>
+      <summary><strong>{title}</strong> · {status?.pinnedVersion ?? tr("Auto (unpinned)")}</summary>
+    <div className="cli-version-body">
       <div className="section-head" style={{ marginBottom: 10 }}>
         <div>
           <strong style={{ fontSize: 15 }}>{title}</strong>
@@ -158,7 +165,7 @@ function VersionDriftRow({ title, subtitle, status, busy, onPin, onRefresh }: Ve
       </div>
 
       <form onSubmit={handleSavePin} className="row-actions" style={{ flexWrap: "wrap", gap: 8 }}>
-        <input
+        <label className="cli-pin-field"><span>{tr("Pinned version")} (x.y.z)</span><input
           type="text"
           aria-label={`${title} ${tr("Pinned version")}`}
           placeholder={tr("Pinned version (x.y.z)")}
@@ -168,7 +175,7 @@ function VersionDriftRow({ title, subtitle, status, busy, onPin, onRefresh }: Ve
             if (validationError) setValidationError(null);
           }}
           style={{ maxWidth: 220 }}
-        />
+        /></label>
         <button type="submit" className="btn-add" disabled={busy || !draft.trim()}>
           <span>{tr("Pin version")}</span>
         </button>
@@ -188,7 +195,7 @@ function VersionDriftRow({ title, subtitle, status, busy, onPin, onRefresh }: Ve
         )}
       </form>
       {validationError && <p className="bad" style={{ marginTop: 8, marginBottom: 0 }}>{validationError}</p>}
-    </div>
+    </div></details>
   );
 }
 
@@ -440,6 +447,7 @@ export function HealthAndVersionsView({
 }
 
 export function HealthAndVersionsSettings() {
+  const tr=useTranslator();
   const zcode = useFetch<VersionStatus>("/api/versions/zcode/status");
   const agIde = useFetch<VersionStatus>("/api/versions/antigravity/ide/status");
   const agCli = useFetch<VersionStatus>("/api/versions/antigravity/cli/status");
@@ -555,7 +563,11 @@ export function HealthAndVersionsSettings() {
     }
   }
 
+  const readers = [['ZCode CLI',zcode],['Antigravity IDE',agIde],['Antigravity CLI',agCli],['Process start',start],['Peak memory',peak],['CPU',cpu],['Threads',threads],['Token scheduler',sched],['Dispatch health',dispatch],['Routing trace',trace],['Storage',storage],['Vacuum',vacuum]] as const;
   return (
+    <>
+    {readers.some(([,reader])=>reader.stale) && <StatusBadge state="stale">{tr("Cached health — refresh failed.")}</StatusBadge>}
+    {readers.map(([resource,reader])=><ReadFreshness key={resource} resource={resource} state={reader}/>)}
     <HealthAndVersionsView
       zcode={zcode.status === "ok" ? zcode.data : null}
       antigravityIde={agIde.status === "ok" ? agIde.data : null}
@@ -585,6 +597,7 @@ export function HealthAndVersionsSettings() {
       onRunTokenHealthPass={runTokenHealthPassNow}
       onReloadAll={reloadAll}
     />
+    </>
   );
 }
 
@@ -841,14 +854,14 @@ export function WebhookAlertsSection() {
   }
 
   return (
-    <WebhookAlertsCard
+    <><ReadFreshness resource="Webhook subscriptions" state={state}/><WebhookAlertsCard
       webhooks={rows}
       busy={busy}
       onCreate={create}
       onToggle={toggle}
       onTest={testPing}
       onDelete={remove}
-    />
+    /></>
   );
 }
 
@@ -913,7 +926,7 @@ export function OutboundProxyConfigSection() {
     <section className="settings-card">
       <div className="section-head" style={{ marginBottom: 12 }}>
         <div>
-          <h2 style={{ marginBottom: 4 }}>{tr("Outbound Egress Proxy Binding")}</h2>
+          <h2 style={{ marginBottom: 4 }}>{tr("Outbound Egress Proxy Binding")}</h2><ReadFreshness resource="Outbound proxies" state={state}/>
           <p className="muted" style={{ margin: 0 }}>
             {tr("Assign HTTP/HTTPS/SOCKS5 egress proxies globally, per provider, or per account ID to isolate upstream traffic IPs.")}
           </p>
@@ -1077,7 +1090,7 @@ export function EmergencyDispatchPauseCard({
               disabled={busy}
               onClick={onResumeAll}
             >
-              <span>{tr("Re-enable all accounts")}</span>
+              <span>{tr("Enable all inactive accounts")}</span>
             </button>
           )}
         </div>
@@ -1086,6 +1099,7 @@ export function EmergencyDispatchPauseCard({
           <p style={{ margin: "0 0 10px 0", fontSize: 14 }}>
             {tr("Confirm deactivating all")} <strong>{activeCount}</strong> {tr("active accounts? Outbound dispatch will stop until accounts are re-enabled.")}
           </p>
+          <p>Confirmed scope: {activeCount} active account IDs, {Math.ceil(activeCount / 100)} sequential batch(es), maximum 100 IDs per request. No inactive accounts will be enabled.</p>
           <div className="row-actions" style={{ gap: 8 }}>
             <button type="button" className="btn-danger" disabled={busy} onClick={onConfirmPause}>
               <span>{busy ? "…" : tr("Confirm disable all")}</span>
@@ -1101,52 +1115,74 @@ export function EmergencyDispatchPauseCard({
 }
 
 export function EmergencyDispatchPauseSection() {
+  const confirmation=useConfirmation();
+  const tr = useTranslator();
+  const operationBusy = useRef(false);
+  const pauseSnapshot = useRef<string[]>([]);
   const conns = useFetch<{ connections?: { id: string; isActive: boolean }[] }>("/api/connections");
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [needsReview, setNeedsReview] = useState(false);
   const rows = conns.status === "ok" ? conns.data.connections ?? [] : [];
   const activeIds = rows.filter((r) => r.isActive).map((r) => r.id);
   const inactiveIds = rows.filter((r) => !r.isActive).map((r) => r.id);
 
   async function pauseAll() {
-    if (!activeIds.length) return;
+    if (operationBusy.current || needsReview || conns.status !== "ok" || conns.stale || !pauseSnapshot.current.length) return;
+    const ids = [...pauseSnapshot.current];
+    operationBusy.current=true;
     setBusy(true);
     try {
-      await api.post("/api/connections/bulk-active", { ids: activeIds, isActive: false });
-      toast.success(`Deactivated ${activeIds.length} account(s)`);
+      const result = await applyEmergencyActivation(ids, false);
+      if (result.failed || result.unknown) toast.error(`Deactivated ${result.succeeded} of ${result.total} account(s); ${result.failed} failed; ${result.unknown} unknown.`);
+      else toast.success(`Deactivated ${result.succeeded} account(s)`);
+      setNeedsReview(true);
       setConfirming(false);
-      conns.reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
+      operationBusy.current=false;
       setBusy(false);
     }
   }
 
   async function resumeAll() {
-    if (!inactiveIds.length) return;
+    if (operationBusy.current || needsReview || conns.status !== "ok" || conns.stale || !inactiveIds.length) return;
+    const ids = [...inactiveIds];
+    operationBusy.current=true;
+    const accepted=await confirmation.confirm({title:tr("Enable all inactive accounts?"),description:tr("Enable ALL {0} inactive accounts, including intentionally disabled accounts? This is not limited to accounts disabled by emergency pause.", {0:ids.length})+` ${Math.ceil(ids.length/100)} sequential batch(es), maximum 100 IDs per request. Only this confirmed snapshot will be changed; unknown outcomes stop remaining batches and are never retried.`,resource:ids.join("\n"),action:tr("Enable all inactive accounts"),danger:true});
+    if(!accepted){operationBusy.current=false;return;}
+    operationBusy.current=true;
     setBusy(true);
     try {
-      await api.post("/api/connections/bulk-active", { ids: inactiveIds, isActive: true });
-      toast.success(`Re-enabled ${inactiveIds.length} account(s)`);
-      conns.reload();
+      const result = await applyEmergencyActivation(ids, true);
+      if (result.failed || result.unknown) toast.error(`Enabled ${result.succeeded} of ${result.total} account(s); ${result.failed} failed; ${result.unknown} unknown.`);
+      else toast.success(`Enabled ${result.succeeded} account(s)`);
+      setNeedsReview(true);
+      setConfirming(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
+      operationBusy.current=false;
       setBusy(false);
     }
   }
 
   return (
-    <EmergencyDispatchPauseCard
+    <>{confirmation.dialog}<ReadFreshness resource="Provider accounts" state={conns}/><EmergencyDispatchPauseCard
       totalCount={rows.length}
-      activeCount={activeIds.length}
+      activeCount={confirming ? pauseSnapshot.current.length : activeIds.length}
       confirming={confirming}
-      busy={busy}
-      onRequestPause={() => setConfirming(true)}
+      busy={busy || needsReview || conns.status !== "ok" || conns.stale}
+      onRequestPause={async () => {
+        if(operationBusy.current || needsReview || conns.status!=="ok" || conns.stale || !activeIds.length)return;
+        const ids=[...activeIds];operationBusy.current=true;
+        const accepted=await confirmation.confirm({title:tr("Disable all active accounts?"),description:`${ids.length} active account IDs, ${Math.ceil(ids.length/100)} sequential batch(es), maximum 100 IDs per request. Outbound dispatch stops. No inactive accounts will be enabled. Unknown outcomes stop remaining batches and are never retried.`,resource:ids.join("\n"),action:tr("Confirm disable all"),danger:true});
+        operationBusy.current=false;if(!accepted)return;pauseSnapshot.current=ids;await pauseAll();
+      }}
       onConfirmPause={pauseAll}
       onCancelPause={() => setConfirming(false)}
       onResumeAll={resumeAll}
-    />
+    />{needsReview && <p role="status">Review account state before another emergency operation. No automatic refresh or retry was performed; unknown outcomes may include changes already applied.</p>}</>
   );
 }

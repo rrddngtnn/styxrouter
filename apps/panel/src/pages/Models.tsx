@@ -1,7 +1,15 @@
+import {useBlocker} from "react-router-dom";
+import {useFilterLabels} from "../components/ProgressiveFilters";
+import {ProgressiveFilters,InspectionFallback} from "../components/ProgressiveFilters";
+import {useFilterQuery,pageValues,pageSizes} from "../lib/filter-query";
+import {ResourceInspector,ResourceRows,ResourceRow,useResourceInspection} from "../components/ResourceWorkspace";
+import {useWorkspaceURL} from "../lib/workspace-url";
+import { useWorkspaceTabs } from "../lib/workspace-tabs.ts";
 import { useTranslator } from "../lib/useTranslator.ts";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePreferences } from "../lib/preferences.tsx";
 import "./models.css";
+import "./model-capabilities.css";
 import { SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState, LoadingState } from "../components/PageStates.tsx";
@@ -10,6 +18,7 @@ import { Pagination } from "../components/Pagination.tsx";
 import { ModelDefaultsPanel } from "../components/settings/RoutingPoliciesPanel.tsx";
 import { api } from "../lib/api.ts";
 import { Modal } from "../lib/actions.tsx";
+import { useConfirmation } from "../components/ConfirmationDialog";
 import { paginationState } from "../lib/pagination.ts";
 
 type Capability = "supportsThinking" | "supportsVision" | "supportsTools";
@@ -127,22 +136,35 @@ export function ModelEditor({
   model,
   onSaved,
   onClose,
+  onDirtyChange,
 }: {
   model: ModelMetadata;
-  onSaved: (model: ModelMetadata) => void;
+  onSaved: (model: ModelMetadata) => void | Promise<void>;
   onClose?: () => void;
+  onDirtyChange?: (dirty:boolean)=>void;
 }) {
   const tr = useTranslator();
   const [context, setContext] = useState(String(model.overrides.contextWindow ?? model.contextWindow));
   const [values, setValues] = useState(model.overrides);
   const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
+  const confirmation=useConfirmation();
+  const closing=useRef(false);
+  const labels=useFilterLabels();
+  const initial=useRef({context:String(model.overrides.contextWindow??model.contextWindow),values:JSON.stringify(model.overrides)});
+  const dirty=context!==initial.current.context||JSON.stringify(values)!==initial.current.values;
+  useEffect(()=>{onDirtyChange?.(dirty&&!busy);return()=>onDirtyChange?.(false);},[dirty,busy,onDirtyChange]);
+  useEffect(()=>{if(!dirty)return;const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue="";};window.addEventListener("beforeunload",warn);return()=>window.removeEventListener("beforeunload",warn);},[dirty]);
+  const close=async()=>{if(closing.current)return;closing.current=true;try{if(onDirtyChange||!dirty||await confirmation.confirm({title:labels.discard,description:labels.discard,resource:`${model.provider}/${model.modelId}`,action:tr("Discard changes"),danger:true}))onClose?.();}finally{closing.current=false;}};
   const [message, setMessage] = useState("");
   async function save() {
+    if (saving.current) return;
     const tokens = context === "" ? null : Number(context);
     if (tokens !== null && (!Number.isSafeInteger(tokens) || tokens <= 0)) {
       setMessage("Enter a positive whole token count, or leave blank for automatic.");
       return;
     }
+    saving.current = true;
     setBusy(true);
     setMessage("");
     try {
@@ -152,8 +174,9 @@ export function ModelEditor({
         contextWindow: tokens,
         ...Object.fromEntries(capabilities.map(([key]) => [key, values[key]])),
       });
+      initial.current={context,values:JSON.stringify(result.model.overrides)};
       setValues(result.model.overrides);
-      onSaved(result.model);
+      await onSaved(result.model);
       setMessage("Saved. Runtime and catalog capabilities updated.");
       toast.success(`Updated metadata for ${model.provider}/${model.modelId}`);
       onClose?.();
@@ -162,12 +185,13 @@ export function ModelEditor({
       setMessage(msg);
       toast.error(msg);
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   }
   return (
     <form
-      className="model-editor stack-form"
+      className="model-editor stack-form" data-dirty={dirty}
       style={{ maxWidth: "100%" }}
       onSubmit={(event) => {
         event.preventDefault();
@@ -179,6 +203,7 @@ export function ModelEditor({
           {model.provider}/{model.modelId}
         </code>
       </h2>
+      <fieldset className="capability-context"><legend>{tr("Context")}</legend>
       <label>{tr("Context window (tokens)")}<input
           type="number"
           min="1"
@@ -193,10 +218,12 @@ export function ModelEditor({
         <button type="button" className="btn-ghost" onClick={() => setContext("256000")}>{tr("GPT 256K")}</button>
         <button type="button" className="btn-ghost" onClick={() => setContext("")}>{tr("Automatic context")}</button>
       </div>
-      <p className="muted" style={{ margin: "2px 0 6px" }}>{tr("Effective context:")}{model.contextWindow.toLocaleString()}{tr("tokens. Blank clears the manual override. Unknown contexts default to 1M for all models and providers.")}</p>
+      <p className="muted capability-context-help">{tr("Effective context:")} {model.contextWindow.toLocaleString()} {tr("tokens. Blank clears the manual override. Unknown contexts default to 1M for all models and providers.")}</p>
+      </fieldset>
+      <fieldset className="capability-flags"><legend>{tr("Capabilities")}</legend>
       {capabilities.map(([key, label]) => (
         <label key={key}>
-          {label}
+          {tr(label)}
           <select
             value={values[key] === null ? "auto" : String(values[key])}
             onChange={(event) =>
@@ -206,60 +233,76 @@ export function ModelEditor({
               }))
             }
           >
-            <option value="auto">Automatic ({model[key] ? tr("enabled") : tr("disabled")})</option>
+            <option value="auto">{tr("Automatic")} ({model[key] ? tr("enabled") : tr("disabled")})</option>
             <option value="true">{tr("Enabled")}</option>
             <option value="false">{tr("Disabled")}</option>
           </select>
         </label>
       ))}
-      <div className="row-actions" style={{ marginTop: 8 }}>
+      </fieldset>
+      <div className="row-actions capability-editor-actions">
         <button type="submit" className="btn-add" disabled={busy}>
           {busy ? tr("Saving…") : tr("Save")}
         </button>
         {onClose && (
-          <button type="button" className="btn-ghost" onClick={onClose}>{tr("Cancel")}</button>
+          <button type="button" className="btn-ghost" onClick={close}>{tr("Cancel")}</button>
         )}
       </div>
       {message && <p role="status">{message}</p>}
+      {confirmation.dialog}
     </form>
   );
 }
 
 export function Models() {
   const tr = useTranslator();
+  const labels=useFilterLabels();
+  const [editorDirty,setEditorDirty]=useState(false);
+  const editorDirtyRef=useRef(false);
+  const updateEditorDirty=useCallback((dirty:boolean)=>{editorDirtyRef.current=dirty;setEditorDirty(dirty);},[]);
+  const confirmation=useConfirmation();
+  const reviewing=useRef(false);
+  const blocker=useBlocker(editorDirty);
+  useEffect(()=>{if(blocker.state!=="blocked"||reviewing.current)return;reviewing.current=true;void confirmation.confirm({title:labels.discard,description:labels.discard,resource:"/panel/models",action:tr("Discard changes"),danger:true}).then(accepted=>{if(accepted)blocker.proceed();else blocker.reset();}).finally(()=>{reviewing.current=false;});},[blocker,labels.discard]);
   const { language } = usePreferences();
   const railRef = useRef<HTMLElement>(null);
   const [railOverflow, setRailOverflow] = useState(false);
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
+  const inspection=useResourceInspection(catalog,row=>`${row.providerId??row.owned_by}/${row.id}/${row.type??"chat"}`);
   const [catalogLoading, setCatalogLoading] = useState(true);
-  const [inventoryMode, setInventoryMode] = useState(false);
-  const [filter, setFilter] = useState("");
-  const [providerFilter, setProviderFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [capabilityFilter, setCapabilityFilter] = useState("all");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [providerNames, setProviderNames] = useState<Record<string, string>>({});
+  const query=useFilterQuery({inventory:["false","true"],provider:["all",...new Set(catalog.map(r=>catalogProviderIdentity(r,new Set(Object.keys(providerNames)))))],type:["all",...new Set(catalog.map(r=>r.type??"chat"))],capability:["all","Reasoning","Vision","Tools"],page:pageValues,size:pageSizes},{inventory:"false",provider:"all",type:"all",capability:"all",page:"1",size:"20"});
+  const inventoryMode=query.values.inventory==="true";const setInventoryMode=(v:boolean)=>query.commit({inventory:String(v),provider:"all",page:"1"});
+  const [filter, setFilter] = useState("");
+  const providerFilter=query.values.provider,typeFilter=query.values.type,capabilityFilter=query.values.capability;
+  const setProviderFilter=(v:string)=>query.commit({provider:v,page:"1"});const setTypeFilter=(v:string)=>query.commit({type:v,page:"1"});const setCapabilityFilter=(v:string)=>query.commit({capability:v,page:"1"});
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [nodeIds, setNodeIds] = useState<Record<string, string> | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const page=Number(query.values.page),pageSize=Number(query.values.size);const setPage=(n:number)=>query.commit({page:String(n)});const setPageSize=(n:number)=>query.commit({size:String(n),page:"1"});
   const [customOpen, setCustomOpen] = useState(false);
   const [provider, setProvider] = useState("");
   const [modelId, setModelId] = useState("");
   const [model, setModel] = useState<ModelMetadata | null>(null);
+  const modelGeneration=useRef(0);
+  const [modelInspection, setModelInspection] = useState<string | null>(null);
+  useEffect(()=>{if(inspection.mobile){modelGeneration.current++;setModel(null);setLoading(false);setError("");}},[inspection.inspect,inspection.mobile]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [workspaceTab, setWorkspaceTab] = useState<"catalog" | "defaults">("catalog");
+  const [workspaceTab, setWorkspaceTab] = useWorkspaceURL(["catalog","defaults"] as const,"catalog");
+  const workspaceTabs = useWorkspaceTabs(workspaceTab);
 
+  const catalogGeneration=useRef(0);
   function loadCatalog() {
+    const generation=++catalogGeneration.current;
     setCatalogLoading(true);
-    api
+    return api
       .get<{ data: CatalogModel[] }>(inventoryMode ? "/api/admin/provider-catalog" : "/v1/models?configuredOnly=true&prefix=canonical")
-      .then((result) => setCatalog(result.data.filter((row) => row.owned_by !== "combo")))
-      .catch((err) => setError(String(err)))
-      .finally(() => setCatalogLoading(false));
+      .then((result) => {if(generation===catalogGeneration.current)setCatalog(result.data.filter((row) => row.owned_by !== "combo"));})
+      .catch((err) => {if(generation===catalogGeneration.current)setError(String(err));})
+      .finally(() => {if(generation===catalogGeneration.current)setCatalogLoading(false);});
   }
 
-  useEffect(() => { loadCatalog(); }, [inventoryMode]);
+  useEffect(() => { loadCatalog();return()=>{++catalogGeneration.current;}; }, [inventoryMode]);
 
   useEffect(() => {
     Promise.all([
@@ -281,6 +324,8 @@ export function Models() {
   }, []);
 
   async function openModel(prov: string, id: string) {
+    const generation=++modelGeneration.current;
+    setModel(null);
     setProvider(prov);
     setModelId(id);
     setLoading(true);
@@ -289,14 +334,16 @@ export function Models() {
       const result = await api.get<{ model: ModelMetadata }>(
         `/api/model-metadata?${new URLSearchParams({ provider: prov, modelId: id })}`,
       );
-      setCustomOpen(false);
-      setModel(result.model);
+      if(generation===modelGeneration.current){
+        setCustomOpen(false);
+        setModelInspection(inspection.inspect);
+        setModel(result.model);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
-      toast.error(msg);
+      if(generation===modelGeneration.current){setError(msg);toast.error(msg);}
     } finally {
-      setLoading(false);
+      if(generation===modelGeneration.current)setLoading(false);
     }
   }
 
@@ -307,6 +354,19 @@ export function Models() {
     [catalog, knownProviders],
   );
 
+  const selectedRow = inspection.selected;
+  const selectedProvider = selectedRow && nodeIds !== null ? (selectedRow.providerId ? catalogMetadataIdentity(selectedRow).provider : (nodeIds[identity(selectedRow)] || identity(selectedRow))) : null;
+  const selectedModelId = selectedRow ? (selectedRow.providerId ? catalogMetadataIdentity(selectedRow).modelId : modelIdForCatalogRow(selectedRow, identity(selectedRow))) : null;
+  useEffect(()=>{if(!inspection.mobile||selectedProvider===null||selectedModelId===null)return;void openModel(selectedProvider,selectedModelId);},[inspection.mobile,inspection.inspect,selectedProvider,selectedModelId]);
+  const ownedModel = inspection.mobile && inspection.inspect && modelInspection !== inspection.inspect ? null : model;
+  async function closeEditor() {
+    if(inspection.mobile&&inspection.inspect){inspection.close();return;}
+    if(reviewing.current)return;
+    const target=model;
+    if(!editorDirtyRef.current){setModel(null);return;}
+    reviewing.current=true;
+    try {if(await confirmation.confirm({title:labels.discard,description:labels.discard,resource:target?`${target.provider}/${target.modelId}`:"/panel/models",action:tr("Discard changes"),danger:true}))setModel(current=>current===target?null:current);}finally{reviewing.current=false;}
+  }
   const rowType = (row: CatalogModel) => row.type || (inventoryMode ? "unknown" : "chat");
   const matching = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -331,11 +391,18 @@ export function Models() {
   const filtered = matching.filter((r) => providerFilter === "all" || identity(r) === providerFilter);
   const types = [...new Set(catalog.map(rowType))].sort();
   const groups = useMemo(() => groupCatalogModels(catalog, filtered, identity), [catalog, filtered, knownProviders]);
+  const modelUnit = tr(filtered.length === 1 ? "model" : "models");
+  // Pagination slices families, while the toolbar counts individual model rows.
+  const groupedModels = groups.some(group => group.rows.length > 1);
+  const pageEntity = groupedModels
+    ? (language === "id" ? "keluarga model" : groups.length === 1 ? "model family" : "model families")
+    : modelUnit;
   const pg = paginationState(groups.length, pageSize, page);
+  useEffect(()=>{if(!catalogLoading&&page!==pg.page)query.commit({page:String(pg.page)},true);},[page,pg.page,!catalogLoading]);
   const pageGroups = groups.slice(Math.max(0, pg.start - 1), pg.end);
 
   return (
-    <section className="page">
+    <section className={`page r6-models ${inspection.mobile&&inspection.inspect?"r6-detail-page":""}`}>
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
           <h1 style={{ marginBottom: 4 }}>{tr("Model Capabilities")}</h1>
@@ -349,10 +416,11 @@ export function Models() {
         )}
       </div>
 
-      <div className="tabs" role="tablist" aria-label={tr("Models workspace")}>
+      {inspection.mobile ? <label className="mobile-category-select">{tr("Models workspace")}<select aria-label={tr("Models workspace")} value={workspaceTab} onChange={e=>setWorkspaceTab(e.target.value as typeof workspaceTab)}><option value="catalog">{tr("Catalog Inspector")}</option><option value="defaults">{tr("Thinking & Modality Defaults")}</option></select></label> : <div className="tabs" role="tablist" onKeyDown={workspaceTabs.onKeyDown} aria-label={tr("Models workspace")}>
         <button
           type="button"
           role="tab"
+          {...workspaceTabs.tabProps("catalog")}
           aria-selected={workspaceTab === "catalog"}
           className={workspaceTab === "catalog" ? "tab active" : "tab"}
           onClick={() => setWorkspaceTab("catalog")}
@@ -363,31 +431,33 @@ export function Models() {
         <button
           type="button"
           role="tab"
+          {...workspaceTabs.tabProps("defaults")}
           aria-selected={workspaceTab === "defaults"}
           className={workspaceTab === "defaults" ? "tab active" : "tab"}
           onClick={() => setWorkspaceTab("defaults")}
         >
           <span>{tr("Thinking & Modality Defaults")}</span>
         </button>
-      </div>
+      </div>}
 
+      <div {...workspaceTabs.panelProps} hidden={inspection.mobile && !!inspection.inspect}>
       {workspaceTab === "defaults" && <ModelDefaultsPanel />}
       {workspaceTab === "catalog" && (
         <>
 
-      <label className="model-inventory-toggle"><input type="checkbox" checked={inventoryMode} onChange={(e) => { setInventoryMode(e.target.checked); setProviderFilter("all"); setPage(1); }} /> {tr("Show provider inventory (partial; not the served catalog)")}</label>
+      {!inspection.mobile && <label className="model-inventory-toggle"><input type="checkbox" checked={inventoryMode} onChange={(e) => { setInventoryMode(e.target.checked); }} /> {language==="id"?"Tampilkan inventaris penyedia (sebagian; bukan katalog layanan)":tr("Show provider inventory (partial; not the served catalog)")}</label>}
       {inventoryMode && <p className="muted">{tr("Registry, stored sync and custom models, unambiguous alias targets, and selected generated effort variants. This partial inventory may include inactive or unavailable models and omits other catalog sources.")}</p>}
       <div className="model-inspector-layout">
       <div className="model-category-wrap">
       {railOverflow && <p className="model-rail-hint">{language === "id" ? "Geser penyedia ke samping ↔" : "Scroll providers horizontally ↔"}</p>}
       <nav ref={railRef} className="model-category-rail" aria-label={tr("Model providers")}>
-        {["all", ...providers].map((p) => <button key={p} type="button" className="btn-ghost" aria-pressed={providerFilter === p} onClick={() => { setProviderFilter(p); setPage(1); }}>
+        {["all", ...providers].map((p) => <button key={p} type="button" className="btn-ghost" aria-pressed={providerFilter === p} onClick={() => { setProviderFilter(p); }}>
           {p === "all" ? tr("All") : providerNames[p] || p} ({p === "all" ? matching.length : matching.filter((r) => identity(r) === p).length})
         </button>)}
       </nav>
       </div>
       <div style={{ minWidth: 0 }}>
-      <div className="toolbar">
+      {inspection.mobile ? <div className="toolbar"><input type="search" aria-label={tr("Search models")} placeholder={tr("Search models")} value={filter} onChange={e=>{setFilter(e.target.value);setPage(1);}}/><ProgressiveFilters value={{provider:providerFilter,type:typeFilter,capability:capabilityFilter,inventory:String(inventoryMode)}} defaults={{provider:"all",type:"all",capability:"all",inventory:"false"}} onApply={v=>query.commit({...v,page:"1"})}>{(draft,setDraft)=><><label>{tr("Filter by provider")}<select aria-label={tr("Filter by provider")} value={draft.provider} onChange={e=>setDraft({...draft,provider:e.target.value})}><option value="all">{tr("All")}</option>{providers.map(p=><option key={p} value={p}>{providerNames[p]||p}</option>)}</select></label><label>{language==="id"?"Filter menurut tipe":tr("Filter by type")}<select aria-label={language==="id"?"Filter menurut tipe":tr("Filter by type")} value={draft.type} onChange={e=>setDraft({...draft,type:e.target.value})}><option value="all">{language==="id"?"Semua tipe":tr("All types")}</option>{types.map(t=><option key={t}>{t}</option>)}</select></label><label>{language==="id"?"Filter menurut kapabilitas":tr("Filter by capability")}<select aria-label={language==="id"?"Filter menurut kapabilitas":tr("Filter by capability")} value={draft.capability} onChange={e=>setDraft({...draft,capability:e.target.value})}><option value="all">{language==="id"?"Semua kapabilitas":tr("All capabilities")}</option>{capabilities.map(([,label])=><option key={label} value={label}>{tr(label)}</option>)}</select></label><label><input type="checkbox" checked={draft.inventory==="true"} onChange={e=>setDraft({...draft,inventory:String(e.target.checked),provider:"all"})}/>{language==="id"?"Tampilkan inventaris penyedia (sebagian; bukan katalog layanan)":tr("Show provider inventory (partial; not the served catalog)")}</label></>}</ProgressiveFilters><span className="muted">{filtered.length} {modelUnit}</span></div> : <div className="toolbar">
         <input
           type="search"
           aria-label={tr("Search models")}
@@ -404,7 +474,6 @@ export function Models() {
           value={providerFilter}
           onChange={(e) => {
             setProviderFilter(e.target.value);
-            setPage(1);
           }}
         >
           <option value="all">{tr("All providers (")}{matching.length})</option>
@@ -414,16 +483,18 @@ export function Models() {
             </option>
           ))}
         </select>
-        <select aria-label={tr("Filter by type")} value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}>
-          <option value="all">{tr("All types")}</option>{types.map((t) => <option key={t} value={t}>{t}</option>)}
+        <select aria-label={language==="id"?"Filter menurut tipe":tr("Filter by type")} value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); }}>
+          <option value="all">{language==="id"?"Semua tipe":tr("All types")}</option>{types.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
-        <select aria-label={tr("Filter by capability")} value={capabilityFilter} onChange={(e) => { setCapabilityFilter(e.target.value); setPage(1); }}>
-          <option value="all">{tr("All capabilities")}</option>{capabilities.map(([, label]) => <option key={label} value={label}>{tr(label)}</option>)}
+        <select aria-label={language==="id"?"Filter menurut kapabilitas":tr("Filter by capability")} value={capabilityFilter} onChange={(e) => { setCapabilityFilter(e.target.value); }}>
+          <option value="all">{language==="id"?"Semua kapabilitas":tr("All capabilities")}</option>{capabilities.map(([, label]) => <option key={label} value={label}>{tr(label)}</option>)}
         </select>
         <span className="muted" style={{ marginLeft: "auto" }}>
-          {filtered.length} {tr(filtered.length === 1 ? "model" : "models")}
+          {filtered.length} {modelUnit}
         </span>
       </div>
+
+      }
 
       {error && (
         <p role="alert" className="bad">
@@ -448,10 +519,7 @@ export function Models() {
                 className="btn-ghost"
                 onClick={() => {
                   setFilter("");
-                  setProviderFilter("all");
-                  setTypeFilter("all");
-                  setCapabilityFilter("all");
-                  setPage(1);
+                  query.commit({provider:"all",type:"all",capability:"all",page:"1"});
                 }}
               >
                 Reset filters
@@ -464,7 +532,7 @@ export function Models() {
       {!catalogLoading && filtered.length > 0 && (
         <>
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <TableScroll label={tr("Models table")} stickyPrimary>
+            {inspection.mobile ? <ResourceRows label={tr("Models")}>{pageGroups.flatMap(group=>group.rows).map(row=><ResourceRow key={`${row.providerId??row.owned_by}/${row.id}/${row.type??"chat"}`} title={row.name??row.id} onOpen={()=>inspection.open(row)} summary={<><code>{row.id}</code><p>{providerNames[identity(row)]||identity(row)} · {rowType(row)}</p><p>{formatContextTokens(row.context_length)} · {extractCatalogCapabilities(row).map(tag=>tr(tag)).join(", ")||"—"}</p></>}/>)}</ResourceRows> : <TableScroll label={tr("Models table")} stickyPrimary>
             <table className="table">
               <thead>
                 <tr>
@@ -534,7 +602,7 @@ export function Models() {
                 })}
               </tbody>
             </table>
-            </TableScroll>
+            </TableScroll>}
           </div>
           <Pagination
             total={groups.length}
@@ -543,7 +611,7 @@ export function Models() {
             onPageChange={setPage}
             onPageSizeChange={setPageSize}
             pageSizeOptions={[15, 20, 50, 100]}
-            itemLabel="families"
+            itemLabel={pageEntity}
             label={tr("Models pagination")}
           />
         </>
@@ -553,6 +621,7 @@ export function Models() {
       </div>
         </>
       )}
+      </div>
       <Modal
         open={customOpen}
         onOpenChange={setCustomOpen}
@@ -591,26 +660,30 @@ export function Models() {
         </form>
       </Modal>
 
-      <Modal
-        open={model !== null}
+      <ResourceInspector
+        open={inspection.mobile?!!inspection.inspect || model!==null:model !== null}
         onOpenChange={(open) => {
-          if (!open) setModel(null);
+          if (!open) void closeEditor();
         }}
         title={tr("Configure model capabilities")}
         description={tr("Override context length or capability flags advertised by /v1/models and enforced at dispatch.")}
       >
-        {model && (
+        {!ownedModel && <InspectionFallback loading={catalogLoading||loading}/>}
+        {error && <p role="alert" className="bad">{error}</p>}
+        {ownedModel && (
           <ModelEditor
-            key={`${model.provider}/${model.modelId}`}
-            model={model}
-            onSaved={(saved) => {
+            key={`${ownedModel.provider}/${ownedModel.modelId}`}
+            model={ownedModel}
+            onDirtyChange={updateEditorDirty}
+            onSaved={async (saved) => {
               setModel(saved);
-              loadCatalog();
+              await loadCatalog();
             }}
-            onClose={() => setModel(null)}
+            onClose={() => {void closeEditor();}}
           />
         )}
-      </Modal>
+      </ResourceInspector>
+      {confirmation.dialog}
     </section>
   );
 }

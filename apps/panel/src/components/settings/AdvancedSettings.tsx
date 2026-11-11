@@ -18,14 +18,20 @@ export function AdvancedSettings({settings,loading=false,error}: {settings:Recor
   async function copy(){ try {await navigator.clipboard.writeText(json);toast.success(t('Copied JSON'));}catch{toast.error(t('Clipboard unavailable'));} }
   function download(){const url=URL.createObjectURL(new Blob([json],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='styx-settings-redacted.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   return <div className="advanced-settings">
-    <section className="settings-card">
+    <nav className="row-actions" aria-label={t('Advanced sections')}>
+      <a className="btn-ghost" href="#advanced-inspector">{t('Configuration inspector')}</a>
+      <a className="btn-ghost" href="#advanced-bundle">{t('Config bundle')}</a>
+      <a className="btn-ghost" href="#advanced-environment">{t('Environment')}</a>
+      <a className="btn-ghost" href="#advanced-migration">{t('Local database migration')}</a>
+    </nav>
+    <section className="settings-card" id="advanced-inspector">
       <div className="section-head"><div><h2>{t('Configuration inspector')}</h2><p className="muted">{t('Read-only configuration. Sensitive values are redacted before display and export.')}</p></div><div className="row-actions"><button className="btn-ghost" disabled={loading||Boolean(error)} onClick={copy}><Copy size={16}/>{t('Copy JSON')}</button><button className="btn-ghost" disabled={loading||Boolean(error)} onClick={download}><Download size={16}/>{t('Download JSON')}</button></div></div>
       <div className="toolbar"><label className="advanced-search"><Search size={16}/><input type="search" aria-label={t('Search setting keys')} placeholder={t('Search setting keys')} value={query} onChange={e=>setQuery(e.target.value)}/></label><button className="btn-ghost" aria-pressed={jsonView} onClick={()=>setJsonView(!jsonView)}>{t(jsonView?'Table view':'JSON view')}</button></div>
       {loading ? <LoadingState label={t('Loading configuration')}/> : error ? <p role="alert" className="bad">{error}</p> : jsonView ? <pre className="json">{json}</pre> : <div className="advanced-table-wrap"><TableScroll label={t('Configuration table')} stickyPrimary><table className="table"><thead><tr><th>{t('Setting')}</th><th>{t('Value')}</th></tr></thead><tbody>{Object.entries(shown).map(([key,value])=><tr key={key}><td><code>{key}</code></td><td>{typeof value==='object'&&value!==null?<details><summary>{Array.isArray(value)?`${value.length} ${t('items')}`:t('Object')}</summary><pre className="json">{JSON.stringify(value,null,2)}</pre></details>:<code>{String(value)}</code>}</td></tr>)}</tbody></table></TableScroll>{Object.keys(shown).length===0&&<p className="muted">{t('No matching settings')}</p>}</div>}
     </section>
-    <EncryptedConfigBundleSection />
-    <EnvironmentEditorSection />
-    <LocalMigration />
+    <div id="advanced-bundle"><EncryptedConfigBundleSection /></div>
+    <div id="advanced-environment"><EnvironmentEditorSection /></div>
+    <div id="advanced-migration"><LocalMigration /></div>
   </div>;
 }
 

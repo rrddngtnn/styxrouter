@@ -17,7 +17,7 @@ jobs:
     name: Full private-catalog hygiene gate
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Repository/environment secrets must contain base64-encoded UTF-8 files.
+    # Catalog stays base64 UTF-8; allowlist optionally uses additive gzip+base64.
     # They are deliberately not available to pull requests or ordinary CI.
     environment: publication-hygiene
     steps:
@@ -35,13 +35,8 @@ jobs:
         env:
           PRIVATE_CATALOG_B64: ${{ secrets.HYGIENE_PRIVATE_CATALOG_B64 }}
           PRIVATE_ALLOWLIST_B64: ${{ secrets.HYGIENE_PRIVATE_ALLOWLIST_B64 }}
-        run: |
-          set -euo pipefail
-          : "${PRIVATE_CATALOG_B64:?missing HYGIENE_PRIVATE_CATALOG_B64}"
-          : "${PRIVATE_ALLOWLIST_B64:?missing HYGIENE_PRIVATE_ALLOWLIST_B64}"
-          umask 077
-          printf '%s' "$PRIVATE_CATALOG_B64" | base64 --decode > "$RUNNER_TEMP/hygiene_private.py"
-          printf '%s' "$PRIVATE_ALLOWLIST_B64" | base64 --decode > "$RUNNER_TEMP/hygiene_private_allowlist.json"
+          PRIVATE_ALLOWLIST_GZIP_B64: ${{ secrets.HYGIENE_PRIVATE_ALLOWLIST_GZIP_B64 }}
+        run: python3 scripts/materialize-hygiene-inputs.py
       - name: Run authoritative offline hygiene gates
         run: |
           set -euo pipefail

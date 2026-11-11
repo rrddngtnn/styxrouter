@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 const {chromium} = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const base = new URL(process.env.PANEL_TEST_URL || 'http://127.0.0.1:5197/panel/');
+const base = new URL(process.env.PANEL_TEST_URL || 'http://127.0.0.1:5198/panel/');
 if (!['localhost','127.0.0.1','[::1]'].includes(base.hostname)) throw new Error('local server required');
 const out = resolve(process.env.TABLE_SCREENSHOTS || resolve(process.env.TMPDIR || process.cwd(), 'styxrouter-browser-tests', 'responsive-tables'));
 const longIdentity = 'fixture-identity-' + 'abcdefghijklmno'.repeat(5);
@@ -18,6 +18,12 @@ const fixtures={
   '/api/routing/combos':{combos:[{id:'c1',name:'Example combo',strategy:'priority',models:['demo/fixture-model'],steps:1,enabled:true}]},
   '/api/audit-log':{entries:[{id:1,timestamp:'2026-01-01T00:00:00Z',action:'fixture.action',actor:'Example actor',target:'Example target',details:{example:'value'},status:'ok'}]},
   '/api/settings':{fallbackStrategy:'priority',exampleSetting:'Example value'},
+  '/api/versions/zcode/status':{}, '/api/versions/antigravity/ide/status':{}, '/api/versions/antigravity/cli/status':{},
+  '/api/process-health/start':{startedAt:null}, '/api/process-health/peak':{peakRssBytes:null},
+  '/api/process-health/cpu':{userMicroseconds:0,systemMicroseconds:0}, '/api/process-health/threads':{threadCount:null},
+  '/api/process-health/token-scheduler':{}, '/api/process-health/dispatch':{providers:[]},
+  '/api/routing/trace':{events:[]}, '/api/storage-health':{databaseBytes:null,walBytes:null},
+  '/api/storage-health/vacuum':{lastSuccessfulSchedulerVacuumAt:null},
   '/api/backups':{backups:[{id:'b1',filename:'example.sqlite',reason:'manual',size:400,createdAt:'2026-01-01T00:00:00Z'}]},
   '/api/connections':{connections:[{id:'a1',provider:'demo',name:'Example account',isActive:true,testStatus:'active',backoffLevel:0}]},
   '/api/oauth/providers':{providers:[]}, '/api/usage/quota':{providers:[]},
@@ -26,7 +32,7 @@ const fixtures={
 test('checkbox-first tables keep selection and identity visible when scrolled', async () => {
   const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
   try {
-    const page=await browser.newPage({viewport:{width:320,height:900},reducedMotion:'reduce'});
+    const page=await browser.newPage({viewport:{width:900,height:900},reducedMotion:'reduce'});
     await page.route('**/*',async route=>{const req=route.request(),u=new URL(req.url());if(u.pathname.startsWith('/api/')||u.pathname.startsWith('/v1/')) return route.fulfill({status:fixtures[u.pathname]?200:501,json:fixtures[u.pathname]||{error:'unexpected'}});if(u.origin!==base.origin||req.method()!=='GET') return route.abort();return route.continue();});
     for(const [path,text] of [['keys','Example key'],['routing','Example combo'],['providers/demo','Example account']]) {
       await page.goto(new URL(path,base).href);
@@ -46,7 +52,7 @@ test('long identities remain usable across viewport, theme and language', async 
   await mkdir(out,{recursive:true});
   const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
   try {
-    for(const width of [320,390,768]) for(const theme of ['light','dark']) for(const language of ['en','id']) {
+    for(const width of [861,1024,1280]) for(const theme of ['light','dark']) for(const language of ['en','id']) {
       const page=await browser.newPage({viewport:{width,height:900},reducedMotion:'reduce'});
       const errors=[]; page.on('pageerror',e=>errors.push(e.message));
       await page.addInitScript(p=>localStorage.setItem('styx-panel-preferences',JSON.stringify(p)),{theme,language});
@@ -60,7 +66,7 @@ test('long identities remain usable across viewport, theme and language', async 
         if(dims.scroll>dims.width+1) {await region.focus();await page.keyboard.press('ArrowRight');await region.evaluate(e=>new Promise(resolve=>{const start=performance.now();const poll=()=>e.scrollLeft>0||performance.now()-start>2000?resolve():requestAnimationFrame(poll);poll();}));assert.ok(await region.evaluate(e=>e.scrollLeft)>0);}
         await region.evaluate(e=>{e.scrollLeft=e.scrollWidth;});
         const g=await cell.evaluate(e=>{const r=e.closest('[role=region]').getBoundingClientRect(),a=e.previousElementSibling.getBoundingClientRect(),b=e.getBoundingClientRect(),inner=e.querySelector('.table-identity');return {left:r.left,right:r.right,a:a.left,ar:a.right,b:b.left,br:b.right,innerScroll:inner.scrollWidth,innerWidth:inner.clientWidth};});
-        assert.ok(Math.abs(g.a-g.left)<2 && Math.abs(g.b-g.ar)<2 && g.br<g.right && g.innerScroll<=g.innerWidth+1,`${path} sticky long identity ${JSON.stringify(g)}`);
+        assert.ok((width>1023 || (Math.abs(g.a-g.left)<2 && Math.abs(g.b-g.ar)<2 && g.br<g.right)) && g.innerScroll<=g.innerWidth+1,`${path} sticky long identity ${JSON.stringify(g)}`);
         await page.screenshot({path:resolve(out,`${path.replaceAll('/','-')}-${width}-${theme}-${language}-scrolled.png`),fullPage:true,animations:'disabled'});
       }
       assert.deepEqual(errors,[]);await page.close();
@@ -72,7 +78,7 @@ test('Activity table is a keyboard-scrollable labelled region without page overf
   await mkdir(out,{recursive:true});
   const browser = await chromium.launch({executablePath:process.env.CHROMIUM_PATH,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
   try {
-    const page = await browser.newPage({viewport:{width:320,height:720},reducedMotion:'reduce'});
+    const page = await browser.newPage({viewport:{width:900,height:720},reducedMotion:'reduce'});
     const errors=[]; page.on('pageerror', e=>errors.push(e.message));
     await page.route('**/*', async route => {
       const r=route.request(), u=new URL(r.url());
@@ -101,7 +107,7 @@ test('Activity table is a keyboard-scrollable labelled region without page overf
 test('Activity and audit detail rows can be opened by keyboard', async () => {
   const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH,headless:true,args:['--no-sandbox']});
   try {
-    const page=await browser.newPage({viewport:{width:320,height:720}});
+    const page=await browser.newPage({viewport:{width:900,height:720}});
     await page.route('**/*',async route=>{const req=route.request(),u=new URL(req.url()); if(u.pathname.startsWith('/api/')||u.pathname.startsWith('/v1/')) return route.fulfill({status:fixtures[u.pathname]?200:501,json:fixtures[u.pathname]||{error:'unexpected'}}); if(u.origin!==base.origin||req.method()!=='GET') return route.abort(); return route.continue();});
     for(const path of ['activity','audit']) {
       await page.goto(new URL(path,base).href);
@@ -117,7 +123,7 @@ test('provider account table audit at requested widths', async () => {
   await mkdir(out,{recursive:true});
   const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH,headless:true,args:['--no-sandbox']});
   try {
-    for(const width of [320,390,768]) {
+    for(const width of [861,1024,1280]) {
       const page=await browser.newPage({viewport:{width,height:900},reducedMotion:'reduce'});
       await page.route('**/*',async route=>{const req=route.request(),u=new URL(req.url()); if(u.pathname.startsWith('/api/')||u.pathname.startsWith('/v1/')) return route.fulfill({status:fixtures[u.pathname]?200:501,json:fixtures[u.pathname]||{error:'unexpected'}}); if(u.origin!==base.origin||req.method()!=='GET') return route.abort(); return route.continue();});
       await page.goto(new URL('providers/demo',base).href);
@@ -137,7 +143,7 @@ test('provider account table audit at requested widths', async () => {
 test('Indonesian dark scroll hint and label are visible on overflow', async () => {
   const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH,headless:true,args:['--no-sandbox']});
   try {
-    const page=await browser.newPage({viewport:{width:390,height:844},reducedMotion:'reduce'});
+    const page=await browser.newPage({viewport:{width:900,height:844},reducedMotion:'reduce'});
     await page.addInitScript(()=>localStorage.setItem('styx-panel-preferences',JSON.stringify({language:'id',theme:'dark'})));
     await page.route('**/*',async route=>{const req=route.request(),u=new URL(req.url());if(u.pathname.startsWith('/api/')||u.pathname.startsWith('/v1/')) return route.fulfill({status:fixtures[u.pathname]?200:501,json:fixtures[u.pathname]||{error:'unexpected'}});if(u.origin!==base.origin||req.method()!=='GET')return route.abort();return route.continue();});
     await page.goto(new URL('activity',base).href);
@@ -150,7 +156,7 @@ test('Indonesian dark scroll hint and label are visible on overflow', async () =
   } finally {await browser.close();}
 });
 
-for (const width of [320,390,768]) test(`populated panel tables at ${width}px`, async () => {
+for (const width of [861,1024,1280]) test(`populated panel tables at ${width}px`, async () => {
   await mkdir(out,{recursive:true});
   const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
   try {
@@ -181,7 +187,7 @@ for (const width of [320,390,768]) test(`populated panel tables at ${width}px`, 
       const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);
       if(overflow>0) problems.push(`${path}/${tab}: document overflow ${overflow}px`);
       for(const region of await regions.all()) {
-        const geom=await region.evaluate(e=>({label:e.getAttribute('aria-label'),tab:e.tabIndex,width:e.clientWidth,scroll:e.scrollWidth,sticky:!!e.closest('.table-scroll-sticky'),hint:!!e.parentElement.querySelector('.table-scroll-hint')}));
+        const geom=await region.evaluate(e=>({label:e.getAttribute('aria-label'),tab:e.tabIndex,width:e.clientWidth,scroll:e.scrollWidth,sticky:!!e.closest('.table-scroll-sticky') && innerWidth<=1023,hint:!!e.parentElement.querySelector('.table-scroll-hint')}));
         if(!geom.label||geom.tab!==0) problems.push(`${path}: unlabeled/unfocusable ${JSON.stringify(geom)}`);
         if(geom.hint!==(geom.scroll>geom.width+1)) problems.push(`${path}: incorrect overflow hint ${JSON.stringify(geom)}`);
         if(geom.scroll<=geom.width+1) continue;

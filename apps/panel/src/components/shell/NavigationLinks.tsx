@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 import { navigation } from "./navigation.ts";
 import { useTranslator } from "../../lib/useTranslator.ts";
 
-const GROUPS = ["Gateway", "Observability", "System"] as const;
+const GROUPS = ["", "Gateway", "Access", "Monitoring", "System"] as const;
 
 /** The drawer's single labelled navigation render source. */
 export function NavigationLinks({ onNavigate }: { onNavigate?: () => void }) {
@@ -11,7 +11,7 @@ export function NavigationLinks({ onNavigate }: { onNavigate?: () => void }) {
     <>
       {GROUPS.map((group) => (
         <div className="nav-section" key={group}>
-          <div className="nav-section-label">{t(group)}</div>
+          {group && <div className="nav-section-label">{t(group)}</div>}
           {navigation
             .filter((item) => item.group === group)
             .map(({ label, to, icon: Icon }) => (

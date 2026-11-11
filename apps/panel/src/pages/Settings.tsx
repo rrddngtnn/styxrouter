@@ -1,3 +1,9 @@
+
+import {useMobile} from "../lib/use-mobile";
+import {useWorkspaceURL} from "../lib/workspace-url";
+import {ReadFreshness} from "../components/OperationalUI";
+import {CardFrame} from "../components/OperationalUI";
+import { useWorkspaceTabs } from "../lib/workspace-tabs.ts";
 import { useTranslator } from "../lib/useTranslator.ts";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -20,13 +26,16 @@ type SettingsBag = Record<string, unknown>;
 type SettingsTab = "health" | "security" | "backups" | "advanced";
 
 export function Settings() {
+  const mobile=useMobile();
   const tr = useTranslator();
   const { t } = usePreferences();
-  const [tab, setTab] = useState<SettingsTab>("health");
+  const [tab, setTab] = useWorkspaceURL<SettingsTab>(["health","security","backups","advanced"],"health");
+  const workspaceTabs = useWorkspaceTabs(tab);
   const state = useFetch<SettingsBag>("/api/settings");
 
   return (
     <div className="page">
+      <ReadFreshness state={state} />
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
           <h1 style={{ marginBottom: 4 }}>{t("Settings")}</h1>
@@ -36,34 +45,11 @@ export function Settings() {
         </div>
       </div>
 
-      <section className="card" style={{ padding: 14, marginBottom: 16 }} aria-label={tr("Contextual workspace shortcuts")}>
-        <div style={{ marginBottom: 8, fontSize: 14 }} className="muted">
-          {tr("Domain controls live directly inside their operational workspaces:")}
-        </div>
-        <div className="row-actions" style={{ flexWrap: "wrap", gap: 8 }}>
-          <Link to="/routing" className="btn-ghost" style={{ textDecoration: "none" }}>
-            <GitBranch size={14} />
-            <span>{tr("Routing → Failover, Pacing, Aliases & Trace")}</span>
-          </Link>
-          <Link to="/models" className="btn-ghost" style={{ textDecoration: "none" }}>
-            <Cpu size={14} />
-            <span>{tr("Models → Thinking Budget, Vision Bridge & Soul")}</span>
-          </Link>
-          <Link to="/providers?tab=network" className="btn-ghost" style={{ textDecoration: "none" }}>
-            <Database size={14} />
-            <span>{tr("Providers → Egress Proxies & Error Rules")}</span>
-          </Link>
-          <Link to="/activity" className="btn-ghost" style={{ textDecoration: "none" }}>
-            <Activity size={14} />
-            <span>{tr("Activity → Live Tail & Webhook Alerts")}</span>
-          </Link>
-        </div>
-      </section>
-
-      <div className="tabs" role="tablist" aria-label={tr("Settings sections")}>
+      {mobile ? <label className="mobile-category-select">{tr("Settings sections")}<select aria-label={tr("Settings sections")} value={tab} onChange={e=>setTab(e.target.value as SettingsTab)}>{(["health","security","backups","advanced"] as const).map((id,index)=><option key={id} value={id}>{tr(["Health & Versions","Security","Database Backups","Advanced"][index])}</option>)}</select></label> : <div className="tabs" role="tablist" onKeyDown={workspaceTabs.onKeyDown} aria-label={tr("Settings sections")}>
         <button
           type="button"
           role="tab"
+          {...workspaceTabs.tabProps("health")}
           aria-selected={tab === "health"}
           className={tab === "health" ? "tab active" : "tab"}
           onClick={() => setTab("health")}
@@ -74,6 +60,7 @@ export function Settings() {
         <button
           type="button"
           role="tab"
+          {...workspaceTabs.tabProps("security")}
           aria-selected={tab === "security"}
           className={tab === "security" ? "tab active" : "tab"}
           onClick={() => setTab("security")}
@@ -84,6 +71,7 @@ export function Settings() {
         <button
           type="button"
           role="tab"
+          {...workspaceTabs.tabProps("backups")}
           aria-selected={tab === "backups"}
           className={tab === "backups" ? "tab active" : "tab"}
           onClick={() => setTab("backups")}
@@ -94,6 +82,7 @@ export function Settings() {
         <button
           type="button"
           role="tab"
+          {...workspaceTabs.tabProps("advanced")}
           aria-selected={tab === "advanced"}
           className={tab === "advanced" ? "tab active" : "tab"}
           onClick={() => setTab("advanced")}
@@ -101,8 +90,33 @@ export function Settings() {
           <Wrench size={14} />
           <span>{t("Advanced")}</span>
         </button>
-      </div>
+      </div>}
 
+      <details className="card" style={{ padding: 14, marginBottom: 16 }} aria-label={tr("Contextual workspace shortcuts")}>
+        <summary style={{minHeight:44}}>
+          {tr("Workspace shortcuts")}
+        </summary>
+        <div className="row-actions" style={{ flexWrap: "wrap", gap: 8 }}>
+          <Link to="/routing?tab=policies" className="btn-ghost" style={{ textDecoration: "none" }}>
+            <GitBranch size={14} />
+            <span>{tr("Routing → Failover, Pacing, Aliases & Trace")}</span>
+          </Link>
+          <Link to="/models?tab=defaults" className="btn-ghost" style={{ textDecoration: "none" }}>
+            <Cpu size={14} />
+            <span>{tr("Models → Thinking Budget, Vision Bridge & Soul")}</span>
+          </Link>
+          <Link to="/providers?tab=network" className="btn-ghost" style={{ textDecoration: "none" }}>
+            <Database size={14} />
+            <span>{tr("Providers → Egress Proxies & Error Rules")}</span>
+          </Link>
+          <Link to="/activity?tab=webhooks" className="btn-ghost" style={{ textDecoration: "none" }}>
+            <Activity size={14} />
+            <span>{tr("Activity → Live Tail & Webhook Alerts")}</span>
+          </Link>
+        </div>
+      </details>
+
+      <div {...workspaceTabs.panelProps}>
       {tab === "health" && <HealthAndVersionsSettings />}
 
       {tab === "security" && (
@@ -115,6 +129,7 @@ export function Settings() {
       {tab === "backups" && <DatabaseBackupsSection />}
 
       {tab === "advanced" && <AdvancedSettings settings={state.status === "ok" ? state.data : {}} loading={state.status === "loading"} error={state.status === "error" ? state.error.message : undefined} />}
+      </div>
     </div>
   );
 }
@@ -220,7 +235,7 @@ function ChangePassword() {
   }
 
   return (
-    <section className="settings-card">
+    <CardFrame kind="section" className="settings-card">
       <h2>{t("Management password")}</h2>
       <p className="muted">{tr("Used to sign in here. At least 12 characters. Other signed-in browsers stay signed in until their session expires.")}</p>
       <form className="stack-form" onSubmit={submit}>
@@ -232,11 +247,11 @@ function ChangePassword() {
         {done && <div className="ok">{tr("Password changed.")}</div>}
         <div>
           <button type="submit" className="btn-add" disabled={busy !== null || mismatch || next.length < 12 || !current}>
-            {busy ? "…" : "Change password"}
+            {busy ? "…" : tr("Change password")}
           </button>
         </div>
       </form>
-    </section>
+    </CardFrame>
   );
 }
 
@@ -285,16 +300,48 @@ function DatabaseBackupsSection() {
   }
 
   return (
-    <section className="settings-card">
+    <CardFrame kind="section" className="settings-card">
       <div className="section-head" style={{ marginBottom: 12 }}>
         <div>
-          <h2 style={{ marginBottom: 4 }}>{t("Database Backups")}</h2>
+          <h2 style={{ marginBottom: 4 }}>{t("Database Backups")}</h2><ReadFreshness resource="Database backups" state={state}/>
           <p className="muted" style={{ margin: 0 }}>{tr("Consistent online SQLite snapshots stored in")}<code>db_backups/</code>{tr(". Scheduled snapshots run daily and prune older copies automatically.")}</p>
         </div>
         <button type="button" className="btn-add" disabled={busy !== null} onClick={createSnapshot}>
           <DatabaseBackup size={14} />
-          <span>{busy === "backup" ? "Snapshotting…" : "Backup now"}</span>
+          <span>{busy === "backup" ? tr("Snapshotting…") : tr("Backup now")}</span>
         </button>
+      </div>
+
+      <div className="card" style={{ padding: 14, marginTop: 16 }}>
+        <div className="section-head" style={{ marginBottom: 8 }}>
+          <div>
+            <strong style={{ fontSize: 15 }}>{tr("Telemetry log retention & SQLite VACUUM")}</strong>
+            <p className="muted" style={{ margin: "2px 0 0 0", fontSize: 14 }}>
+              {tr("Prune raw call_logs and proxy_logs older than the selected retention window and compact SQLite WAL/pages.")}
+            </p>
+          </div>
+          <div className="row-actions" style={{ gap: 8 }}>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 14 }}>
+              <span>{tr("Keep")}</span>
+              <select
+                aria-label={tr("Log retention days")}
+                value={retentionDays}
+                onChange={(e) => setRetentionDays(Number(e.target.value))}
+                disabled={busy !== null}
+              >
+                {[3, 7, 14, 30, 60, 90].map((d) => (
+                  <option key={d} value={d}>
+                    {d} {tr("days")}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" className="btn-ghost" disabled={busy !== null} onClick={pruneLogsAndVacuum}>
+              <Trash2 size={14} />
+              <span>{busy === "prune" ? "Pruning…" : tr("Prune logs & VACUUM")}</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       {error && <p className="bad">{error}</p>}
@@ -334,38 +381,7 @@ function DatabaseBackupsSection() {
         </div>
       )}
 
-      <div className="card" style={{ padding: 14, marginTop: 16 }}>
-        <div className="section-head" style={{ marginBottom: 8 }}>
-          <div>
-            <strong style={{ fontSize: 15 }}>{tr("Telemetry log retention & SQLite VACUUM")}</strong>
-            <p className="muted" style={{ margin: "2px 0 0 0", fontSize: 14 }}>
-              {tr("Prune raw call_logs and proxy_logs older than the selected retention window and compact SQLite WAL/pages.")}
-            </p>
-          </div>
-          <div className="row-actions" style={{ gap: 8 }}>
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 14 }}>
-              <span>{tr("Keep")}</span>
-              <select
-                aria-label={tr("Log retention days")}
-                value={retentionDays}
-                onChange={(e) => setRetentionDays(Number(e.target.value))}
-                disabled={busy !== null}
-              >
-                {[3, 7, 14, 30, 60, 90].map((d) => (
-                  <option key={d} value={d}>
-                    {d} {tr("days")}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button type="button" className="btn-ghost" disabled={busy !== null} onClick={pruneLogsAndVacuum}>
-              <Trash2 size={14} />
-              <span>{busy === "prune" ? "Pruning…" : tr("Prune logs & VACUUM")}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
+    </CardFrame>
   );
 }
 

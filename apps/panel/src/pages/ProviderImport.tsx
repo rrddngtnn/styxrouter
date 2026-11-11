@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { api, type JsonValue } from "../lib/api.ts";
+import {ReadFreshness} from "../components/OperationalUI";
 import { useFetch } from "../lib/useFetch.ts";
 import { useTranslator } from "../lib/useTranslator.ts";
 
@@ -48,7 +49,7 @@ export function ProviderImport({providerId,onSaved}:{providerId:string;onSaved:(
       setResults(safe);
     } catch { clear();setError(tr("Import request failed. Check the input and try again.")); } finally {setBusy(false);}
   }
-  return <section className="card provider-import" style={{marginTop:16}}><h2>{tr("Import credentials")}</h2>
+  return <section className="card provider-import" style={{marginTop:16}}><h2>{tr("Import credentials")}</h2><ReadFreshness resource="Import support" state={contracts}/>
     <p className="muted">{tr("Paste JSON, upload a JSON file, or enter access and optional refresh tokens. Preview contains no credentials.")}</p>
     <p className="muted">{tr("The fallback provider is used only when an entry has no provider or host. Preview sends credentials for validation without saving them.")}</p>
     {contracts.status==="loading" && <p role="status">{tr("Loading import support")}</p>}

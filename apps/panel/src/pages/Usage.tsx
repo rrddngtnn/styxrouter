@@ -1,3 +1,4 @@
+import {ReadFreshness} from "../components/OperationalUI";
 import { useTranslator } from "../lib/useTranslator.ts";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -112,6 +113,7 @@ export function Usage() {
 
   return (
     <div className="page">
+      <ReadFreshness state={activeState}/><ReadFreshness resource="Providers" state={provs}/><ReadFreshness resource="Custom Providers" state={nodes}/>
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
           <h1 style={{ marginBottom: 4 }}>{tr("Usage")}</h1>

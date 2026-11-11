@@ -24,8 +24,10 @@ test("dashboard reports fetch failures rather than empty success", () => {
 
 test("dashboard keeps unavailable operations distinct from healthy or empty states", () => {
   const html = renderToStaticMarkup(<MemoryRouter><DashboardView range="7d" onRange={() => {}} now={0} health={loading} stats={loading} conns={loading} provs={loading} logs={loading} /></MemoryRouter>);
+  expect(html).toContain('data-card-family="metric"');
+  expect(html).toContain('data-card-family="attention"');
   expect(html).toContain("Traffic");
-  expect(html).toContain("Provider health");
+  expect(html).toContain("Credential checks");
   expect(html).toContain("Recent activity");
   expect(html).toContain("Account problems");
   expect(html).toContain('/activity?errors=true');

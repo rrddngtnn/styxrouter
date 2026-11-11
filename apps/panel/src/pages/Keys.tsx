@@ -1,5 +1,9 @@
+import {useConfirmation} from "../components/ConfirmationDialog";
+import {ResourceInspector,ResourceRows,ResourceRow,useResourceInspection} from "../components/ResourceWorkspace";
+import {ReadFreshness} from "../components/OperationalUI";
 import { useTranslator } from "../lib/useTranslator.ts";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {createConsequentialOperation} from "../lib/consequential-operation";
 import { usePreferences } from "../lib/preferences.tsx";
 import { filterKeys, visibleSelectedIds } from "../lib/table-search.ts";
 import { Plus } from "lucide-react";
@@ -31,35 +35,71 @@ interface KeyRow {
 }
 
 export function Keys() {
+  const confirmation = useConfirmation();
+  const reviewLock = useRef(false);
   const tr = useTranslator();
   const {t} = usePreferences();
   const [search, setSearch] = useState("");
   const state = useFetch<{ keys?: KeyRow[] }>("/api/keys");
   const rows = state.status === "ok" ? state.data.keys ?? [] : [];
+  const inspection = useResourceInspection(rows, row=>String(row.id));
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [editing, setEditing] = useState<KeyRow | null>(null);
+  const editorCanClose = useRef<() => Promise<boolean>>(async () => true);
   const [secret, setSecret] = useState<{ title: string; key: string } | null>(null);
+  useEffect(() => {
+    const hide = () => { if (document.hidden) setSecret(null); };
+    document.addEventListener("visibilitychange", hide);
+    return () => document.removeEventListener("visibilitychange", hide);
+  }, []);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectionMode,setSelectionMode]=useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
-  const { busy, error, run } = useAction(state.reload);
-  const locked = busy !== null || bulkBusy;
+  const { busy, error, run, confirmationDialog } = useAction(state.reload);
+  const [, renderOperation] = useState(0);
+  const regeneration = useRef(createConsequentialOperation(() => renderOperation(n => n + 1)));
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const locked = busy !== null || bulkBusy || regeneration.current.state !== 'idle';
+  async function rereadKeys() {
+    await api.get<{keys?: KeyRow[]}>("/api/keys");
+    if (mounted.current) state.reload();
+  }
+  async function regenerate(row: KeyRow) {
+    if (locked || reviewLock.current) return;
+    const target = {...row};
+    reviewLock.current = true;
+    const accepted = await confirmation.confirm({title:tr("Regenerate API key?"),description:tr("The current key stops working immediately. Update every client using it."),resource:`${target.name ?? "API key"} / ${target.id}`,action:tr("Regenerate"),danger:true});
+    reviewLock.current = false;
+    if (!accepted || !mounted.current) return;
+    row = target;
+    setSecret(null);
+    const result = await regeneration.current.run(
+      () => api.post<{key: string}>(`/api/keys/${row.id}/regenerate`), rereadKeys,
+    );
+    if (result && mounted.current && !document.hidden) setSecret({title: `New key for “${row.name}”`, key: result.key});
+  }
 
   const shown = filterKeys(rows, search);
   const selectedIds = visibleSelectedIds(shown, selected);
 
   async function bulkAction(action: "revoke" | "delete") {
-    if (locked || selectedIds.length === 0) return;
+    if (locked || reviewLock.current || selectedIds.length === 0) return;
+    const ids = [...selectedIds];
+    reviewLock.current = true;
     const msg =
       action === "delete"
         ? `Delete ${selectedIds.length} selected API key${selectedIds.length === 1 ? "" : "s"} permanently?`
         : `Revoke ${selectedIds.length} selected API key${selectedIds.length === 1 ? "" : "s"}?`;
-    if (!window.confirm(msg)) return;
+    const accepted = await confirmation.confirm({title:tr(action === "delete" ? "Delete selected API keys?" : "Revoke selected API keys?"),description:msg,resource:ids.map(id=>`${rows.find(r=>r.id===id)?.name ?? "API key"} / ${id}`).join("\n"),action:tr(action === "delete" ? "Delete" : "Revoke"),danger:true});
+    reviewLock.current = false;
+    if (!accepted || !mounted.current) return;
     setBulkBusy(true);
     let ok = 0;
     let failed = 0;
     try {
-      for (const id of selectedIds) {
+      for (const id of ids) {
         try {
           if (action === "delete") await api.delete(`/api/keys/${encodeURIComponent(id)}`);
           else await api.post(`/api/keys/${encodeURIComponent(id)}/revoke`);
@@ -68,7 +108,7 @@ export function Keys() {
           failed += 1;
         }
       }
-      if (failed === 0) toast.success(`Bulk ${action}: ${ok}/${selectedIds.length} succeeded`);
+      if (failed === 0) toast.success(`Bulk ${action}: ${ok}/${ids.length} succeeded`);
       else toast.warning(`Bulk ${action}: ${ok} succeeded, ${failed} failed`);
       if (action === "delete") setSelected(new Set());
     } finally {
@@ -77,12 +117,54 @@ export function Keys() {
     }
   }
 
+  const keyActions = (r:KeyRow) => { const id=String(r.id); const active=r.isActive!==false; return <div className="row-actions">                      {active && (
+                        <>
+                          <button type="button" className="btn-ghost" disabled={locked} onClick={() => setEditing(r)}>
+                            {t("Edit")}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-ghost"
+                            disabled={locked}
+                            onClick={() => void regenerate(r)}
+                          >
+                            {t("Regenerate")}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-ghost"
+                            disabled={locked}
+                            onClick={async () => {
+                              const out = await run(`revoke-${id}`, () => api.post(`/api/keys/${id}/revoke`), {title:tr("Revoke API key?"),description:tr("Clients using this key will lose access."),resource:`${r.name ?? "API key"} / ${id}`,action:tr("Revoke"),danger:true});
+                              if (out) toast.success(`Revoked key “${r.name}”`);
+                            }}
+                          >
+                            {t("Revoke")}
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        className="btn-danger"
+                        disabled={locked}
+                        onClick={async () => {
+                          const out = await run(`delete-${id}`, () => api.delete(`/api/keys/${id}`), {title:tr("Delete API key?"),description:tr("This permanently deletes the selected key."),resource:`${r.name ?? "API key"} / ${id}`,action:tr("Delete"),danger:true});
+                          if (out) toast.success(`Deleted key “${r.name}”`);
+                        }}
+                      >
+                        {t("Delete")}
+                      </button></div>; };
+
+  async function closeCreate() {
+    if (name && !await confirmation.confirm({title:tr("Discard unsaved changes?"),description:tr("The unsaved API key draft will be lost."),resource:tr("New API key"),action:tr("Discard changes"),danger:true})) return;
+    setCreating(false); setName("");
+  }
   async function create(e: React.FormEvent) {
     e.preventDefault();
     const made = await run("create", () => api.post<{ key: string; name: string }>("/api/keys", { name: name.trim() }));
-    if (made) {
+    if (made && mounted.current) {
       setCreating(false);
-      setSecret({ title: `New key “${made.name}”`, key: made.key });
+      if (!document.hidden) setSecret({ title: `New key “${made.name}”`, key: made.key });
       setName("");
       toast.success(`Created API key “${made.name}”`);
     }
@@ -90,12 +172,19 @@ export function Keys() {
 
   return (
     <div className="page">
+      {confirmation.dialog}{confirmationDialog}
+      <ReadFreshness state={state} />
+      {regeneration.current.state === 'uncertain' && <div role="alert" className="read-freshness">
+        {tr("Regeneration outcome is uncertain. The old key may no longer work. Do not retry automatically. Reread key inventory before deciding on another action.")}
+        <button type="button" className="btn-ghost" onClick={() => void regeneration.current.reconcile(rereadKeys)}>{tr("Reread key inventory")}</button>
+      </div>}
+      {regeneration.current.state === 'reconciling' && <p role="status">{tr("Rereading key inventory…")}</p>}
       <div className="section-head" style={{ marginBottom: 16 }}>
         <div>
           <h1 style={{ marginBottom: 4 }}>{t("API Keys")}</h1>
           <p className="muted" style={{ margin: 0 }}>{tr("Keys that clients present as")}<code>Authorization: Bearer …</code> on <code>/v1</code>{tr(". Only a prefix is ever shown after creation.")}</p>
         </div>
-        <button type="button" className="btn-add" onClick={() => setCreating(true)}>
+        <button type="button" className="btn-add" disabled={locked} onClick={() => setCreating(true)}>
           <Plus size={14} />
           <span>{t("Create key")}</span>
         </button>
@@ -106,8 +195,7 @@ export function Keys() {
       <Modal
         open={creating}
         onOpenChange={(open) => {
-          setCreating(open);
-          if (!open) setName("");
+          if (open) setCreating(true); else closeCreate();
         }}
         title={tr("Create API key")}
         description={tr("Issue a new Bearer token for inference clients (/v1/chat/completions, /v1/messages, /v1/responses).")}
@@ -128,23 +216,24 @@ export function Keys() {
             <button type="submit" className="btn-add" disabled={busy !== null || !name.trim()}>
               {busy === "create" ? "…" : "Create key"}
             </button>
-            <button type="button" className="btn-ghost" onClick={() => setCreating(false)}>
+            <button type="button" className="btn-ghost" onClick={closeCreate}>
               {t("Cancel")}
             </button>
           </div>
         </form>
       </Modal>
 
-      <Modal
+      <ResourceInspector
         open={editing !== null}
-        onOpenChange={(open) => {
-          if (!open) setEditing(null);
+        onOpenChange={async (open) => {
+          if (!open && await editorCanClose.current()) setEditing(null);
         }}
         title={tr("Edit API key — {0}", {0: String(editing?.name ?? "")})}
         description={tr("Configure rate limits and optional model restrictions for this key.")}
       >
         {editing && (
           <KeyEditor
+            registerClose={(check) => { editorCanClose.current = check; }}
             row={editing}
             onSaved={() => {
               toast.success(`Updated key “${editing.name}”`);
@@ -153,17 +242,19 @@ export function Keys() {
             onClose={() => setEditing(null)}
           />
         )}
-      </Modal>
+      </ResourceInspector>
 
+      {inspection.mobile && inspection.inspect ? <ResourceInspector open={editing===null} onOpenChange={open=>{if(!open)inspection.close();}} title={inspection.selected?.name ?? tr("Key not found")}><dl className="account-facts">{inspection.selected && Object.entries(inspection.selected).filter(([key])=>["id","name","prefix","createdAt","lastUsedAt","modelRestrictions","allowedModels","allowedConnections","noLog","usageLimitEnabled","dailyUsageLimitUsd","weeklyUsageLimitUsd","maxRequestsPerDay","maxRequestsPerMinute","isActive"].includes(key)).map(([key,value])=><div key={key}><dt>{key}</dt><dd>{typeof value==="object"?JSON.stringify(value):String(value??"—")}</dd></div>)}</dl>{inspection.selected&&keyActions(inspection.selected)}</ResourceInspector> : <>
       <div className="toolbar"><input type="search" aria-label={t("Search keys")} placeholder={t("Search keys")} value={search} onChange={e=>{setSearch(e.target.value);setSelected(new Set());}} />{search && <button type="button" className="btn-ghost" onClick={()=>{setSearch("");setSelected(new Set());}}>{t("Clear search")}</button>}<span className="muted" role="status">{shown.length} / {rows.length}</span></div>
       {state.status === "ok" && rows.length > 0 && shown.length === 0 && <EmptyState title={t("No matching keys")} />}
       {state.status === "loading" && <LoadingState label={tr("Loading API keys")} />}
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
       {state.status === "ok" && rows.length === 0 && <EmptyState title={tr("No API keys")} description={tr("Create a key to authenticate clients with this router.")}
-        action={<button type="button" className="btn-add" onClick={() => setCreating(true)}>{t("Create key")}</button>} />}
+        action={<button type="button" className="btn-add" disabled={locked} onClick={() => setCreating(true)}>{t("Create key")}</button>} />}
       {state.status === "ok" && shown.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <div className="section-head" style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+          {inspection.mobile && <button type="button" className="btn-ghost" onClick={()=>{setSelectionMode(value=>!value);setSelected(new Set());}}>{selectionMode?tr("Cancel selection"):tr("Select")}</button>}
+          {(!inspection.mobile || selectionMode) && <div className="section-head" style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
             <label className="check">
               <input
                 type="checkbox"
@@ -197,8 +288,8 @@ export function Keys() {
                 {t("Delete selected")}
               </button>
             </div>
-          </div>
-          <TableScroll label={t("API keys table")} stickySelection>
+          </div>}
+          {inspection.mobile ? <ResourceRows label={tr("API keys")}>{shown.map(r=><ResourceRow key={r.id} title={r.name??r.prefix??"—"} onOpen={()=>inspection.open(r)} summary={<>{r.prefix??"—"} · {r.isActive!==false?tr("active"):tr("revoked")}<p>{r.maxRequestsPerMinute??tr("unlimited")} / min · {r.maxRequestsPerDay??tr("unlimited")} / day</p></>}>{selectionMode&&<label className="check"><input type="checkbox" aria-label={tr("Select {0}",{0:String(r.name??r.id)})} checked={selected.has(String(r.id))} disabled={locked} onChange={e=>setSelected(old=>{const next=new Set(old);if(e.target.checked)next.add(String(r.id));else next.delete(String(r.id));return next;})}/>{tr("Select")}</label>}</ResourceRow>)}</ResourceRows> : <TableScroll label={t("API keys table")} stickySelection>
           <table className="table">
             <thead>
               <tr>
@@ -251,69 +342,24 @@ export function Keys() {
                     <td className="muted">{r.lastUsedAt?.slice(0, 10) ?? tr("never")}</td>
                     <td className={active ? "ok" : "bad"}>{active ? tr("active") : tr("revoked")}</td>
                     <td className="row-actions">
-                      {active && (
-                        <>
-                          <button type="button" className="btn-ghost" disabled={locked} onClick={() => setEditing(r)}>
-                            {t("Edit")}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-ghost"
-                            disabled={locked}
-                            onClick={async () => {
-                              const out = await run(
-                                `regen-${id}`,
-                                () => api.post<{ key: string }>(`/api/keys/${id}/regenerate`),
-                                `Regenerate “${r.name}”? The current key stops working immediately.`,
-                              );
-                              if (out) {
-                                setSecret({ title: `New key for “${r.name}”`, key: out.key });
-                                toast.success(`Regenerated key “${r.name}”`);
-                              }
-                            }}
-                          >
-                            {t("Regenerate")}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-ghost"
-                            disabled={locked}
-                            onClick={async () => {
-                              const out = await run(`revoke-${id}`, () => api.post(`/api/keys/${id}/revoke`), `Revoke “${r.name}”?`);
-                              if (out) toast.success(`Revoked key “${r.name}”`);
-                            }}
-                          >
-                            {t("Revoke")}
-                          </button>
-                        </>
-                      )}
-                      <button
-                        type="button"
-                        className="btn-danger"
-                        disabled={locked}
-                        onClick={async () => {
-                          const out = await run(`delete-${id}`, () => api.delete(`/api/keys/${id}`), `Delete “${r.name}” permanently?`);
-                          if (out) toast.success(`Deleted key “${r.name}”`);
-                        }}
-                      >
-                        {t("Delete")}
-                      </button>
+{keyActions(r)}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          </TableScroll>
+          </TableScroll>}
         </div>
       )}
+      </>}
     </div>
   );
 }
 
 const toLimit = (v: string) => (v.trim() === "" ? null : Number(v));
 
-function KeyEditor({ row, onSaved, onClose }: { row: KeyRow; onSaved: () => void; onClose: () => void }) {
+function KeyEditor({ row, onSaved, onClose, registerClose }: { row: KeyRow; onSaved: () => void; onClose: () => void; registerClose: (check: () => Promise<boolean>) => void }) {
   const tr = useTranslator();
   const { t } = usePreferences();
   const [name, setName] = useState(row.name ?? "");
@@ -326,6 +372,11 @@ function KeyEditor({ row, onSaved, onClose }: { row: KeyRow; onSaved: () => void
   const [connections, setConnections] = useState((row.allowedConnections ?? []).join("\n"));
   const [models, setModels] = useState((row.allowedModels ?? []).join("\n"));
   const [addedModel, setAddedModel] = useState("");
+  const snapshot = JSON.stringify([name,perDay,perMinute,noLog,usageLimitEnabled,dailyUsd,weeklyUsd,connections,models,addedModel]);
+  const initialSnapshot = useRef(snapshot);
+  const confirmation = useConfirmation();
+  const canClose = async () => snapshot === initialSnapshot.current || await confirmation.confirm({title:tr("Discard unsaved changes?"),description:tr("Unsaved key settings will be lost."),resource:`${row.name ?? "API key"} / ${row.id}`,action:tr("Discard changes"),danger:true});
+  useEffect(() => { registerClose(canClose); return () => registerClose(async () => true); }, [snapshot]);
   const { busy, error, run } = useAction(onSaved);
 
   async function save(e: React.FormEvent) {
@@ -348,6 +399,7 @@ function KeyEditor({ row, onSaved, onClose }: { row: KeyRow; onSaved: () => void
 
   return (
     <form className="stack-form" onSubmit={save}>
+      {confirmation.dialog}
       <label>
         {t("Name")}
         <input type="text" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} required />
@@ -406,7 +458,7 @@ function KeyEditor({ row, onSaved, onClose }: { row: KeyRow; onSaved: () => void
         <button type="submit" className="btn-add" disabled={busy !== null || !name.trim()}>
           {busy ? "…" : tr("Save changes")}
         </button>
-        <button type="button" className="btn-ghost" onClick={onClose}>
+        <button type="button" className="btn-ghost" onClick={async () => { if (await canClose()) onClose(); }}>
           {t("Cancel")}
         </button>
       </div>

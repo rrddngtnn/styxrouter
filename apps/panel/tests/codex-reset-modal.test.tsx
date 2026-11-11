@@ -29,11 +29,14 @@ if (inHarness) {
 // Preserve React's internal exports: the real development JSX runtime needs
 // them even though this harness replaces hooks to inspect the returned tree.
 const actualReact = { ...await import("react") };
-mock.module("react", () => ({ ...actualReact, useState: (initial: unknown) => { const i=cursor++; if (!(i in slots)) slots[i]=initial; return [slots[i], (v: unknown) => { slots[i]=typeof v === "function" ? v(slots[i]) : v; }]; }, useRef: (v: unknown) => { const i=cursor++; return slots[i] ?? (slots[i]={current:v}); }, useMemo: (fn: () => unknown) => fn() }));
+mock.module("react", () => ({ ...actualReact, useEffect:()=>{}, useState: (initial: unknown) => { const i=cursor++; if (!(i in slots)) slots[i]=initial; return [slots[i], (v: unknown) => { slots[i]=typeof v === "function" ? v(slots[i]) : v; }]; }, useRef: (v: unknown) => { const i=cursor++; return slots[i] ?? (slots[i]={current:v}); }, useMemo: (fn: () => unknown) => fn() }));
+mock.module("react-router-dom",()=>({useSearchParams:()=>[new URLSearchParams(),()=>{}]}));
 mock.module("../src/lib/preferences.tsx", () => ({ usePreferences: () => ({ t: (s: string) => s, language:"en" }) }));
 mock.module("../src/lib/useFetch.ts", () => ({useFetch: () => ({status:"ok",data:{providers:[row("a"),row("b")]},reload:()=>{}})}));
-mock.module("../src/lib/api.ts",()=>({api:{get:(url:string)=>get(url),post:async (_:string,body:unknown)=>{posts.push(body);return {ok:true,outcome:"reset",quotaRefreshed:false};}}}));
+const {ApiError} = await import('../src/lib/api.ts');
+mock.module("../src/lib/api.ts",()=>({ApiError,api:{get:(url:string)=>get(url),post:async (_:string,body:unknown)=>{posts.push(body);return {ok:true,outcome:"reset",quotaRefreshed:false};}}}));
 mock.module("../src/lib/actions.tsx",()=>({Modal:()=>null}));
+mock.module("../src/components/ConfirmationDialog",()=>({useConfirmation:()=>({dialog:null,confirm:async()=>{confirmations++;return confirmResult;}})}));
 mock.module("sonner",()=>({toast:{success:()=>{},error:()=>{}}}));
 afterAll(() => { mock.restore(); });
 ({ Quota } = await import("../src/pages/Quota.tsx"));
@@ -42,7 +45,7 @@ function render(){cursor=0;return Quota();}
 function elements(node:any):any[]{if(!node||typeof node!=="object")return [];return [node,...[node.props?.children].flat(Infinity).flatMap(elements)];}
 function button(tree:any,text:string){return elements(tree).find(e=>e.type==='button' && e.props.children===text);}
 function open(tree:any,id:string){return elements(tree).find(e=>e.props?.onOpenResetCredits).props.onOpenResetCredits(row(id));}
-function reset(){slots.length=0;posts.length=0;confirmations=0;(globalThis as any).window={confirm:()=>{confirmations++;return confirmResult;}};}
+function reset(){const data=new Map<string,string>();(globalThis as any).sessionStorage={getItem:(k:string)=>data.get(k)??null,setItem:(k:string,v:string)=>data.set(k,v)};slots.length=0;posts.length=0;confirmations=0;(globalThis as any).window={confirm:()=>{confirmations++;return confirmResult;}};}
 isolatedTest("failed inventory never enables spending cached positive inventory",async()=>{
  reset();get=async()=>{throw new Error('inventory unavailable');};await open(render(),'a');
  expect(button(render(),'Redeem earliest expiring credit').props.disabled).toBe(true);
@@ -60,6 +63,6 @@ isolatedTest("redemption asks explicit confirmation before any POST",async()=>{
 isolatedTest("two clicks before rerender send only one redemption",async()=>{
  reset();confirmResult=true;get=async()=>({ok:true,availableCount:1,credits:[{selectionToken:'a'}]});await open(render(),'a');
  const redeem=button(render(),'Redeem this credit').props.onClick;
- redeem();redeem();await Promise.resolve();await Promise.resolve();
+ redeem();redeem();await new Promise(resolve=>setTimeout(resolve,20));
  expect(posts).toHaveLength(1);expect(confirmations).toBe(1);
 });
