@@ -110,3 +110,22 @@ Do not treat a zero-fatal static/history result with a skipped runtime as releas
 clearance. The workflow in `.github/workflows/publication-hygiene.yml` implements
 the same contract from protected secrets; it creates the private files only in
 runner scratch and fails closed when any required input is absent.
+
+### Backward-compatible protected allowlist transport
+
+The catalog remains `HYGIENE_PRIVATE_CATALOG_B64`. The legacy
+`HYGIENE_PRIVATE_ALLOWLIST_B64` remains base64 of UTF-8 JSON and must not be
+replaced with compressed bytes: workflows on older refs still require it.
+The optional environment secret `HYGIENE_PRIVATE_ALLOWLIST_GZIP_B64` contains
+base64 of a single gzip member of the **original, unchanged JSON bytes**.
+The protected workflow prefers this additive secret when nonempty; invalid new
+input fails closed rather than falling back to the legacy secret.
+
+`scripts/materialize-hygiene-inputs.py` reads secrets only from step environment,
+strictly validates base64 and UTF-8, rejects incomplete/concatenated gzip members
+and trailing bytes, and caps decompressed inputs at a fixed 1 MiB. It invokes the
+scanner's existing bound-entry validator against the unchanged protected pattern
+catalog before writing the allowlist. Scratch files are exclusive-create mode
+0600; errors emit no payload or parser exception. No secret is an Actions output
+or artifact. This changes transport only, not bindings, reasons, scanner rules,
+workflow permissions, environment, or runtime authorization.
