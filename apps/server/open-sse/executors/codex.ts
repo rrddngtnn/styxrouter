@@ -829,6 +829,23 @@ export class CodexExecutor extends BaseExecutor {
 
     if (!isCodexResponsesWebSocketRequired(nextInput.model, nextInput.credentials)) {
       const httpResult = await super.execute(nextInput);
+      // A client-version gate is neither invalid input nor an account failure.
+      // Match only the explicit Codex 400 notice; preserve unrelated 400/401s.
+      const rejection = (httpResult as { response?: Response }).response;
+      if (rejection?.status === 400) {
+        const payload = await rejection.clone().json().catch(() => null);
+        const message = payload?.error?.message ?? payload?.message;
+        if (typeof message === "string" && /^(?:This|The requested) model requires a newer version of Codex\.(?: Please update (?:Codex )?to the latest version\.)?$/.test(message)) {
+          return {
+            ...httpResult,
+            response: Response.json({ error: {
+              message,
+              type: "upstream_error",
+              code: "upstream_client_unsupported",
+            } }, { status: 502 }),
+          };
+        }
+      }
       if (codexDropNonstandardEvents()) {
         const resp = (httpResult as { response?: Response }).response;
         if (resp?.body) {

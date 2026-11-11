@@ -1,33 +1,10 @@
-STYXROUTER REPLACEMENT ARTWORK PROVENANCE
-
-Generated geometric artwork for replacement branding with an open license,
-created at the project owner's express request.
-The owner authorized the CC0 dedication recorded in LICENSE-NOTICE.txt.
-
-Design: an angular river-like S constructed from explicit line coordinates on
-a deep-green rounded tile; custom uppercase STYXROUTER lettering constructed
-from straight path segments. No external logo, supplied kit path, icon-library
-shape, font outline, downloaded image or external design reference was used.
-Existing SVG viewBoxes/aspect ratios and asset filenames were preserved for
-layout compatibility, not as a source of artwork. SVGs include accessible
-StyxRouter titles/descriptions. The dark lockup uses pale lettering, while
-the light lockup and standalone wordmark use deep-green lettering.
-
-Replaced files:
-  styx-icon.svg                 standalone original mark
-  styx-wordmark.svg             original geometric lettering (no font dependency)
-  styx-lockup.svg               light-surface mark plus lettering
-  styx-lockup-dark.svg          dark-surface mark plus lettering
-  styx-lockup-original.svg      compatibility filename; new light-surface artwork
-  apple-touch-icon.png         180 x 180 RGB export of the new mark
-  ../favicon.ico               16 x 16 and 32 x 32 RGBA exports of the new mark
-
-Raster method: ImageMagick SVG renderer at high resolution; Pillow Lanczos
-resampling and PNG/ICO encoding. No raster pixels from the supplied kit reused.
-The previous operator-supplied StyxRouter-brand-kit.zip provenance and Elaa
-commercial-use notices have been superseded for these replaced files only.
-They are not asserted to confer open redistribution rights on the old kit.
-
-Third-party provider icons elsewhere in the repository are unchanged and
-outside this dedication. Their existing notices/terms continue to apply.
-No trademark rights or uniqueness/registration assurance are provided.
+StyxRouter brand assets: supplied by the operator in StyxRouter-brand-kit.zip.
+styx-lockup-original.svg is logo/primary-on-transparent.svg, unchanged; styx-lockup.svg
+is derived from it with a 16-unit viewBox margin to avoid clipping the original
+artwork at its edges; styx-icon.svg is logo/icon.svg;
+styx-wordmark.svg is logo/wordmark.svg; favicon.ico and apple-touch-icon.png are
+from favicon/ in the same kit. styx-lockup-dark.svg is derived from the supplied
+primary-on-transparent.svg with the same viewBox margin and by changing #454e4c to #e7eae9 (both the dark icon
+ribbon and wordmark), retaining the remaining original colors and geometry so the
+mark stays legible against the dark interface. The original kit README is preserved
+in STYXROUTER-BRAND-KIT-NOTICE.txt. The pre-existing LICENSE-NOTICE.txt is retained.

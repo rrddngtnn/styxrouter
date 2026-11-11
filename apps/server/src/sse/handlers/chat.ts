@@ -2038,7 +2038,7 @@ async function handleSingleModelChat(
 
       // Client contract rejection is not account health or model availability.
       // Stop before transport retries, emergency fallback, and cooldown bookkeeping.
-      if ((provider === "antigravity" || provider === "kiro") && result.errorCode === "upstream_client_unsupported") {
+      if ((provider === "antigravity" || provider === "kiro" || provider === "codex") && result.errorCode === "upstream_client_unsupported") {
         return withSelectedConnectionHeader(result.response, credentials.connectionId);
       }
 

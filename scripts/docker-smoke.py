@@ -25,6 +25,11 @@ def probe_script():
         "/app/apps/server/panel/brand/STYXROUTER-BRAND-KIT-NOTICE.txt": ROOT / "apps/panel/public/brand/STYXROUTER-BRAND-KIT-NOTICE.txt",
         "/app/notices/provider-icon-NOTICE.md": ROOT / "apps/panel/src/components/provider-icon-NOTICE.md",
     }
+    # Verify every packaged approved brand byte, not only the two license notices.
+    for path in (ROOT / "apps/panel/public/brand").iterdir():
+        if path.is_file():
+            notices["/app/apps/server/panel/brand/" + path.name] = path
+    notices["/app/apps/server/panel/favicon.ico"] = ROOT / "apps/panel/public/favicon.ico"
     for path in (ROOT / "apps/server/licenses").rglob("*"):
         if path.is_file():
             notices["/app/apps/server/licenses/" + path.relative_to(ROOT / "apps/server/licenses").as_posix()] = path
@@ -88,6 +93,13 @@ console.log("PASS: non-root, notices, health, built panel asset, no-key auth, se
 def main(image):
     if shutil.which("docker") is None:
         raise SystemExit("Docker CLI/daemon required: no image smoke was executed")
+    labels = run("docker", "image", "inspect", "--format", "{{json .Config.Labels}}", image, capture_output=True)
+    try:
+        metadata = json.loads(labels.stdout)
+        if metadata.get("org.opencontainers.image.title") != "StyxRouter" or not metadata.get("org.opencontainers.image.version"):
+            raise ValueError("missing release identity")
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise RuntimeError("image labels must identify StyxRouter and its application version") from exc
     name = "styx-smoke-" + secrets.token_hex(8)
     env = {key: secrets.token_hex(32) for key in (
         "JWT_SECRET", "API_KEY_SECRET", "STORAGE_ENCRYPTION_KEY", "INITIAL_PASSWORD")}

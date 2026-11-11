@@ -8,4 +8,9 @@ test('account rows offer a separate model inference dialog', () => {
  expect(component).toContain('connectionId: account.id');
  expect(component).toContain('Test Model');
  expect(component).toContain('observedAt');
+ expect(component).toContain('?connectionId=');
+ expect(component).toContain('Inventory unknown');
+ expect(component).toContain('HTTP');
+ expect(component).toContain('Selected:');
+ expect(component).toContain('Model: {result.model}');
 });

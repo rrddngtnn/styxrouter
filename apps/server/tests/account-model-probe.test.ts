@@ -12,6 +12,7 @@ test('session inference pins the selected account and canonical model without a 
  await createProviderConnection({provider:node.id,authType:'apikey',apiKey:'wrong-fixture-secret',providerSpecificData:{baseUrl:node.baseUrl,apiType:'chat',prefix:node.prefix},priority:1} as any);
  const selected:any = await createProviderConnection({provider:node.id,authType:'apikey',apiKey:'upstream-fixture-secret',providerSpecificData:{baseUrl:node.baseUrl,apiType:'chat',prefix:node.prefix},priority:20} as any);
  await addCustomModel(node.id,'vendor/model');
+ await addCustomModel(node.id,'vendor/fail');
  const proc=spawn(process.execPath,['--no-env-file',join(import.meta.dir,'helpers/provider-model-probe-server.ts')],{cwd:join(import.meta.dir,'..'),env:{...process.env,STYX_TEST_MODE:'1',JWT_SECRET:'fixture-jwt-secret-01234567890123456789',INITIAL_PASSWORD:'fixture-password'},stdio:['ignore','pipe','pipe']});
  let output='';proc.stdout!.on('data',x=>output+=x);proc.stderr!.on('data',x=>output+=x);
  try {
@@ -28,7 +29,8 @@ test('session inference pins the selected account and canonical model without a 
  expect(Number.isNaN(Date.parse(result.observedAt))).toBe(false);
  expect(output).not.toContain('PROBE_SUCCESS_SENTINEL_9467');
  expect(output).not.toContain('upstream-fixture-secret');
- expect((await send(body)).status).toBe(429);
+ const limited=await send(body);expect(limited.status).toBe(429);
+ expect(await limited.json()).toMatchObject({ok:false,status:'probe_cooldown',error:'probe_cooldown',model:body.model,httpStatus:429});
  await Bun.sleep(5100);
  const rejectedId=(await createProviderConnection({provider:node.id,authType:'apikey',apiKey:'reject-fixture-key',providerSpecificData:{baseUrl:node.baseUrl,apiType:'chat',prefix:'accountprobe'}} as any)).id;
  const failed=await send({...body,connectionId:rejectedId});
@@ -37,5 +39,13 @@ test('session inference pins the selected account and canonical model without a 
  expect((await getProviderConnectionById(rejectedId) as any).lastError ?? '').not.toContain('PROBE_ERROR_SENTINEL_9467');
  expect(failed.ok).toBe(false);
  expect((await failed.json() as any).status).toBe('failed');
+ await Bun.sleep(5100);
+ const quota=await send({...body,model:'accountprobe/vendor/fail'});
+ const quotaResult:any=await quota.json();
+ expect(quota.status).toBe(429);
+ expect(quotaResult).toMatchObject({ok:false,status:'inference_rate_limited',httpStatus:429,model:'accountprobe/vendor/fail'});
+ expect(quotaResult.error).toContain('Quota exhausted');
+ expect(quotaResult.error).not.toContain('upstream-fixture-secret');
+ expect(quotaResult.error).not.toContain('private-value');
  } finally { await stopTestProcess(proc); }
 },60000);

@@ -104,8 +104,23 @@ Example: `codex/gpt-6.1-terra-high` → base `gpt-6.1-terra` + effort `high`.
 
 The provider workspace's **Test model** action uses the signed-in dashboard
 session, not an API key. It sends a fixed short prompt through the dedicated
-management probe and returns only success or failure; upstream output and errors
-are not exposed or persisted in request logs. Real usage charges may apply.
+management probe. The account-row action pins the exact connection, disables account/
+model fallback and response-cache reuse, and returns bounded assistant output, terminal
+reason, optional usage, canonical model ID and observation time. Sanitized diagnostic
+errors and HTTP status are shown; credential values and verification URLs are redacted.
+Probe content and raw errors are not persisted in request logs. Real usage charges may apply.
+The legacy model-only request retains its `{ok}` inference response contract.
+
+The account picker reads `GET /api/providers/:id/models?connectionId=:connectionId`
+with an exact active connection belonging to that provider. A nonempty per-account
+synced inventory restricts choices, including the router's exact-ID-before-effort-alias
+and Antigravity wire-alias rules. Missing, empty or malformed inventory is explicitly
+labeled **unknown**: displayed provider inventory is not proof of account entitlement.
+Names are presentation only; the selected and result IDs use one provider prefix plus
+the unchanged provider-local ID (which may itself contain slashes).
+Local probe throttling returns `probe_busy` or `probe_cooldown` with HTTP 429 and
+`Retry-After`; inference-path 429 returns `inference_rate_limited`, not probe cooldown.
+Inference-path status alone does not prove an upstream request occurred.
 The public `/v1` inference routes still require their normal API-key authorization.
 
 The probe requires a configured inventory target and an exact same-origin request.

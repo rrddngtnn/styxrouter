@@ -1,13 +1,15 @@
-STYXROUTER BRAND-KIT REPLACEMENT NOTICE
+Elaa — Launch-ready brand kit (StyxRouter)
 
-The supplied Elaa brand-kit artwork formerly served under these filenames
-has been replaced, not relicensed. None of that supplied artwork is retained
-in the replacement SVG, PNG or ICO files listed in LICENSE-NOTICE.txt.
-The old commercial-use kit notices do not describe the new artwork.
+COMMERCIAL USE
+Your Elaa download includes a license to use these exported assets for commercial projects tied to this logo. This README is informational and is not a substitute for legal advice.
 
-styx-lockup-original.svg is a compatibility filename only; it now contains
-the new original design, NOT an archived copy of the supplied kit.
+TRADEMARKS & UNIQUENESS
+Elaa does not guarantee that your name, icon, or combined mark is unique, available, or registrable. Similar icons may appear elsewhere (including icon libraries). Before you invest in trademarks or domains, search your jurisdiction’s trademark database (for example USPTO.gov in the United States) and consult a qualified attorney if you need certainty.
 
-The replacement artwork is dedicated under CC0 1.0 Universal to the extent
-rights exist, with no trademark grant. See LICENSE-NOTICE.txt and PROVENANCE.txt.
-This notice does not change any third-party icon or other repository license.
+BRAND KIT LAYOUT
+logo/          Primary SVG lockups (clean vectors)
+png/           Raster exports at common widths + a square social asset
+favicon/       ICO (16 & 32) and standard web/app icon PNGs
+brand-guide/   PDF brand guide
+
+Questions? Open your project in Elaa for the live editor and downloads.

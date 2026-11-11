@@ -17,7 +17,7 @@ test.skipIf(!process.env.PLAYWRIGHT_MODULE || !process.env.CHROMIUM_PATH)('brows
  try {
  const vite=await marker(browser,/VITE_READY:(\S+)\r?\n/);
  server=spawn(process.execPath,['--no-env-file',join(import.meta.dir,'helpers/provider-model-probe-server.ts')],{cwd:join(import.meta.dir,'..'),env:{...process.env,PANEL_FIXTURE_ORIGIN:vite,JWT_SECRET:'fixture-jwt-secret-01234567890123456789',INITIAL_PASSWORD:'fixture-password'},stdio:['ignore','pipe','pipe']});
- let serverLogs='';server.stdout.on('data',(x:any)=>serverLogs+=x);server.stderr.on('data',(x:any)=>serverLogs+=x);
+ let serverLogs='';server.stdout.on('data',(x:any)=>{serverLogs+=x;process.stderr.write(x);});server.stderr.on('data',(x:any)=>{serverLogs+=x;process.stderr.write(x);});
  const port=await marker(server,/STYX_TEST_LISTENING:(\d+)\r?\n/);
  browser.stdin.write(JSON.stringify({base:`http://127.0.0.1:${port}`,provider:node.id,account:account.id})+'\n');
  const exit=await new Promise(resolve=>browser.once('close',resolve));

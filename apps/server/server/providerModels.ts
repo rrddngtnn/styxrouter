@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { REGISTRY } from "../open-sse/config/providers/index.ts";
 import { FORMATS } from "../open-sse/translator/formats.ts";
-import { getProviderNodeById, getProviderNodes } from "../src/lib/db/providers.ts";
+import { getProviderConnectionById, getProviderNodeById, getProviderNodes } from "../src/lib/db/providers.ts";
 import { addCustomModel, getCustomModels, getSyncedAvailableModelsByConnection, removeCustomModel, updateCustomModel, SYNCED_AVAILABLE_MODELS_MALFORMED, ProviderModelConflict } from "../src/lib/db/models.ts";
 import { MODEL_SUPPORTED_ENDPOINT_VALUES, normalizeModelSupportedEndpoints } from "../src/shared/constants/modelSupportedEndpoints.ts";
 import { logAuditEvent } from "../src/lib/compliance/index.ts";
@@ -120,17 +120,48 @@ async function inventory(p: NonNullable<Awaited<ReturnType<typeof provider>>>, a
   return { rows, manual: manual as Model[], malformedSync };
 }
 
-export async function accountProbeCapability(providerId: string, model: string) {
+// Account catalogs are inventory observations, never entitlement or inference proof.
+async function accountInventory(p: NonNullable<Awaited<ReturnType<typeof provider>>>, connectionId: string) {
+  const account = await getProviderConnectionById(connectionId) as any;
+  if (!account || !account.isActive || account.provider !== p.id) return null;
+  const synced = await getSyncedAvailableModelsByConnection(p.id);
+  const catalog = synced[connectionId];
+  const known = Array.isArray(catalog) && catalog.length > 0;
+  const { rows } = await inventory(p, true);
+  if (known) for (const row of catalog) if (!rows.has(row.id)) rows.set(row.id, { ...row, origin: "synced" });
+  const scoped = { providerId: p.id, nodeId: null, prefix: p.prefix, models: specialtyRows(p, [...rows.values()]) };
+  expandAdminInventories([scoped], {}, new Map());
+  let models = scoped.models;
+  if (known) {
+    const { isModelAdvertisedByConnection } = await import("../src/domain/connectionModelRules.ts");
+    const { getActiveSyncedCatalog } = await import("../src/lib/db/models/activeSyncedCatalog.ts");
+    const active = await getActiveSyncedCatalog(p.id);
+    const ids = new Set(catalog.map(m => m.id));
+    const activeIds = new Set(active.models.map(m => m.id));
+    const isAgy = p.id === "antigravity" || p.id === "agy";
+    const { resolveAntigravityWireModel } = await import("../open-sse/services/antigravityModelResolution.ts");
+    const eligibility = await Promise.all(models.map(async row => {
+      const target = isAgy ? await resolveAntigravityWireModel(row.id, activeIds.has(row.id)) : row.id;
+      return isModelAdvertisedByConnection(target, ids, p.id, p.id === "codex" && active.authoritative && activeIds.has(row.id), isAgy);
+    }));
+    models = models.filter((_, index) => eligibility[index]);
+  }
+  return { account, models, catalogStatus: known ? "known" : "unknown" };
+}
+
+export async function accountProbeCapability(providerId: string, model: string, connectionId?: string) {
   const p = await provider(providerId);
   if (!p || !model.startsWith(`${p.prefix}/`)) return { supported: false, reason: "invalid_inventory" } as const;
-  const { rows } = await inventory(p);
-  const row = specialtyRows(p, [...rows.values()]).find(row => row.id === model.slice(p.prefix.length + 1));
+  const scoped = connectionId ? await accountInventory(p, connectionId) : null;
+  if (connectionId && !scoped) return { supported: false, reason: "account_unavailable" } as const;
+  const models = scoped ? scoped.models : specialtyRows(p, [...(await inventory(p)).rows.values()]);
+  const row = models.find(row => row.id === model.slice(p.prefix.length + 1));
   if (!row) return { supported: false, reason: "invalid_inventory" } as const;
   const node = await getProviderNodeById(providerId) as any;
   const type = row.type;
   if ((type && type !== "chat" && type !== "text") || (node && node.apiType && !["chat", "responses"].includes(node.apiType))) return { supported: false, reason: "unsupported_model_type" } as const;
   // Ambiguous prefixes must not select a different compatible node.
-  if (!(await isExplicitProviderModel(model))) return { supported: false, reason: "invalid_inventory" } as const;
+  if (!(await isExplicitProviderModel(model, !!connectionId))) return { supported: false, reason: "invalid_inventory" } as const;
   try {
     const { getExecutor } = await import("../open-sse/executors/index.ts");
     getExecutor(node ? (node.type === "anthropic-compatible" ? `anthropic-compatible-${node.id}` : `openai-compatible-${node.apiType === "responses" ? "responses" : "chat"}-${node.id}`) : providerId);
@@ -138,7 +169,7 @@ export async function accountProbeCapability(providerId: string, model: string) 
   return { supported: true, reason: null } as const;
 }
 
-export async function isExplicitProviderModel(model: string): Promise<boolean> {
+export async function isExplicitProviderModel(model: string, allowMalformedSync = false): Promise<boolean> {
   const slash = model.indexOf("/");
   if (slash < 1) return false;
   const prefix = model.slice(0, slash), localId = model.slice(slash + 1);
@@ -149,8 +180,11 @@ export async function isExplicitProviderModel(model: string): Promise<boolean> {
     if (node.prefix === prefix || node.id === prefix) candidates.push({ id: node.id, prefix, builtins: [] });
   }
   if (candidates.length !== 1) return false;
-  const { rows } = await inventory(candidates[0]);
-  return rows.has(localId);
+  const { rows } = await inventory(candidates[0], allowMalformedSync);
+  if (rows.has(localId)) return true;
+  const scoped = { providerId: candidates[0].id, nodeId: null, prefix, models: specialtyRows(candidates[0], [...rows.values()]) };
+  expandAdminInventories([scoped], {}, new Map());
+  return scoped.models.some(row => row.id === localId);
 }
 function specialtyRows(p: NonNullable<Awaited<ReturnType<typeof provider>>>, models: Model[] = []) {
   const scoped: ScopedInventory = { providerId: p.id, nodeId: Object.hasOwn(REGISTRY, p.id) && REGISTRY[p.id]?.id === p.id ? null : p.id, prefix: p.prefix, models };
@@ -196,6 +230,14 @@ export function createProviderModelsApi() {
   api.get("/providers/:providerId/models", async c => {
     const p = await provider(c.req.param("providerId"));
     if (!p) return c.json({ error: "Provider not found" }, 404);
+    c.header("Cache-Control", "no-store");
+    const connectionId = c.req.query("connectionId");
+    if (connectionId !== undefined) {
+      if (!/^[A-Za-z0-9-]{1,100}$/.test(connectionId)) return c.json({ error: "Invalid account" }, 400);
+      const scoped = await accountInventory(p, connectionId);
+      if (!scoped) return c.json({ error: "Account unavailable for this provider" }, 400);
+      return c.json({ providerId: p.id, prefix: p.prefix, connectionId, catalogStatus: scoped.catalogStatus, models: scoped.models });
+    }
     const { rows } = await inventory(p);
     return c.json({ providerId: p.id, prefix: p.prefix, models: specialtyRows(p, [...rows.values()]) });
   });

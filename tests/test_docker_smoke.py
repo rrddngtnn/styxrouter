@@ -24,15 +24,33 @@ class DockerSmokeTests(unittest.TestCase):
         self.assertIn('dashboard session must not authorize inference', script)
         self.assertIn('INITIAL_PASSWORD', script)
 
+    def test_approved_brand_inventory_is_checked_inside_actual_image(self):
+        script = smoke.probe_script()
+        import hashlib
+        for path in (smoke.ROOT / 'apps/panel/public/brand').iterdir():
+            if path.is_file():
+                self.assertIn('/app/apps/server/panel/brand/' + path.name, script)
+                self.assertIn(hashlib.sha256(path.read_bytes()).hexdigest(), script)
+        self.assertIn('/app/apps/server/panel/favicon.ico', script)
+
+    def test_image_labels_are_verified_before_start(self):
+        calls, runner = self.lifecycle(invalid_labels=True)
+        with patch.object(smoke.shutil, 'which', return_value='/unit/docker'), patch.object(smoke, 'run', side_effect=runner), patch.object(smoke.subprocess, 'run'):
+            with self.assertRaisesRegex(RuntimeError, 'image labels'):
+                smoke.main('test:unit')
+        self.assertFalse(any(args[:2] == ('docker', 'run') for args, _ in calls))
+
     @patch.object(smoke.shutil, "which", return_value=None)
     def test_missing_docker_fails_before_start(self, _which):
         with self.assertRaisesRegex(SystemExit, "no image smoke was executed"):
             smoke.main("test:unit")
 
-    def lifecycle(self, health="running healthy", fail_exec=False):
+    def lifecycle(self, health="running healthy", fail_exec=False, invalid_labels=False):
         calls = []
         def fake_run(*args, **kwargs):
             calls.append((args, kwargs))
+            if args[:3] == ("docker", "image", "inspect"):
+                return subprocess.CompletedProcess(args, 0, '{}' if invalid_labels else '{"org.opencontainers.image.title":"StyxRouter","org.opencontainers.image.version":"v0.1.5"}')
             if args[:2] == ("docker", "inspect"):
                 return subprocess.CompletedProcess(args, 0, health)
             if fail_exec and args[:2] == ("docker", "exec"):
@@ -45,7 +63,7 @@ class DockerSmokeTests(unittest.TestCase):
         calls, runner = self.lifecycle()
         with patch.object(smoke, "run", side_effect=runner), patch.object(smoke.subprocess, "run") as cleanup:
             smoke.main("test:unit")
-        args = calls[0][0]
+        args = next(args for args, _ in calls if args[:2] == ('docker', 'run'))
         self.assertIn("--read-only", args)
         self.assertIn("none", args)
         self.assertNotIn("--publish", args)
