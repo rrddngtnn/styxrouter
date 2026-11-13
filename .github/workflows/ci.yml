@@ -33,6 +33,8 @@ jobs:
           browser=$(bun -e 'import {chromium} from "./apps/server/node_modules/playwright/index.mjs"; console.log(chromium.executablePath())')
           test -x "$browser"
           printf 'CHROMIUM_PATH=%s\nCHROME_PATH=%s\nPLAYWRIGHT_MODULE=%s/apps/server/node_modules/playwright/index.mjs\n' "$browser" "$browser" "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+      - name: Build panel before static-route acceptance (no skipped auth fixtures)
+        run: bun run panel:build
       - name: Server tests (isolated, tests and experiments)
         run: bun --no-env-file apps/server/scripts/test-isolated.ts tests experiments
       - name: Server Python tests
