@@ -4,15 +4,15 @@ import { clearAntigravityVersionCaches, getCachedAntigravityCliVersion, resolveA
 afterEach(() => clearAntigravityVersionCaches());
 
 test("parses the observed official darwin arm64 manifest and applies its CLI identity", async () => {
-  // Captured from the official manifest on 2026-10-28; archive metadata is not fetched.
+  // Captured from the official darwin_arm64 manifest on 2026-11-13; archive metadata is not fetched.
   const observed = {
-    version: "1.4.9",
-    url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.4.9-4962164969177088/darwin-arm/cli_mac_arm64.tar.gz",
-    sha512: "d7d83634b0c236659ee530f448e9aa1c5dc00a010631edd72bf11a920006892b319be7e51c8defae226f204660544e4d915bb5e733f1ceb50c065f4cbe45d3d0",
+    version: "1.5.7",
+    url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.7-6190022064472064/darwin-arm/cli_mac_arm64.tar.gz",
+    sha512: "c9746409083a9b15c217757aa2ef399ee7d4398602a30038583ea45196fc27d1662745341e45a116c07be19c08587de1e5929e365d2a46aea385fa33f0c2396a",
   };
-  expect(await resolveAntigravityCliVersion((async () => Response.json(observed)) as typeof fetch, true)).toBe("1.4.9");
+  expect(await resolveAntigravityCliVersion((async () => Response.json(observed)) as typeof fetch, true)).toBe("1.5.7");
   const { antigravityCliUserAgent } = await import("../open-sse/services/antigravityHeaders.ts");
-  expect(antigravityCliUserAgent()).toBe("antigravity/cli/1.4.9 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)");
+  expect(antigravityCliUserAgent()).toBe("antigravity/cli/1.5.7 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)");
 });
 const manifest = (version: unknown) => ({ version, url: "https://example.invalid/archive", sha512: "a".repeat(128) });
 

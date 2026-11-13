@@ -11,6 +11,7 @@
 
 ## Reference
 
+- [Auggie local CLI prerequisites and transport limits](auggie-local-cli.md)
 - [Model naming, catalogs, and routing](model-naming.md)
 - [Reverse proxy origin checks](reverse-proxy-origin-security.md)
 - [SQLite backend safety](sqljs-file-backend-safety.md)

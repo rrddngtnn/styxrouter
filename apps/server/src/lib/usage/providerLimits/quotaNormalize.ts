@@ -1,6 +1,6 @@
 import {
-  isUserCallableAntigravityModelId,
-  toClientAntigravityModelId,
+  isDiscoverableAntigravityModelId,
+  toClientAntigravityQuotaModelId,
 } from "@styxrouter/open-sse/config/antigravityModelAliases.ts";
 import { isUserCallableAgyModelId } from "@styxrouter/open-sse/config/agyModels.ts";
 
@@ -12,7 +12,8 @@ export function isRecord(value: unknown): value is JsonRecord {
 
 export function isUsageQuotaKeyAllowed(provider: string, quotaKey: string): boolean {
   if (quotaKey === "credits" || quotaKey === "models") return true;
-  if (provider === "antigravity") return isUserCallableAntigravityModelId(quotaKey);
+  // Quota telemetry is not routing eligibility; preserve new upstream model IDs.
+  if (provider === "antigravity") return isDiscoverableAntigravityModelId(quotaKey);
   if (provider === "agy") return isUserCallableAgyModelId(quotaKey);
   return true;
 }
@@ -20,8 +21,8 @@ export function isUsageQuotaKeyAllowed(provider: string, quotaKey: string): bool
 export function normalizeUsageQuotaKey(provider: string, quotaKey: string): string | null {
   if (quotaKey === "credits" || quotaKey === "models") return quotaKey;
   if (provider === "antigravity" || provider === "agy") {
-    const clientKey = toClientAntigravityModelId(quotaKey);
-    return isUsageQuotaKeyAllowed(provider, clientKey) ? clientKey : null;
+    const clientKey = toClientAntigravityQuotaModelId(quotaKey);
+    return clientKey && isUsageQuotaKeyAllowed(provider, clientKey) ? clientKey : null;
   }
   return isUsageQuotaKeyAllowed(provider, quotaKey) ? quotaKey : null;
 }

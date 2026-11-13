@@ -193,6 +193,8 @@ export type ExecutorLog = {
 };
 
 export type ExecuteInput = {
+  /** Trusted internal authenticated owner; never sourced from a caller header. */
+  sessionPrincipalId?: string | null;
   model: string;
   body: unknown;
   stream: boolean;

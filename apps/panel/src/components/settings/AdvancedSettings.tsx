@@ -140,7 +140,7 @@ export function EncryptedConfigBundleSection() {
 
   return <section className="settings-card">
     <div className="section-head"><div><h2 className="advanced-migration-title"><Lock size={18}/>{t('Encrypted configuration export & import')}</h2><p className="muted">{t('Export routing settings, combos, and custom provider nodes encrypted with a fresh passphrase (AES-256-GCM), or restore a bundle onto another host.')}</p></div></div>
-    <div className="two-col" style={{ gap: 16 }}>
+    <div className="two-col encrypted-bundle-forms" style={{ gap: 16 }}>
       <form className="stack-form" onSubmit={handleExport}>
         <strong>{t('Export encrypted bundle')}</strong>
         <label>{t('Bundle passphrase (12+ characters)')}<input type="password" autoComplete="new-password" placeholder={t('Enter encryption passphrase')} minLength={12} value={exportPass} onChange={e=>setExportPass(e.target.value)} disabled={busy!==null}/></label>

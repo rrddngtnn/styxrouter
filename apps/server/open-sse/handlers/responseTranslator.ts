@@ -1,3 +1,4 @@
+import { pickOpencodeBilling } from "../utils/opencodeBilling.ts";
 import { FORMATS } from "../translator/formats.ts";
 import {
   buildGeminiThoughtSignatureKey,
@@ -143,21 +144,24 @@ export function translateNonStreamingResponse(
   targetFormat: string,
   sourceFormat: string,
   toolNameMap?: Map<string, string> | null,
-  toolSchemas?: Map<string, JsonRecord> | null
+  toolSchemas?: Map<string, JsonRecord> | null,
+  signatureNamespace?: string | null
 ): JsonRecord;
 export function translateNonStreamingResponse(
   responseBody: unknown,
   targetFormat: string,
   sourceFormat: string,
   toolNameMap?: Map<string, string> | null,
-  toolSchemas?: Map<string, JsonRecord> | null
+  toolSchemas?: Map<string, JsonRecord> | null,
+  signatureNamespace?: string | null
 ): unknown;
 export function translateNonStreamingResponse(
   responseBody: unknown,
   targetFormat: string,
   sourceFormat: string,
   toolNameMap?: Map<string, string> | null,
-  toolSchemas?: Map<string, JsonRecord> | null
+  toolSchemas?: Map<string, JsonRecord> | null,
+  signatureNamespace?: string | null
 ): unknown {
   // If already in source format, return as-is
   if (targetFormat === sourceFormat) {
@@ -323,6 +327,7 @@ export function translateNonStreamingResponse(
       );
 
       result.usage = {
+        ...pickOpencodeBilling(usage),
         prompt_tokens: inputTokens,
         completion_tokens: outputTokens,
         total_tokens: inputTokens + outputTokens,
@@ -439,7 +444,7 @@ export function translateNonStreamingResponse(
                     // captured from an earlier thinking-only part.
                     const sig = partThoughtSig || pendingThoughtSignature;
                     if (sig) {
-                      const sigKey = buildGeminiThoughtSignatureKey(null, toolCallId);
+                      const sigKey = buildGeminiThoughtSignatureKey(signatureNamespace, toolCallId);
                       storeGeminiThoughtSignature(sigKey, sig);
                     }
 
@@ -508,6 +513,7 @@ export function translateNonStreamingResponse(
         const completionTokens = toNumber(usage.candidatesTokenCount, 0) + reasoningTokens;
 
         result.usage = {
+          ...pickOpencodeBilling(usage),
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
           total_tokens: toNumber(usage.totalTokenCount, 0),
@@ -618,6 +624,7 @@ export function translateNonStreamingResponse(
           usage.reasoning_tokens
         );
         const usageOut: JsonRecord = {
+          ...pickOpencodeBilling(usage),
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
           total_tokens: promptTokens + completionTokens,

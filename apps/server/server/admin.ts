@@ -1,5 +1,6 @@
 // Admin write API: API keys and combos (create / update / delete). Mounted under /api, so the session
 // gate in ./auth.ts already applies. Reuses the upstream validation schemas and DB layer.
+import { SPECIALTY_PROVIDERS } from "./specialty.ts";
 import { Hono, type Context } from "hono";
 import { getConnectionRoutingTags } from "../src/domain/tagRouter.ts";
 import {
@@ -385,7 +386,8 @@ export function createAdminApi() {
     const v = validateBody(addConnectionSchema, await bodyOf(c));
     if (isValidationFailure(v)) return bad(c, v.error);
     const { provider, name, apiKey } = v.data;
-    const entry = (REGISTRY as Record<string, any>)[provider];
+    const entry = Object.hasOwn(REGISTRY, provider) ? (REGISTRY as Record<string, any>)[provider]
+      : Object.hasOwn(SPECIALTY_PROVIDERS, provider) ? SPECIALTY_PROVIDERS[provider] : undefined;
     let providerSpecificData: Record<string, unknown> | undefined;
     if (entry && entry.id === provider) {
       const modes: string[] = Array.isArray(entry.authModes) ? entry.authModes : [entry.authType];

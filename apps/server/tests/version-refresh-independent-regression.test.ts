@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { requireAuth } from "../server/auth.ts";
 import { createAdminApi } from "../server/admin.ts";
 import { getZcodeVersion, getCachedZcodeVersion, __resetZcodeVersionCacheForTesting } from "../open-sse/services/zcodeVersion.ts";
-import { resolveAntigravityIdeVersion, resolveAntigravityCliVersion, clearAntigravityVersionCaches } from "../open-sse/services/antigravityVersion.ts";
+import { ANTIGRAVITY_CLI_FALLBACK_VERSION, getAntigravityVersionObservation, resolveAntigravityIdeVersion, resolveAntigravityCliVersion, clearAntigravityVersionCaches } from "../open-sse/services/antigravityVersion.ts";
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; __resetZcodeVersionCacheForTesting(); clearAntigravityVersionCaches(); });
 
@@ -51,7 +51,23 @@ test("unauthenticated refresh attempts cannot trigger network requests", async (
   expect(calls).toBe(0);
 });
 
+test("CLI stale source cannot downgrade the pinned baseline or last-good refresh", async () => {
+  const [major, minor, patch] = ANTIGRAVITY_CLI_FALLBACK_VERSION.split(".").map(Number);
+  const upgrade = `${major}.${minor}.${patch + 1}`;
+  let observed = "1.3.0";
+  const fakeFetch = (async () => Response.json({version: observed})) as typeof fetch;
+  expect(await resolveAntigravityCliVersion(fakeFetch, true)).toBe(ANTIGRAVITY_CLI_FALLBACK_VERSION);
+  expect(getAntigravityVersionObservation("cli").observedVersion).toBe("1.3.0");
+  observed = upgrade;
+  expect(await resolveAntigravityCliVersion(fakeFetch, true)).toBe(upgrade);
+  observed = "1.3.0";
+  expect(await resolveAntigravityCliVersion(fakeFetch, true)).toBe(upgrade);
+  expect(getAntigravityVersionObservation("cli").observedVersion).toBe("1.3.0");
+});
+
 test("concurrent refreshes share one request per source and use fixed credential-free URLs", async () => {
+  const [major, minor, patch] = ANTIGRAVITY_CLI_FALLBACK_VERSION.split(".").map(Number);
+  const cliUpgrade = `${major}.${minor}.${patch + 1}`;
   const calls: Array<{url: string; init: RequestInit}> = [];
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -59,12 +75,12 @@ test("concurrent refreshes share one request per source and use fixed credential
     calls.push({url: String(input), init});
     await gate;
     if (String(input).includes("zai-org")) return Response.json([{name:"4.0.0"}]);
-    if (String(input).includes("antigravity-cli-auto-updater")) return Response.json({version:"1.3.0"});
+    if (String(input).includes("antigravity-cli-auto-updater")) return Response.json({version: cliUpgrade});
     return Response.json([{version:"2.3.0"}]);
   }) as typeof fetch;
   const requests = [getZcodeVersion(true), getZcodeVersion(true), resolveAntigravityIdeVersion(fetch, true), resolveAntigravityIdeVersion(fetch, true), resolveAntigravityCliVersion(fetch, true), resolveAntigravityCliVersion(fetch, true)];
   release();
-  expect(await Promise.all(requests)).toEqual(["4.0.0", "4.0.0", "2.3.0", "2.3.0", "1.3.0", "1.3.0"]);
+  expect(await Promise.all(requests)).toEqual(["4.0.0", "4.0.0", "2.3.0", "2.3.0", cliUpgrade, cliUpgrade]);
   expect(calls.map(call => call.url).sort()).toEqual(["https://api.github.com/repos/zai-org/ZCode/tags", "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/darwin_arm64.json", "https://antigravity-ide-auto-updater-974169037036.us-central1.run.app/releases"].sort());
   for (const call of calls) {
     expect(call.init.redirect).toBe("error");

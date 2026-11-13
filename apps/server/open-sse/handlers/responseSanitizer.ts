@@ -2,6 +2,7 @@ import {
   copyOpenAICompatibleReasoningFields,
   getReadableReasoningValue,
 } from "../utils/reasoningFields.ts";
+import { pickOpencodeBilling } from "../utils/opencodeBilling.ts";
 import { stripInternalReasoningPlaceholder } from "../utils/reasoningPlaceholder.ts";
 import { normalizeOpenAICompatibleFinishReason } from "../utils/finishReason.ts";
 import {
@@ -521,7 +522,7 @@ function sanitizeUsage(usage: unknown): unknown {
   sanitized.completion_tokens = completionTokens;
   sanitized.total_tokens = totalTokens;
 
-  return sanitized;
+  return { ...sanitized, ...pickOpencodeBilling(usageRecord) };
 }
 
 function sanitizeResponsesUsage(usage: unknown): unknown {
@@ -610,7 +611,7 @@ function sanitizeResponsesUsage(usage: unknown): unknown {
   sanitized.output_tokens = outputTokens;
   sanitized.total_tokens = totalTokens;
 
-  return sanitized;
+  return { ...sanitized, ...pickOpencodeBilling(usageRecord) };
 }
 
 /**

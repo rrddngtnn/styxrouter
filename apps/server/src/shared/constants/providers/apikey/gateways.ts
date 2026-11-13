@@ -608,7 +608,7 @@ export const APIKEY_PROVIDERS_GATEWAYS = {
     icon: "opencode",
     color: "#6366f1",
     website: "https://opencode.ai/zen",
-    anonymousFallback: true,
+    anonymousFallback: false,
   },
   "opencode-go": {
     id: "opencode-go",
@@ -617,7 +617,7 @@ export const APIKEY_PROVIDERS_GATEWAYS = {
     icon: "opencode",
     color: "#6366f1",
     website: "https://opencode.ai/go",
-    anonymousFallback: true,
+    anonymousFallback: false,
   },
   dahl: {
     id: "dahl",

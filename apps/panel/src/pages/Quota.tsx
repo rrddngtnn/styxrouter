@@ -15,6 +15,7 @@ import "./quota.css";
 const quotaId: Record<string, string> = {
   "Filter by tag": "Filter berdasarkan tag", "Apply tag filter": "Terapkan filter tag", "Clear tag filter": "Hapus filter tag",
   "Hide providers": "Sembunyikan penyedia", "Show providers": "Tampilkan penyedia", "No matching providers.": "Tidak ada penyedia yang cocok.",
+  "Quota not provided": "Kuota tidak diberikan", "Catalog only; not proof of availability": "Hanya katalog; bukan bukti ketersediaan",
   "Selected": "Dipilih", "Remaining unknown": "Sisa tidak diketahui", "Reset": "Reset",
   "Fresh": "Terbaru", "Cached": "Cache", "Stale": "Data lama", "Freshly checked": "Baru diperiksa",
   "Updated": "Diperbarui", "Time unknown": "Waktu tidak diketahui", "Quota unavailable": "Kuota tidak tersedia", "More quota windows": "Jendela kuota lainnya",
@@ -503,6 +504,7 @@ export function QuotaBrowser({ rows, names, live, syncingAll, onRefresh, onCheck
         // Stale responses may contain a merged cache with mixed timestamps; prefer
         // snapshot provenance and retain only response windows absent from it.
         const windows = cachedNewer ? baseline : response?._stale === true ? mergeWindows(fresh, baseline) : mergeWindows(baseline, fresh);
+        const unreported = [...new Set(row.unreportedQuotaModels ?? [])].filter(id => !windows.some(w => w.models?.includes(id)));
         const stale = (!cachedNewer && response?._stale === true) || !!status?.error;
         const warning = status?.error ?? (typeof response?._staleReason === "string" ? response._staleReason : null) ?? (typeof response?.message === "string" ? response.message : null) ?? row.message;
         const plan = !cachedNewer && typeof response?.plan === "string" ? response.plan : row.plan;
@@ -547,6 +549,10 @@ export function QuotaBrowser({ rows, names, live, syncingAll, onRefresh, onCheck
           </>}
           <p className="quota-fetched muted">{stale ? tr("Stale") : fresh.length && !cachedNewer ? tr("Freshly checked") : tr("Cached")} · {fetched ? `${tr("Updated")}: ${when(fetched)}` : tr("Never synced")}</p>
           {warning && <p className="bad" role="status">{warning}</p>}
+          {!!unreported.length && <>
+            <p className="muted">{tr("Quota not provided")}: {unreported.slice(0, 4).join(", ")} · {tr("Catalog only; not proof of availability")}</p>
+            {unreported.length > 4 && <details className="quota-more"><summary>{tr("Quota not provided")} ({unreported.length - 4})</summary><p className="muted">{unreported.slice(4).join(", ")}</p></details>}
+          </>}
           {row.quotaSupported === false ? <p className="muted">{tr("Upstream quota API unavailable")}</p> : windows.length === 0 ? <p className="muted">{row.fetchedAt ? tr("Quota unavailable") : tr("Not synced yet")}</p> : <>
             {windows.slice(0, 3).map(renderWindow)}
             {windows.length > 3 && <details className="quota-more"><summary>{tr("More quota windows")} ({windows.length - 3})</summary>{windows.slice(3).map(renderWindow)}</details>}

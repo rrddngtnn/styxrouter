@@ -2430,6 +2430,18 @@ export async function handleChatCore({
         }
       );
     }
+    // Console is metered: translation must not silently enlarge an explicit caller budget.
+    if (["opencode", "opencode-zen", "opencode-go", "oc"].includes(provider || "")) {
+      const explicit = body.max_completion_tokens ?? body.max_tokens ?? body.max_output_tokens ?? body.generationConfig?.maxOutputTokens;
+      if (typeof explicit === "number" && Number.isFinite(explicit) && explicit > 0) {
+        if (targetFormat === FORMATS.CLAUDE) {
+          translatedBody.max_tokens = explicit;
+          if (translatedBody.thinking?.type === "enabled" && translatedBody.thinking.budget_tokens >= explicit) delete translatedBody.thinking;
+        } else if (targetFormat === FORMATS.OPENAI_RESPONSES) translatedBody.max_output_tokens = explicit;
+        else if (targetFormat === FORMATS.GEMINI) translatedBody.generationConfig = { ...translatedBody.generationConfig, maxOutputTokens: explicit };
+        else translatedBody.max_tokens = explicit;
+      }
+    }
   } catch (error) {
     // ── Plugin onError hook ──
     try {
@@ -3111,6 +3123,7 @@ export async function handleChatCore({
                             clientRawRequest?.headers,
                             userAgent
                           ),
+                          sessionPrincipalId: apiKeyInfo?.id ?? "public",
                           clientResponseFormat,
                           onCredentialsRefreshed,
                           skipUpstreamRetry,
@@ -3871,6 +3884,7 @@ export async function handleChatCore({
               extendedContext,
               upstreamExtraHeaders: buildUpstreamHeadersForExecute(retryModelId),
               clientHeaders: buildExecutorClientHeaders(clientRawRequest?.headers, userAgent),
+              sessionPrincipalId: apiKeyInfo?.id ?? "public",
               clientResponseFormat,
               onCredentialsRefreshed,
               skipUpstreamRetry: isCombo,
@@ -4887,7 +4901,8 @@ export async function handleChatCore({
           responsePayloadFormat,
           clientResponseFormat,
           responseToolNameMap,
-          responseToolSchemas
+          responseToolSchemas,
+          connectionId
         )
       : responseBody;
     const memoryExtractionResponse = translatedResponse;
@@ -4915,7 +4930,8 @@ export async function handleChatCore({
               responsePayloadFormat,
               FORMATS.OPENAI,
               responseToolNameMap,
-              responseToolSchemas
+              responseToolSchemas,
+              connectionId
             )
           : responseBody;
       const firstChoice = cacheResponse?.choices?.[0];

@@ -11,6 +11,10 @@ endpoints. Account rotation and protocol support depend on the provider.
 - [Connect clients](docs/harness-connections.md)
 - [Antigravity Hub default and legacy profile compatibility](docs/antigravity-profiles.md)
 - [Kiro supported generation client contract](docs/kiro-client-contract.md)
+- [Hydrogen output budget policy](docs/hydrogen-output-budgets.md)
+- [Optional private runtime overlays](docs/private-runtime-overlays.md)
+- [Auggie local CLI prerequisites and transport limits](docs/auggie-local-cli.md)
+- [Specialty embedding and search routes](docs/specialty-routes.md)
 - [Documentation index](docs/README.md)
 
 ## Quick start
@@ -60,6 +64,8 @@ Use the exact model ID from your configured catalog, usually `provider/model-id`
 Listing a model does not prove that an account can serve it. See
 [model naming and routing](docs/model-naming.md) for catalog synchronization,
 effort variants, eligibility, and context metadata.
+See [OpenCode Console upstream](docs/opencode-console-upstream.md) for Zen/Go
+transport, credential, catalog and usage boundaries.
 
 | Endpoint | Protocol |
 | --- | --- |

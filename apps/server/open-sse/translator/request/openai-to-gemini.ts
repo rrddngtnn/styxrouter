@@ -16,7 +16,9 @@ import {
   capThinkingBudget,
   getDefaultThinkingBudget,
 } from "../../../src/lib/modelCapabilities.ts";
+import { getParamFilterConfig } from "../../../src/lib/db/paramFilters.ts";
 import { getModelSpec } from "../../../src/shared/constants/modelSpecs.ts";
+import { getGenerationBudgetDefaults, isHydrogenTier, resolveGenerationBudget } from "../../services/generationBudgetPolicy.ts";
 
 import {
   DEFAULT_SAFETY_SETTINGS,
@@ -662,12 +664,18 @@ export function openaiToCloudCodeGeminiRequest(
     signaturelessToolCallMode?: "native" | "text" | "context";
   } = {}
 ) {
+  // Hydrogen Hub inventory exposes exact thinking-tier wire IDs. Do not translate
+  // those IDs into an unrelated numeric thinkingBudget or raise caller output caps.
+  const isHydrogenTier = /^(?:antigravity\/)?gemini-4-hydrogen-(?:low|medium|high|xhigh)$/.test(model);
   const request = openaiToGeminiBase(model, body, stream, {
     stripNamespace: true,
     signatureNamespace: options.signatureNamespace,
     signaturelessToolCallMode: options.signaturelessToolCallMode,
     supportsSignatureBypass: true,
   });
+  if (isHydrogenTier) {
+    delete request.generationConfig.thinkingConfig;
+  }
 
   // Standard Gemini requests retain the historical all-OFF defaults, but Cloud Code
   // must receive safety policy only when the caller explicitly supplied it.
@@ -785,6 +793,30 @@ function getAntigravityClaudeOutputTokens(body: Record<string, unknown>): number
 
 // OpenAI -> Antigravity (Sandbox Cloud Code with wrapper)
 export function openaiToAntigravityRequest(model, body, stream, credentials = null) {
+  // Budget policy is intentionally limited to verified exact Hydrogen Hub tiers.
+  // Other providers/AG models retain upstream-native/default behavior.
+  if (isHydrogenTier(model)) {
+    const configured = getGenerationBudgetDefaults(model);
+    const canonical = model.startsWith("antigravity/") ? model : `antigravity/${model}`;
+    // Hub discovery reports 262144 maxOutputTokens (not its context maxTokens).
+    // Existing operator capability limits may lower, never raise that hard ceiling.
+    const hardLimit = Math.min(262144, capMaxOutputTokens(canonical, 262144) ?? 262144);
+    const budget = resolveGenerationBudget({
+      explicit: body.max_completion_tokens ?? body.max_tokens,
+      ...configured,
+      fallback: configured.fallback ?? 32768,
+      hardLimit,
+    });
+    const filters = getParamFilterConfig("antigravity");
+    const localModel = model.replace(/^antigravity\//, "");
+    const modelFilter = filters?.models && Object.hasOwn(filters.models, localModel) ? filters.models[localModel] : undefined;
+    const blocked = ["max_tokens", "max_completion_tokens"].some(key => {
+      if (modelFilter?.allow?.includes(key)) return false;
+      if (modelFilter?.block?.includes(key)) return true;
+      return !!filters?.block?.includes(key) && !filters?.allow?.includes(key);
+    });
+    if (budget !== undefined && !blocked) body = { ...body, max_tokens: budget };
+  }
   const isClaude = model.toLowerCase().includes("claude");
   // All modern Gemini models (2.5+, 3.x, pro-agent, etc.) use thinking by default
   // and require thought_signature for multi-turn tool calls.

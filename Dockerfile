@@ -22,9 +22,15 @@ RUN bun install --production --frozen-lockfile --ignore-scripts
 FROM oven/bun:1.4.3-debian
 # Application release identity, independent of the pinned Bun runtime version.
 ARG STYX_VERSION=dev
+ARG STYX_REVISION=unknown
+ARG STYX_CREATED=unknown
 LABEL org.opencontainers.image.title="StyxRouter" \
-      org.opencontainers.image.version="${STYX_VERSION}"
-ENV NODE_ENV=production \
+      org.opencontainers.image.version="${STYX_VERSION}" \
+      org.opencontainers.image.revision="${STYX_REVISION}" \
+      org.opencontainers.image.source="https://github.com/rrddngtnn/styxrouter" \
+      org.opencontainers.image.created="${STYX_CREATED}"
+ENV STYX_VERSION=${STYX_VERSION} \
+    NODE_ENV=production \
     PORT=20128 \
     DATA_DIR=/data
 WORKDIR /app/apps/server

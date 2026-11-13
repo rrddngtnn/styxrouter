@@ -30,7 +30,7 @@ test("CLI pin controls dispatch while legacy IDE uses Hub independently of IDE d
     expect(result.response.status).toBe(200);
   }
   expect(agents).toHaveLength(2);
-  expect(agents[0]).toContain('antigravity/hub/2.24.0');
+  expect(agents[0]).toBe('antigravity/hub/2.31.2 (aidev_client; os_type=darwin; arch=arm64)');
   expect(agents[1]).toContain('antigravity/cli/3.4.5');
   expect(authHeaders).toEqual(['Bearer test-only-secret','Bearer test-only-secret']);
   for (const invalid of ['', '1.2', '1.2.3\n', '1234567.2.3', 'v1.2.3', 3, {}, '1.2.3\r\nx-secret: test']) expect((await put('ide',invalid)).status).toBe(400);
@@ -38,7 +38,7 @@ test("CLI pin controls dispatch while legacy IDE uses Hub independently of IDE d
   expect((await put('ide',null)).status).toBe(200);
   const afterClear = await new AntigravityExecutor().execute({model:'gemini-3-flash',body:{contents:[{role:'user',parts:[{text:'hi'}]}]},stream:true,credentials:{accessToken:'test-only-secret',projectId:'real-project',providerSpecificData:{clientProfile:'ide'}}} as any);
   expect(afterClear.response.status).toBe(200);
-  expect(agents[2]).toContain('antigravity/hub/2.24.0');
+  expect(agents[2]).toBe('antigravity/hub/2.31.2 (aidev_client; os_type=darwin; arch=arm64)');
 });
 
 test('pin routes reject unauthenticated requests', async () => {

@@ -890,7 +890,7 @@ export function ProviderDetail() {
       >
         {editingRulesAccount && (
           <form
-            className="stack-form"
+            className="stack-form provider-model-rules"
             onSubmit={async (e) => {
               e.preventDefault();
               const list = excludedModelsText

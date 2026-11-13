@@ -121,7 +121,7 @@ function VersionDriftRow({ title, subtitle, status, busy, onPin, onRefresh }: Ve
   };
 
   return (
-    <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+    <div className="card version-drift-card" style={{ padding: 14 }}>
       <div className="section-head" style={{ marginBottom: 10 }}>
         <div>
           <strong style={{ fontSize: 15 }}>{title}</strong>
@@ -160,6 +160,7 @@ function VersionDriftRow({ title, subtitle, status, busy, onPin, onRefresh }: Ve
       <form onSubmit={handleSavePin} className="row-actions" style={{ flexWrap: "wrap", gap: 8 }}>
         <input
           type="text"
+          className="version-pin-input"
           aria-label={`${title} ${tr("Pinned version")}`}
           placeholder={tr("Pinned version (x.y.z)")}
           value={draft}
@@ -228,7 +229,7 @@ export function HealthAndVersionsView({
   const recentTraceEvents = (routingTrace?.events ?? []).slice(-25).reverse();
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
+    <div className="health-versions" style={{ display: "grid", gap: 16 }}>
       <section className="settings-card">
         <div className="section-head" style={{ marginBottom: 12 }}>
           <div>

@@ -1,3 +1,4 @@
+import { isHydrogenTier } from "../services/generationBudgetPolicy.ts";
 import { getExplicitModelOutputCap } from "@/lib/modelCapabilities";
 import { isDiscoverableAntigravityModelId } from "../config/antigravityModelAliases";
 
@@ -39,6 +40,12 @@ export const MAX_ANTIGRAVITY_OUTPUT_TOKENS = 16384;
 export function resolveAntigravityOutputCap(modelId: string | null | undefined): number {
   const id = typeof modelId === "string" ? modelId.trim() : "";
   if (!id) return MAX_ANTIGRAVITY_OUTPUT_TOKENS;
+  // Exact Hub Hydrogen inventory publishes maxOutputTokens=262144. These new
+  // callable IDs must not inherit the unknown-model 16K compatibility ceiling.
+  if (isHydrogenTier(id)) {
+    const declared = getExplicitModelOutputCap({ provider: "antigravity", model: id.replace(/^antigravity\//, "") });
+    return Math.min(262144, typeof declared === "number" && Number.isFinite(declared) && declared > 0 ? declared : 262144);
+  }
   // MODEL_SPECS is provider-neutral: other providers may continue serving old
   // Gemini 3.5/3.6 ids after Antigravity retires them. Do not let those shared
   // specs make a retired Antigravity id look active on this provider path.

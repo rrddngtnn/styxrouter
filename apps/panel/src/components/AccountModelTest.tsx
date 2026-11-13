@@ -4,14 +4,16 @@ import { Modal } from '../lib/actions.tsx';
 import { useFetch } from '../lib/useFetch.ts';
 
 type Account = { id: string; provider: string; name: string | null; isActive: boolean };
-type Result = { ok?: boolean; status?: string; output?: string; finishReason?: string; usage?: Record<string, number> | null; httpStatus?: number; observedAt?: string; error?: string; model?: string };
+import { usePreferences } from '../lib/preferences.tsx';
+import { InferenceSummary, type InferenceResult as Result } from './InferenceSummary.tsx';
 
 export function AccountModelTest({ account, disabled }: { account: Account; disabled: boolean }) {
  const [open,setOpen]=useState(false);
+ const { language, locale } = usePreferences();
  const [result,setResult]=useState<Result | null>(null);
  return <>
   <button type="button" className="btn-ghost" disabled={disabled || !account.isActive} onClick={()=>setOpen(true)}>Test Model</button>
-  {result && <small role="status">Inference: {result.status ?? 'failed'} · {result.observedAt ? new Date(result.observedAt).toLocaleString() : ''}</small>}
+  {result && <InferenceSummary result={result} language={language} locale={locale} provider={account.provider} onDetails={()=>setOpen(true)} />}
   <Modal maxWidth="min(520px, calc(100vw - 32px))" open={open} onOpenChange={setOpen} title={`Test Model — ${account.name ?? 'Account'}`} description="Runs real inference on this exact account. No account or model fallback. This may incur usage charges; credential and catalog checks are separate.">
    {open && <AccountModelTestForm account={account} result={result} onResult={setResult} />}
   </Modal>

@@ -1,3 +1,4 @@
+import { pickOpencodeBilling } from "./opencodeBilling.ts";
 import { translateResponse, initState } from "../translator/index.ts";
 import { FORMATS } from "../translator/formats.ts";
 import { trackPendingRequest, appendRequestLog } from "@/lib/usageDb";
@@ -725,6 +726,7 @@ export function createSSEStream(options: StreamOptions = {}) {
 
   let buffer = "";
   let usage: UsageLike | null = null;
+  const consoleBilling: Record<string, unknown> = {};
   /** Passthrough (OpenAI CC shape): saw tool_calls in stream before finish_reason */
   let passthroughHasToolCalls = false;
   /** Passthrough: whether a chunk with non-null finish_reason was seen (#7800) */
@@ -1046,6 +1048,10 @@ export function createSSEStream(options: StreamOptions = {}) {
     } else if (state?.finishReason && isFinishChunk && state.usage) {
       const buffered = addBufferToUsage(state.usage);
       itemSanitized.usage = filterUsageForFormat(buffered, sourceFormat);
+    }
+
+    if (itemSanitized.usage && Object.keys(consoleBilling).length) {
+      itemSanitized.usage = { ...(itemSanitized.usage as Record<string, unknown>), ...consoleBilling };
     }
 
     if (
@@ -1415,6 +1421,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                   }
                   // Responses SSE: only extract usage, forward payload as-is
                   const extracted = extractUsage(parsed);
+                  Object.assign(consoleBilling, pickOpencodeBilling(extracted));
                   if (extracted) {
                     usage = extracted;
                   }
@@ -1664,6 +1671,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                   // Claude SSE: extract usage, track content, forward as-is
                   const thinkingSignatureInjected = injectThinkingSignature(parsed, provider);
                   const extracted = extractUsage(parsed);
+                  Object.assign(consoleBilling, pickOpencodeBilling(extracted));
                   if (extracted) {
                     // Non-destructive merge: never overwrite a positive value with 0
                     // message_start carries input_tokens, message_delta carries output_tokens;
@@ -1936,6 +1944,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                     );
 
                   const extracted = extractUsage(parsed);
+                  Object.assign(consoleBilling, pickOpencodeBilling(extracted));
                   if (extracted) {
                     usage = extracted;
                   }
@@ -2201,11 +2210,13 @@ export function createSSEStream(options: StreamOptions = {}) {
 
           // Extract usage
           const extracted = extractUsage(parsed);
+          Object.assign(consoleBilling, pickOpencodeBilling(extracted));
           if (extracted) {
             if (!state.usage) {
               state.usage = extracted;
             } else {
               const su = state.usage as Record<string, number>;
+              Object.assign(state.usage, pickOpencodeBilling(extracted));
               const eu = extracted as Record<string, number>;
               if (eu.prompt_tokens > 0) su.prompt_tokens = eu.prompt_tokens;
               if (eu.completion_tokens > 0) su.completion_tokens = eu.completion_tokens;
@@ -2627,11 +2638,13 @@ export function createSSEStream(options: StreamOptions = {}) {
               // events (e.g. prompt_tokens in message_start, completion_tokens
               // in message_delta). Direct assignment would lose earlier data.
               const extracted = extractUsage(parsed);
+              Object.assign(consoleBilling, pickOpencodeBilling(extracted));
               if (extracted) {
                 if (!state.usage) {
                   state.usage = extracted;
                 } else {
                   const su = state.usage as Record<string, number>;
+                  Object.assign(state.usage, pickOpencodeBilling(extracted));
                   const eu = extracted as Record<string, number>;
                   if (eu.prompt_tokens > 0) su.prompt_tokens = eu.prompt_tokens;
                   if (eu.completion_tokens > 0) su.completion_tokens = eu.completion_tokens;

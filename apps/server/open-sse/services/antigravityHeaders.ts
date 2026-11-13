@@ -7,8 +7,8 @@ import {
 
 export const ANTIGRAVITY_IDE_NODE_API_CLIENT = "google-api-nodejs-client/10.3.0";
 export const ANTIGRAVITY_IDE_NODE_X_GOOG_API_CLIENT = "gl-node/22.21.1";
-// Hub execution identity; kept at the observed working version.
-export const ANTIGRAVITY_HUB_VERSION = "2.24.0";
+// Official Hub 2.31.2 app launcher + bundled codeassistclient.userAgent contract.
+export const ANTIGRAVITY_HUB_VERSION = "2.31.2";
 
 // Antigravity presents the native macOS desktop client fingerprint: the upstream
 // backend expects the Mac build, so the OS/arch token is pinned to darwin/arm64
@@ -54,7 +54,7 @@ export function getAntigravityContentHeaders(
     {
       "Content-Type": "application/json",
       "User-Agent": profile === "hub"
-        ? `antigravity/hub/${ANTIGRAVITY_HUB_VERSION} ${ANTIGRAVITY_OS_TYPE}/${ANTIGRAVITY_ARCH}`
+        ? `antigravity/hub/${ANTIGRAVITY_HUB_VERSION} (aidev_client; os_type=${ANTIGRAVITY_OS_TYPE}; arch=${ANTIGRAVITY_ARCH})`
         : antigravityCliUserAgent(),
     },
     accessToken

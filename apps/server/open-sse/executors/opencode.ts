@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   BaseExecutor,
   type ExecuteInput,
@@ -12,7 +13,7 @@ import {
   isThinkingMessageModel,
 } from "../utils/reasoningContentInjector.ts";
 import { runWithDirectFetchContext, runWithProxyContext } from "../utils/proxyFetch.ts";
-import { forwardOpencodeClientHeaders } from "../utils/opencodeHeaders.ts";
+
 import {
   type AccountProxyConfig,
   type RotatableAccount,
@@ -38,6 +39,9 @@ interface OpencodeAccountState extends RotatableAccount {
   /** Account id (UI: providerSpecificData.fingerprints[i]); "" for the default direct account. */
   fingerprint: string;
 }
+
+// Request-local trusted principal; concurrent requests must never share mutable identity.
+const sessionPrincipal = new AsyncLocalStorage<string | null>();
 
 const EFFORT_LEVELS = ["none", "low", "high", "max"] as const;
 
@@ -455,16 +459,20 @@ export class OpencodeExecutor extends BaseExecutor {
   }
 
   async execute(input: ExecuteInput) {
+    return sessionPrincipal.run(input.sessionPrincipalId ?? null, () => this.executeScoped(input));
+  }
+
+  private async executeScoped(input: ExecuteInput) {
     this._requestFormat = resolveOpencodeTargetFormat(this.provider, input.model);
 
-    // #8681: Gate premium opencode models behind a usable API key.
-    // When the connection is keyless (no apiKey, no accessToken) and the model
-    // is a premium model (not on the free tier), return a clear 402 error
-    // instead of proxying the raw upstream 401 "Missing API key" response.
+    // Console third-party traffic requires a user-supplied API key. A key does
+    // not override upstream free-client, region, workspace or subscription rules.
     const creds = input.credentials;
-    const isKeyless =
-      !creds?.apiKey && !creds?.accessToken && !creds?.providerSpecificData?.extraApiKeys;
-    if (isKeyless && isPremiumOpencodeModel(input.model, this.provider)) {
+    const usableKey = (value: unknown) => typeof value === "string" && value.trim().length > 0;
+    const extras = creds?.providerSpecificData?.extraApiKeys;
+    const isKeyless = !usableKey(creds?.apiKey) && !usableKey(creds?.accessToken) &&
+      !(Array.isArray(extras) && extras.some(usableKey));
+    if (isKeyless) {
       const bodyJson = JSON.stringify({
         error: {
           message: "This model requires an opencode API key — add one in Settings → Providers.",
@@ -484,17 +492,6 @@ export class OpencodeExecutor extends BaseExecutor {
     }
 
     try {
-      // muse-spark reasoning models consume the entire output budget on hidden
-      // server-side reasoning; small caller budgets come back as empty-message
-      // 200s ("Provider returned empty content"). Raise tiny budgets to the
-      // floor before dispatch (see MUSE_SPARK_MIN_OUTPUT_TOKENS).
-      if (input.body && typeof input.body === "object" && !Array.isArray(input.body)) {
-        applyMuseSparkMinOutputTokens(
-          String(input.model ?? ""),
-          input.body as Record<string, unknown>
-        );
-      }
-
       this.syncAccountsFromCredentials(input.credentials);
       const { log } = input;
 
@@ -687,19 +684,39 @@ export class OpencodeExecutor extends BaseExecutor {
     credentials: ProviderCredentials | null = null
   ) {
     void urlIndex;
-    void credentials;
-
-    const base = this.config.baseUrl;
-    switch (this._requestFormat) {
-      case "claude":
-        return `${base}/messages`;
-      case "openai-responses":
-        return `${base}/responses`;
-      case "gemini":
-        return `${base}/models/${model}:${stream ? "streamGenerateContent?alt=sse" : "generateContent"}`;
-      default:
-        return `${base}/chat/completions`;
+    // Legacy paths remain opt-in. Never rewrite operator-owned gateway URLs.
+    const legacy = credentials?.providerSpecificData?.opencodeApiLayout === "legacy";
+    const fallback = legacy
+      ? `https://opencode.ai/zen${this.provider === "opencode-go" ? "/go" : ""}/v1`
+      : this.config.baseUrl;
+    const rawBase = this.resolveBaseUrl(credentials, fallback);
+    let url: URL;
+    try {
+      url = new URL(rawBase);
+      if (!["http:", "https:"].includes(url.protocol) || rawBase.includes("#")) throw new Error();
+    } catch {
+      // Do not reflect query credentials or other operator-owned URL content.
+      throw new Error("Invalid OpenCode base URL: use an absolute HTTP(S) URL without a fragment");
     }
+    const path = url.pathname.replace(/\/+$/, "");
+    const official = url.origin === "https://opencode.ai" && /^\/inference(?:\/go)?$/.test(path);
+    let suffix: string;
+    switch (this._requestFormat) {
+      case "claude": suffix = official ? "/anthropic/v1/messages" : "/messages"; break;
+      case "openai-responses": suffix = official ? "/openai/v1/responses" : "/responses"; break;
+      case "gemini":
+        suffix = `${official ? "/google/v1beta" : ""}/models/${encodeURIComponent(model)}:${stream ? "streamGenerateContent" : "generateContent"}`;
+        break;
+      default: suffix = official ? "/openai/v1/chat/completions" : "/chat/completions";
+    }
+    // A complete endpoint override is idempotent. Gemini's operation follows
+    // the requested stream mode while the model remains the exact requested ID.
+    const geminiEndpoint = /\/models\/[^/]+:(?:streamGenerateContent|generateContent)$/.test(path);
+    url.pathname = this._requestFormat === "gemini" && geminiEndpoint
+      ? path.replace(/\/models\/[^/]+:(?:streamGenerateContent|generateContent)$/, suffix)
+      : path.endsWith(suffix) ? path : path + suffix;
+    if (this._requestFormat === "gemini" && stream) url.searchParams.set("alt", "sse");
+    return url.toString().replace(/\?$/, "");
   }
 
   buildHeaders(
@@ -713,16 +730,26 @@ export class OpencodeExecutor extends BaseExecutor {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     // #8467: honor Extra API Keys rotation via BaseExecutor.resolveEffectiveKey.
     // Fall back to accessToken only when no apiKey/extras resolve to a key.
-    const key = credentials
-      ? this.resolveEffectiveKey(credentials) || credentials.accessToken
+    const cleanKey = (value: unknown): string | undefined =>
+      typeof value === "string" ? value.trim() || undefined : undefined;
+    const extras = credentials?.providerSpecificData?.extraApiKeys;
+    const normalized: ProviderCredentials | null = credentials ? {
+      ...credentials,
+      apiKey: cleanKey(credentials.apiKey),
+      providerSpecificData: {
+        ...credentials.providerSpecificData,
+        extraApiKeys: Array.isArray(extras) ? extras.map(cleanKey).filter((key): key is string => !!key) : [],
+      },
+    } : null;
+    const key = normalized
+      ? this.resolveEffectiveKey(normalized) || cleanKey(credentials?.accessToken)
       : undefined;
+    if (credentials?.providerSpecificData && normalized?.providerSpecificData.selectedKeyId) {
+      credentials.providerSpecificData.selectedKeyId = normalized.providerSpecificData.selectedKeyId;
+    }
 
     if (key) {
-      if (this._requestFormat === "claude") {
-        headers["x-api-key"] = key;
-      } else {
-        headers["Authorization"] = `Bearer ${key}`;
-      }
+      headers["Authorization"] = `Bearer ${key}`;
     }
 
     if (this._requestFormat === "claude") {
@@ -733,60 +760,24 @@ export class OpencodeExecutor extends BaseExecutor {
       headers["Accept"] = "text/event-stream";
     }
 
-    // Synthesize OpenCode CLI identity headers by default so Cloudflare in front of
-    // opencode.ai/zen doesn't 429 VPS requests lacking CLI identity. Opt-out via
-    // OPENCODE_SYNTHESIZE_CLI_HEADERS=false. Client-supplied headers always win;
-    // User-Agent is replaced with the CLI UA unless the client already sends one that
-    // looks like the OpenCode CLI. Default values match 9router's proven defaults.
-    const synthesizeCli = !/^(0|false|no|off)$/i.test(
-      process.env.OPENCODE_SYNTHESIZE_CLI_HEADERS?.trim() ?? ""
-    );
-    const cliDefaults = synthesizeCli
-      ? (() => {
-          const providerId = this.config?.id || this.provider || "opencode";
-          const envUAKey = `${providerId.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_USER_AGENT`;
-          return {
-            userAgent:
-              process.env[envUAKey]?.trim() ||
-              process.env.OPENCODE_USER_AGENT?.trim() ||
-              "opencode",
-            client: process.env.OPENCODE_CLIENT?.trim() || "desktop",
-            project: process.env.OPENCODE_PROJECT?.trim() || "global",
-          };
-        })()
-      : undefined;
-
-    if (clientHeaders || cliDefaults) {
-      const b = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
-      forwardOpencodeClientHeaders(headers, clientHeaders ?? {}, {
-        synthesizeRequestId: true,
-        cliDefaults,
-        sessionBody: b
-          ? {
-              model: typeof b.model === "string" ? b.model : undefined,
-              system: b.system,
-              messages: Array.isArray(b.messages)
-                ? (b.messages as Array<{ role?: string; content?: unknown }>)
-                : undefined,
-              tools: Array.isArray(b.tools)
-                ? (b.tools as Array<{ name?: string; function?: { name?: string } }>)
-                : undefined,
-            }
-          : undefined,
-      });
-    }
-
-    // Muse's Responses endpoint rejects the short conversation fingerprint used
-    // by the Chat endpoint in practice. Keep the workaround scoped to Muse.
-    if (
-      this._requestFormat === "openai-responses" &&
-      model.startsWith("muse-spark") &&
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        headers["x-opencode-session"] || ""
-      )
-    ) {
-      headers["x-opencode-session"] = randomUUID();
-    }
+    // Identify the router honestly; never impersonate OpenCode to unlock free models.
+    headers["User-Agent"] = process.env.OPENCODE_USER_AGENT?.trim() || "StyxRouter/1.0";
+    const incoming = Object.fromEntries(Object.entries(clientHeaders ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+    const b = body && typeof body === "object" ? body as Record<string, unknown> : {};
+    const history = Array.isArray(b.messages) ? b.messages : Array.isArray(b.input) ? b.input : Array.isArray(b.contents) ? b.contents : null;
+    const first = history?.find((message: any) => message?.role === "user") as Record<string, unknown> | undefined;
+    const firstUser = first ? first.content ?? first.parts : typeof b.input === "string" ? b.input : null;
+    const conversation = incoming["x-opencode-session"] || incoming["x-session-affinity"] || incoming["x-session-id"] || JSON.stringify(firstUser ?? null);
+    // The authenticated router credential separates otherwise identical client IDs.
+    // HMAC keeps both caller credentials and prompt-derived seeds out of upstream headers.
+    const secret = process.env.API_KEY_SECRET;
+    if (!secret?.trim()) throw new Error("API_KEY_SECRET is required for OpenCode session identity");
+    // Direct executor consumers without trusted owner retain credential-scoped isolation.
+    // Credentials are HMAC input only, never returned or persisted as session metadata.
+    const owner = sessionPrincipal.getStore() || incoming.authorization || incoming["x-api-key"] || "public";
+    headers["x-opencode-session"] = createHmac("sha256", secret)
+      .update(JSON.stringify(["styx/opencode/session/v1", this.provider, owner, conversation])).digest("hex");
+    headers["x-opencode-request"] = randomUUID();
 
     void model;
 

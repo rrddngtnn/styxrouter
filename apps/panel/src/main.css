@@ -950,7 +950,8 @@ td.row-actions {
 .editor input[type="password"],
 .editor textarea,
 .toolbar input[type="search"],
-.toolbar select {
+.toolbar select,
+.version-pin-input {
   background: rgba(var(--surface-tint), 0.03);
   border: 1px solid var(--border);
   color: var(--fg);
@@ -959,6 +960,18 @@ td.row-actions {
   font: inherit;
   font-size: 15px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+/* Grid owns inter-section spacing; standalone settings cards retain their margins. */
+.health-versions { grid-template-columns: minmax(0, 1fr); }
+.health-versions > .settings-card { margin: 0; min-width: 0; }
+.health-versions .version-drift-card + .version-drift-card { margin-top: 12px; }
+
+/* Version pin fields share form surfaces and adjacent action metrics. */
+.version-pin-input {
+  padding: 8px 14px;
+  line-height: 1.25;
+  min-width: 0;
 }
 
 .stack-form textarea,
@@ -977,7 +990,8 @@ td.row-actions {
 .editor input:focus,
 .editor textarea:focus,
 .toolbar input[type="search"]:focus,
-.toolbar select:focus {
+.toolbar select:focus,
+.version-pin-input:focus {
   outline: none;
   border-color: var(--accent-bright);
   background: rgba(var(--surface-tint), 0.045);
@@ -1357,8 +1371,10 @@ td.grow {
   .shell-search-trigger { font-size: 12px; padding: 0 9px; gap: 6px; }
   .shell-responsive .content { padding: 20px 16px max(32px, env(safe-area-inset-bottom)); }
 }
-@media (max-width: 380px) {
+@media (max-width: 600px) {
   .shell-search-trigger span { display: none; }
-  .shell-search-trigger { width: 40px; padding-inline: 0; justify-content: center; flex-shrink: 0; }
+  .shell-search-trigger { width: 44px; padding-inline: 0; justify-content: center; flex-shrink: 0; }
+}
+@media (max-width: 380px) {
   .shell-breadcrumbs { display: none; }
 }

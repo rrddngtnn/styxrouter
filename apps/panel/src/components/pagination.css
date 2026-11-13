@@ -8,5 +8,24 @@
 .pagination-options { gap: 12px; }
 .pagination-options input { width: 70px; min-width: 0; }
 .pagination-options select { width: auto; }
+/* Reuse the v015 form surface and inline-action metrics; retain native controls. */
+.pagination .pagination-options :is(input[type="number"], select) {
+  background: rgba(var(--surface-tint), 0.03);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.25;
+  /* Native selects do not honor line-height consistently across platforms. */
+  height: calc(1.25em + 18px);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.pagination .pagination-options :is(input[type="number"], select):focus {
+  border-color: var(--accent-bright);
+  background: rgba(var(--surface-tint), 0.045);
+  box-shadow: 0 0 0 3px rgba(94, 106, 210, 0.22);
+}
 .pagination button:focus-visible, .pagination input:focus-visible, .pagination select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 600px) { .pagination-pages { gap: 3px; } .pagination .btn-ghost { padding-inline: 6px; } .pagination .pagination-number { min-width: 28px; } }

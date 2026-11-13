@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { SPECIALTY_PROVIDERS } from "./specialty.ts";
+const managementRegistry = () => ({ ...SPECIALTY_PROVIDERS, ...REGISTRY });
 import { z } from "zod";
 import { REGISTRY } from "../open-sse/config/providers/index.ts";
 import { FORMATS } from "../open-sse/translator/formats.ts";
@@ -96,7 +98,8 @@ export function expandAdminInventories(inventories: ScopedInventory[], aliases: 
   return inventories;
 }
 async function provider(id: string) {
-  const entry = Object.hasOwn(REGISTRY, id) ? REGISTRY[id] : undefined;
+  const registry = managementRegistry();
+  const entry = Object.hasOwn(registry, id) ? registry[id] : undefined;
   if (entry?.id === id) return { id, prefix: entry.alias || id, builtins: entry.models || [] };
   const node = await getProviderNodeById(id) as any;
   return node ? { id, prefix: node.prefix || id, builtins: [] } : null;
@@ -173,7 +176,7 @@ export async function isExplicitProviderModel(model: string, allowMalformedSync 
   const slash = model.indexOf("/");
   if (slash < 1) return false;
   const prefix = model.slice(0, slash), localId = model.slice(slash + 1);
-  const candidates = Object.entries(REGISTRY)
+  const candidates = Object.entries(managementRegistry())
     .filter(([id, entry]) => entry.id === id && (id === prefix || entry.alias === prefix))
     .map(([id, entry]) => ({ id, prefix, builtins: entry.models || [] }));
   for (const node of await getProviderNodes() as Model[]) {
@@ -187,7 +190,7 @@ export async function isExplicitProviderModel(model: string, allowMalformedSync 
   return scoped.models.some(row => row.id === localId);
 }
 function specialtyRows(p: NonNullable<Awaited<ReturnType<typeof provider>>>, models: Model[] = []) {
-  const scoped: ScopedInventory = { providerId: p.id, nodeId: Object.hasOwn(REGISTRY, p.id) && REGISTRY[p.id]?.id === p.id ? null : p.id, prefix: p.prefix, models };
+  const scoped: ScopedInventory = { providerId: p.id, nodeId: Object.hasOwn(managementRegistry(), p.id) && managementRegistry()[p.id]?.id === p.id ? null : p.id, prefix: p.prefix, models };
   expandEmbeddingInventory([scoped]);
   expandSpecialtyInventory([scoped]);
   return scoped.models;
@@ -210,7 +213,7 @@ export function createProviderModelsApi() {
   });
   api.get("/admin/provider-catalog", async c => {
     const nodes = await getProviderNodes() as Model[];
-    const providers = Object.entries(REGISTRY).filter(([id, entry]) => entry.id === id)
+    const providers = Object.entries(managementRegistry()).filter(([id, entry]) => entry.id === id)
       .map(([id, entry]) => ({ id, prefix: id, builtins: entry.models || [], nodeId: null as string | null }));
     for (const node of nodes) providers.push({ id: node.id, prefix: node.prefix || node.id, builtins: [], nodeId: node.id });
     const inventories = await Promise.all(providers.map(async p => {

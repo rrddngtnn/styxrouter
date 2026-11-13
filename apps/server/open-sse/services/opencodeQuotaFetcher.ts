@@ -1,48 +1,8 @@
 /**
- * opencodeQuotaFetcher.ts — OpenCode Go / OpenCode / OpenCode Zen Quota Fetcher
- *
- * Implements QuotaFetcher for the opencode-go, opencode, and opencode-zen providers
- * (quotaPreflight.ts + quotaMonitor.ts).
- *
- * OpenCode Go has THREE independent quota windows per subscription:
- *   - 5-hour (rolling):  $12 of usage
- *   - Weekly:            $30 of usage
- *   - Monthly:           $60 of usage
- *
- * Upstream endpoint (defensive — no public API exists yet):
- *   GET https://opencode.ai/zen/go/v1/quota
- *   Authorization: Bearer <apiKey>
- *
- * Expected response shape:
- *   {
- *     quota: {
- *       window_5h:      { used: number, limit: number, reset_at: number | null },
- *       window_weekly:  { used: number, limit: number, reset_at: number | null },
- *       window_monthly: { used: number, limit: number, reset_at: number | null }
- *     }
- *   }
- *
- * NOTE: As of 2026, no public quota API exists for OpenCode Go / OpenCode Zen
- * (tracked upstream in anomalyco/opencode#16017, #18648, #31084). The default
- * endpoint currently returns HTTP 404. This fetcher is implemented defensively
- * so that the dashboard shows "No quota data" gracefully rather than crashing,
- * and so that when an endpoint is finally published, only the URL constant
- * needs to change.
- *
- * On a 404 response we log ONE console.warn (latched per process — not per
- * request) pointing at the upstream tracking issues, then cache the
- * "endpoint unavailable" result for 5 minutes to avoid hammering. On any other
- * non-200 / parse failure we return null (fail-open) silently. The first
- * call from each server boot is what the operator is most likely to see, so
- * we make it count.
- *
- * Cache: in-memory TTL (60s for success, 5 min for 404).
- *
- * Override: set STYX_OPENCODE_QUOTA_URL to a working endpoint. If
- * OpenCode ships a public endpoint (likely in the form of the merged PR
- * #16513), the maintainer can update the default.
- *
- * Registration: call registerOpencodeQuotaFetcher() once at server startup.
+ * OpenCode quota preflight/monitor adapter.
+ * No official remaining-quota API is established. Network polling is disabled
+ * unless the operator supplies STYX_OPENCODE_QUOTA_URL. Configured dashboard
+ * snapshots remain supported; absence of observations returns null (unknown).
  */
 
 import { registerQuotaFetcher, registerQuotaWindows, type QuotaInfo } from "./quotaPreflight.ts";
@@ -50,11 +10,9 @@ import { registerMonitorFetcher } from "./quotaMonitor.ts";
 import { throttleQuotaFetch } from "./quotaFetchThrottle.ts";
 import { resolveOpenCodeGoDashboardConfig } from "./opencodeOllamaUsage.ts";
 
-// OpenCode quota endpoint — same key works across opencode, opencode-go, opencode-zen
-// Default points at /zen/go/v1/quota which returns 404 today (no public quota API yet,
-// tracked in anomalyco/opencode#16017).  Set STYX_OPENCODE_QUOTA_URL to override.
+// Explicit operator endpoint only; never probe a guessed official quota path.
 const OPENCODE_QUOTA_URL =
-  process.env.STYX_OPENCODE_QUOTA_URL ?? "https://opencode.ai/zen/go/v1/quota";
+  process.env.STYX_OPENCODE_QUOTA_URL?.trim() || "";
 
 // Cache TTL — matches Codex / DeepSeek / Bailian pattern (60s)
 const CACHE_TTL_MS = 60_000;
@@ -175,9 +133,14 @@ function parseOpencodeQuotaResponse(data: unknown): OpencodeTripleWindowQuota | 
     quotaObj[OPENCODE_WINDOW_MONTHLY] ?? quotaObj["monthly"] ?? quotaObj["month"] ?? quotaObj["mo"]
   );
 
-  const has5h = Object.keys(w5h).length > 0;
-  const hasWeekly = Object.keys(wWeekly).length > 0;
-  const hasMonthly = Object.keys(wMonthly).length > 0;
+  const validWindow = (window: Record<string, unknown>) => {
+    const used = toNumber(window.used ?? window.used_amount, NaN);
+    const limit = toNumber(window.limit ?? window.limit_amount, NaN);
+    return Number.isFinite(used) && used >= 0 && Number.isFinite(limit) && limit > 0;
+  };
+  const has5h = validWindow(w5h);
+  const hasWeekly = validWindow(wWeekly);
+  const hasMonthly = validWindow(wMonthly);
 
   // Need at least one window to be meaningful
   if (!has5h && !hasWeekly && !hasMonthly) return null;
@@ -388,7 +351,7 @@ async function fetchLiveOpencodeQuota(
       ? connection.apiKey
       : null;
 
-  if (!apiKey) {
+  if (!apiKey || !OPENCODE_QUOTA_URL) {
     return null;
   }
 

@@ -101,7 +101,10 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
         ref={drawerRef}
       >
         <div className="shell-dialog-head">
-          {nav.desktop && !nav.isExpanded ? <div className="shell-rail-brand" role="img" aria-label="StyxRouter"><img src={`${import.meta.env.BASE_URL}brand/styx-icon.svg`} alt="" /></div> : <BrandMark />}
+          {/* The dark lockup already contains the approved high-contrast emblem.
+              Crop its icon view (420 × 470 at the supplied 0.6510638297872341 scale)
+              rather than recoloring the light icon or changing either SVG. */}
+          {nav.desktop && !nav.isExpanded ? <div className="shell-rail-brand" role="img" aria-label="StyxRouter"><img className="brand-lockup-light" src={`${import.meta.env.BASE_URL}brand/styx-icon.svg`} alt="" /><img className="brand-lockup-dark" src={`${import.meta.env.BASE_URL}brand/styx-lockup-dark.svg#svgView(viewBox(-323.44680851063833,-53,273.44680851063833,306))`} alt="" /></div> : <BrandMark />}
           {!nav.desktop && <button type="button" className="shell-icon-button" aria-label={t("Close navigation")} onClick={nav.close}>
             <X size={16} />
           </button>}
