@@ -92,7 +92,7 @@ class HygieneTransport(unittest.TestCase):
         self.assertNotIn('pull_request:', workflow)
         self.assertIn('PRIVATE_ALLOWLIST_B64: ${{ secrets.HYGIENE_PRIVATE_ALLOWLIST_B64 }}', workflow)
         selector = "(github.ref == 'refs/heads/maintenance/v0.1.x' || github.ref == 'refs/tags/v0.1.6')"
-        expression = "PRIVATE_ALLOWLIST_GZIP_B64: ${{ secrets[" + selector + " && 'HYGIENE_MAINTENANCE_V016_ALLOWLIST_GZIP_B64' || 'HYGIENE_PRIVATE_ALLOWLIST_GZIP_B64'] }}"
+        expression = selector + " && 'HYGIENE_MAINTENANCE_V016_ALLOWLIST_GZIP_B64' || 'HYGIENE_PRIVATE_ALLOWLIST_GZIP_B64'] }}"
         self.assertIn(expression, workflow)
         # Select the secret name before dereferencing: a missing maintenance secret
         # must fail closed, never fall back to the incompatible main bindings.
@@ -102,6 +102,8 @@ class HygieneTransport(unittest.TestCase):
                               ('refs/heads/main', False),
                               ('refs/tags/v0.2.0', False)]:
             self.assertEqual(ref in ('refs/heads/maintenance/v0.1.x', 'refs/tags/v0.1.6'), expected)
+        release_selector = "(github.ref == 'refs/heads/release/v0.3.0' || github.ref == 'refs/tags/v0.3.0')"
+        self.assertIn(release_selector + " && 'HYGIENE_RELEASE_V030_ALLOWLIST_GZIP_B64' || ", workflow)
         self.assertIn('run: python3 scripts/materialize-hygiene-inputs.py', workflow)
         self.assertNotIn('base64 --decode', workflow)
 

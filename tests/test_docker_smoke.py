@@ -23,6 +23,9 @@ class DockerSmokeTests(unittest.TestCase):
         self.assertIn('dashboard session may read model catalog without API key', script)
         self.assertIn('dashboard session must not authorize inference', script)
         self.assertIn('INITIAL_PASSWORD', script)
+        self.assertIn('/app/notices/augment-sdk-MIT.txt', script)
+        self.assertIn('augmentApiTransport.ts', script)
+        self.assertIn('text/plain; charset=utf-8', script)
 
     def test_approved_brand_inventory_is_checked_inside_actual_image(self):
         script = smoke.probe_script()

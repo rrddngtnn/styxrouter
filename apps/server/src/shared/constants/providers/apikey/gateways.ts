@@ -3,6 +3,7 @@
  * Pure data; merged by apikey/index.ts via spread (god-file decomposition; semantic split).
  */
 export const APIKEY_PROVIDERS_GATEWAYS = {
+  'augment-api': {id:'augment-api',alias:'augment-api',name:'Augment API',icon:'terminal',color:'#222222',textIcon:'A',website:'https://augmentcode.com',passthroughModels:true,apiHint:'Native API. Import JSON with token and apiUrl from your tenant administrator. No CLI session or browser cookies. Output token limits and sampling options are unsupported; omit them.'},
   // Cheaper Inference (https://cheaperinference.com) — OSS-sponsor gateway.
   // Cost-ranked reseller of 42 upstream models (Anthropic/OpenAI/Google/Moonshot/
   // xAI/Z.AI/DeepSeek/MiniMax) behind one OpenAI-compatible surface, with a native

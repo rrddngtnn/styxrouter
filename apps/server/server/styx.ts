@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { extendQuotaSyncTimeout } from "./quotaSyncTimeout.ts";
-import { serveStatic } from "hono/bun";
+import { servePanel } from "./panel.ts";
 import { handleChat, markExactTargetProbe } from "../src/sse/handlers/chat.ts";
 import { sanitizeProbeError, readBoundedProbeJson, sanitizeProbeOutput, isCompletedProbeChoice } from "./modelProbeResult.ts";
 import { runWithPanelProbeLogContext } from "../src/lib/panelProbeLogContext.ts";
@@ -581,23 +581,7 @@ if (process.env.STYX_TEST_MODE !== "1" && !process.env.BUN_TEST) {
 }
 
 const panelRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../panel");
-app.use(
-  "/panel/*",
-  serveStatic({
-    root: panelRoot,
-    rewriteRequestPath: (p) => {
-      const stripped = p.replace(/^\/panel/, "");
-      const lastSegment = stripped.split("/").pop() ?? "";
-      // Single-page app: only static asset paths (under /assets/ or ending in a common static file extension)
-      // are served as files; every client-side route (including `/panel/providers/:id` where `:id` may contain
-      // dots) serves `/index.html`.
-      const isStaticAsset =
-        stripped.startsWith("/assets/") ||
-        /\.(?:js|mjs|css|map|html|json|svg|png|jpe?g|gif|webp|ico|woff2?|ttf)$/i.test(lastSegment);
-      return isStaticAsset ? stripped : "/index.html";
-    },
-  })
-);
+app.use("/panel/*", servePanel(panelRoot));
 
 const port = Number(process.env.PORT || 20128);
 console.log(`StyxRouter :${port} (Hono+Bun)`);

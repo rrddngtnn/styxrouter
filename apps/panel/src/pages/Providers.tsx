@@ -503,6 +503,7 @@ export function ProviderDetail() {
   const [editingNode, setEditingNode] = useState(false);
   const [label, setLabel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [augmentApiUrl,setAugmentApiUrl]=useState("");
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [accountSearch, setAccountSearch] = useState("");
@@ -543,6 +544,7 @@ export function ProviderDetail() {
     const made = await run("add-key", () =>
       api.post("/api/connections", {
         provider: providerId,
+        ...(providerId === 'augment-api' ? {apiUrl:augmentApiUrl} : {}),
         name: label.trim() || `${target?.label ?? providerId}-${providerAccounts.length + 1}`,
         apiKey: apiKey.trim(),
       }),
@@ -771,6 +773,7 @@ export function ProviderDetail() {
               onChange={(e) => setLabel(e.target.value)}
             />
           </label>
+          {providerId === 'augment-api' && <label>Tenant API URL<input type="url" required value={augmentApiUrl} onChange={e=>setAugmentApiUrl(e.target.value)} placeholder="https://your-tenant.api.augmentcode.com"/><span className="muted">Native API; token budgets and sampling options are unsupported and rejected. Use canonical tenant model IDs; not CLI aliases.</span></label>}
           <label>{tr("API key / token")}<input
               type="password"
               placeholder={tr("API key (min 8 chars)")}

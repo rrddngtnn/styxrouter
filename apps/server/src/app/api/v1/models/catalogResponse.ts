@@ -252,6 +252,10 @@ export async function finalizeCatalogResponse(
     if (typeof listedModel.type !== "string" || listedModel.type.length === 0) {
       listedModel = { ...listedModel, type: "chat" };
     }
+    if(typeof listedModel.id === 'string' && listedModel.id.startsWith('augment-api/')) {
+      listedModel={...listedModel,supported_parameters:['tools'],unsupported_parameters:['max_tokens','max_completion_tokens','max_output_tokens','temperature','top_p','stop','tool_choice','response_format'],capabilities:{tools:true,streaming:true,vision:false,output_token_limit:false,sampling:false},output_token_limit_supported:false};
+      delete listedModel.max_output_tokens;delete listedModel.max_tokens;delete listedModel.max_input_tokens;delete listedModel.context_length;
+    }
     enriched.push(listedModel);
     catEnrichCount++;
     if (catEnrichCount % catYIELD_EVERY === 0) {

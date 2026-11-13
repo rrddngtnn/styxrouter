@@ -561,6 +561,13 @@ export async function handleChatCore({
       comboName: comboName || undefined,
     });
   });
+  if(provider === 'augment-api') {
+    const {assertAugmentParameters}=await import('../services/augmentApi.ts');
+    try{assertAugmentParameters(body as Record<string,unknown>);}catch(error){
+      const message=error instanceof Error?error.message:'unsupported_parameter';
+      return {success:false,status:400,error:message,response:Response.json({error:{code:'unsupported_parameter',type:'invalid_request_error',message}},{status:400})};
+    }
+  }
   const traceEnabled = process.env.STYX_TRACE === "true" || process.env.DEBUG === "true";
   // Stage trace extracted to chatCore/stageTrace.ts (#3501); bind the per-request inputs once so the
   // call sites stay byte-identical.

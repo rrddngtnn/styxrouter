@@ -441,6 +441,13 @@ async function handleChatImplementation(
   // stays permitted here because the existing `Missing model` guard below returns a
   // clean 400 for those; anything else that is not a string is a client type error.
   const rawModel = (body as { model?: unknown }).model;
+  // Preserve the caller's intent before translation/defaults/parameter filtering.
+  if(typeof rawModel === 'string' && rawModel.startsWith('augment-api/')) {
+    const {assertAugmentParameters}=await import('../../../open-sse/services/augmentApi.ts');
+    try {assertAugmentParameters(body as Record<string,unknown>);for(const key of ['mode','reasoning','max_new_tokens'])if(Object.hasOwn(body,key))throw new Error(`unsupported_parameter:${key}`);} catch(error) {
+      return Response.json({error:{code:'unsupported_parameter',type:'invalid_request_error',message:error instanceof Error?error.message:'unsupported_parameter'}},{status:400});
+    }
+  }
   if (rawModel !== undefined && rawModel !== null && typeof rawModel !== "string") {
     log.warn("CHAT", `Rejecting non-string model (typeof=${typeof rawModel})`);
     return errorResponse(
@@ -621,6 +628,42 @@ async function handleChatImplementation(
   const clientSessionId = externalSessionId || generateStableSessionId(body);
   const unscopedSessionAffinityKey = extractSessionAffinityKey(body, request.headers) || clientSessionId;
   const requestedConnectionId = request.headers.get("x-styx-connection")?.trim() || null;
+
+  // Inspect every declared combo target before policy accounting, quota or selection.
+  // Reject a mixed combo rather than silently route an unsupported caller budget elsewhere.
+  const declaredAugmentTarget = modelStr;
+  const checkAugmentRouting = async (targetModel: string, dynamic = false): Promise<Response | null> => {
+    const {assertAugmentParameters}=await import('../../../open-sse/services/augmentApi.ts');
+    const seen=new Set<string>();
+    const inspect=async(target:string,depth=0,advanced=false):Promise<void>=>{
+      const identity = `${target}:${advanced}`;
+      if(seen.has(identity))return;seen.add(identity);
+      if(depth>16)throw new Error('unsupported_parameter:unresolved_nested_target');
+      const combo=await getComboForModel(target);
+      if(combo){
+        const unsupportedStrategy = advanced || !['priority','round-robin'].includes(String(combo.strategy || 'priority'));
+        for(const raw of Array.isArray(combo.models) ? combo.models : []){
+          if(typeof raw==='string')await inspect(raw,depth+1,unsupportedStrategy);
+          else if(raw && typeof raw==='object'){
+            const node=raw as {model?:string;comboName?:string};
+            if(node.model)await inspect(node.model,depth+1,unsupportedStrategy);
+            else if(node.comboName)await inspect(node.comboName,depth+1,unsupportedStrategy);
+          }
+        }
+      }else if((await getModelInfo(target)).provider==='augment-api'){
+        if(advanced || dynamic)throw new Error('unsupported_augment_routing');
+        assertAugmentParameters(body as Record<string,unknown>);
+        for(const key of ['mode','reasoning','max_new_tokens'])if(Object.hasOwn(body,key))throw new Error(`unsupported_parameter:${key}`);
+      }
+    };
+    try{await inspect(targetModel);}catch(error){
+      if(error instanceof Error && (error.message.startsWith('unsupported_parameter:') || error.message==='unsupported_augment_routing'))return Response.json({error:{code:'unsupported_parameter',type:'invalid_request_error',message:error.message}},{status:400});
+      throw error;
+    }
+    return null;
+  };
+  const augmentRoutingRejection = await checkAugmentRouting(modelStr);
+  if (augmentRoutingRejection) return augmentRoutingRejection;
 
   // Pipeline: API key policy enforcement (model restrictions + budget limits)
   telemetry.startPhase("policy");
@@ -912,6 +955,11 @@ async function handleChatImplementation(
   resolvedModelStr = reasoningRouting.modelStr;
   reasoningDecision = reasoningRouting.reasoningDecision;
   requestRoutingTags = reasoningRouting.requestRoutingTags;
+
+  // Dynamic native reroutes are outside the verified Augment contract. Reject
+  // before combo availability preselection; unrelated providers retain their policy.
+  const dynamicAugmentRejection = await checkAugmentRouting(resolvedModelStr, resolvedModelStr !== declaredAugmentTarget);
+  if (dynamicAugmentRejection) return dynamicAugmentRejection;
 
   const autoRouting = exactTargetProbe() ? null : await resolveAutoRoutingState(resolvedModelStr);
   if (autoRouting?.response) return autoRouting.response;
@@ -1861,6 +1909,20 @@ async function handleSingleModelChat(
       let refreshedCredentials;
       try {
         refreshedCredentials = await checkAndRefreshToken(provider, credentials);
+        if (provider === 'augment-api' && refreshedCredentials && request) {
+          const callerKey = extractApiKey(request);
+          refreshedCredentials.augmentAuthorize = async () => {
+            if (!callerKey) return; // Existing local/session admission remains authoritative.
+            const {validateApiKey,getApiKeyMetadata,isModelAllowedForKey}=await import('@/lib/db/apiKeys');
+            const current=await getApiKeyMetadata(callerKey);
+            if (!(await validateApiKey(callerKey)) || !current || current.id!==apiKeyInfo?.id ||
+                !(await isModelAllowedForKey(callerKey,modelStr)) ||
+                !(await isModelAllowedForKey(callerKey,`augment-api/${model}`)) ||
+                (current.allowedConnections.length>0 && !current.allowedConnections.includes(credentials.connectionId))) {
+              throw new Error('caller_policy_revoked');
+            }
+          };
+        }
         if ((provider === "antigravity" || provider === "agy") && refreshedCredentials) {
           // Bind authorization to the same immutable wire ID the executor will use.
           // Preselected credentials and connection defaults may not carry a resolution.
@@ -2035,6 +2097,10 @@ async function handleSingleModelChat(
         releaseOAuthSession();
         return result.response;
       }
+
+      // Native Augment failures are authoritative for this dispatch. Never cross
+      // into CLI/model/account fallback or mutate account health on contract errors.
+      if(provider === 'augment-api')return withSelectedConnectionHeader(result.response,credentials.connectionId);
 
       // Client contract rejection is not account health or model availability.
       // Stop before transport retries, emergency fallback, and cooldown bookkeeping.

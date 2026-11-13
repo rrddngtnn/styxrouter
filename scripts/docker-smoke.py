@@ -19,6 +19,7 @@ def run(*args, **kwargs):
 def probe_script():
     notices = {
         "/app/LICENSE": ROOT / "LICENSE",
+        "/app/notices/augment-sdk-MIT.txt": ROOT / "docs/notices/augment-sdk-MIT.txt",
         "/app/CREDITS.md": ROOT / "CREDITS.md",
         "/app/apps/server/LICENSE": ROOT / "apps/server/LICENSE",
         "/app/apps/server/panel/brand/LICENSE-NOTICE.txt": ROOT / "apps/panel/public/brand/LICENSE-NOTICE.txt",
@@ -39,6 +40,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 assert.notEqual(process.getuid(), 0, "runtime must not be root");
+await import("/app/apps/server/open-sse/services/augmentApiTransport.ts");
 for (const [path, expected] of Object.entries(notices)) {
   assert.equal(createHash("sha256").update(readFileSync(path)).digest("hex"), expected, path);
 }
@@ -66,6 +68,17 @@ for (const [path, options] of [
   const response = await request(path, options);
   assert.equal(response.status, 401, path);
   assert.equal((await response.json()).error.type, "authentication_error", path);
+}
+for (const name of ["LICENSE-NOTICE.txt", "PROVENANCE.txt", "STYXROUTER-BRAND-KIT-NOTICE.txt"]) {
+  const path = "/panel/brand/" + name;
+  const response = await request(path);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "text/plain; charset=utf-8");
+  assert.equal(createHash("sha256").update(new Uint8Array(await response.arrayBuffer())).digest("hex"), notices["/app/apps/server" + path]);
+  const head = await request(path, {method:"HEAD"});
+  assert.equal(head.status, 200);
+  assert.equal(head.headers.get("content-type"), "text/plain; charset=utf-8");
+  assert.equal(await head.text(), "");
 }
 const login = await request("/api/auth/login", {
   method: "POST",

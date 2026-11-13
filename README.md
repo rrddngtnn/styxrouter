@@ -13,6 +13,7 @@ endpoints. Account rotation and protocol support depend on the provider.
 - [Kiro supported generation client contract](docs/kiro-client-contract.md)
 - [Hydrogen output budget policy](docs/hydrogen-output-budgets.md)
 - [Optional private runtime overlays](docs/private-runtime-overlays.md)
+- [Augment native API adapter and limitations](docs/augment-api.md)
 - [Auggie local CLI prerequisites and transport limits](docs/auggie-local-cli.md)
 - [Specialty embedding and search routes](docs/specialty-routes.md)
 - [Documentation index](docs/README.md)

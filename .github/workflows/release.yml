@@ -43,6 +43,7 @@ jobs:
             version="$RELEASE_NAME"
           fi
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'created=%s\n' "$(git show -s --format=%cI "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
       - name: Build only (no registry login or push)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -53,6 +54,8 @@ jobs:
           tags: styxrouter:verify
           build-args: |
             STYX_VERSION=${{ steps.image-version.outputs.version }}
+            STYX_REVISION=${{ github.sha }}
+            STYX_CREATED=${{ steps.image-version.outputs.created }}
           labels: |
             org.opencontainers.image.title=StyxRouter
             org.opencontainers.image.version=${{ steps.image-version.outputs.version }}

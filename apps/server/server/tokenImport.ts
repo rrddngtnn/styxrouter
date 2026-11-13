@@ -1,5 +1,6 @@
 // Token import accepts only explicitly configured registry targets; it never uses
 // export URLs for network requests. Raw credentials stay out of response objects.
+import {augmentTenantUrl} from '../open-sse/services/augmentApi.ts';
 import { randomUUID } from "node:crypto";
 import { REGISTRY } from "../open-sse/config/providers/index.ts";
 import { getDbInstance } from "../src/lib/db/core.ts";
@@ -21,7 +22,7 @@ const canonical = (s: string) => {
 // exchange token, and a bearer access token are not interchangeable. Only
 // contracts audited here are enabled; new providers fail closed until reviewed.
 const oauthAccess = new Set(["codebuddy-cn", "codebuddy-intl", "claude", "codex", "kimi-coding", "kimi-web", "xai-oauth", "kiro", "promptql"]);
-const specialApiKeys = new Set(["glm", "glmt", "qoder", "kimi", "moonshot", "xai", "opencode", "opencode-zen", "opencode-go", "cheaperinference"]);
+const specialApiKeys = new Set(["augment-api","glm", "glmt", "qoder", "kimi", "moonshot", "xai", "opencode", "opencode-zen", "opencode-go", "cheaperinference"]);
 const safeRefresh = new Set<string>();
 // Informational only: these contracts remain disabled until their complete
 // storage, dispatch and rejection paths have been verified independently.
@@ -129,7 +130,7 @@ function expiry(list: Record<string, unknown>[], access: string, opaque = false)
   return times.length ? new Date(Math.min(...times)).toISOString() : null;
 }
 type KiroMetadata = { authMethod: "social" | "external_idp"; profileArn?: string; region?: string };
-type Prepared = { view: Record<string, unknown>; access?: string; refresh?: string; authType?: string; workspaceId?: string; kiroMetadata?: KiroMetadata; promptqlProjectId?: string };
+type Prepared = { view: Record<string, unknown>; access?: string; refresh?: string; authType?: string; workspaceId?: string; kiroMetadata?: KiroMetadata; promptqlProjectId?: string; augmentApiUrl?: string };
 function prepare(value: unknown, fallback: string, index: number): Prepared {
   const fail = (error: string): Prepared => ({ view: { index, valid: false, error } });
   if (!isObject(value)) return fail("Entry must be an object");
@@ -172,6 +173,12 @@ function prepare(value: unknown, fallback: string, index: number): Prepared {
   if (fields(list, ["expires_in", "expiresIn"]).length && !fields(list, ["issued_at", "issuedAt"]).length) return fail("Relative expiry is unsupported without an issuance timestamp; provide an absolute expiry");
   const expiresAt = expiry(list, access, provider === "promptql");
   if (expiresAt === false) return fail("Invalid expiry");
+  let augmentApiUrl: string | undefined;
+  if(provider === 'augment-api') {
+    const urls=fields(list,['apiUrl','tenantURL']);
+    if(urls.length!==1 || urls.some(u=>accesses.some(a=>!related(u.item,a.item)))) return fail('A single credential-bound tenant API URL is required');
+    try {augmentApiUrl=augmentTenantUrl(urls[0].value);} catch{return fail('Invalid Augment tenant API URL');}
+  }
   let workspaceId: string | undefined;
   if (provider === "codex") {
     const names = ["account_id", "accountId", "chatgpt_account_id", "chatgptAccountId", "workspace_id", "workspaceId"];
@@ -215,7 +222,7 @@ function prepare(value: unknown, fallback: string, index: number): Prepared {
   }
   // Never reflect identity or arbitrary metadata in the preview; retain only
   // explicitly validated, bounded metadata needed for dispatch.
-  return { view: { index, valid: true, provider, providerSource, label: `Imported account ${index + 1}`, mode: refresh ? "access+refresh" : "access", expiresAt, refreshable: false }, access, refresh: refresh ?? undefined, authType, workspaceId, kiroMetadata, promptqlProjectId };
+  return { view: { index, valid: true, provider, providerSource, label: `Imported account ${index + 1}`, mode: refresh ? "access+refresh" : "access", expiresAt, refreshable: false }, access, refresh: refresh ?? undefined, authType, workspaceId, kiroMetadata, promptqlProjectId, augmentApiUrl };
 }
 export function prepareTokenImport(body: unknown): Prepared[] | null {
   if (!isObject(body) || typeof body.provider !== "string" || body.provider.length > 100 || !canonical(body.provider) || !Object.hasOwn(body, "accounts")) return null;
@@ -231,7 +238,7 @@ export async function saveTokenImport(items: Prepared[], _legacyAudit?: (id: str
       const conn = await persistTokenImport(getDbInstance(), {
         provider: String(item.view.provider), authType: item.authType as "oauth" | "apikey",
         access: item.access, refresh: item.refresh, name: `${item.view.label} ${randomUUID().slice(0, 8)}`,
-        expiresAt: typeof item.view.expiresAt === "string" ? item.view.expiresAt : null, workspaceId: item.workspaceId, kiroMetadata: item.kiroMetadata, promptqlProjectId: item.promptqlProjectId,
+        expiresAt: typeof item.view.expiresAt === "string" ? item.view.expiresAt : null, workspaceId: item.workspaceId, kiroMetadata: item.kiroMetadata, promptqlProjectId: item.promptqlProjectId, augmentApiUrl:item.augmentApiUrl,
       });
       if (conn.created) backupDbFile("pre-write");
       results.push({ ...item.view, id: conn.id });

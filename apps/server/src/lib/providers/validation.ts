@@ -174,6 +174,10 @@ export async function validateFreebuffProvider({ apiKey }: { apiKey: string }) {
 
 export async function validateProviderApiKey({ provider, apiKey, providerSpecificData = {} }: any) {
   provider = typeof provider === "string" ? resolveProviderId(provider) : provider;
+  if(provider === 'augment-api') {
+    try {const {discoverAugment}=await import('../../../open-sse/services/augmentApi.ts');await discoverAugment(providerSpecificData.apiUrl,apiKey);return {valid:true,error:null};}
+    catch{return {valid:false,error:'Augment credential or tenant catalog validation failed',unsupported:false};}
+  }
   const requiresApiKey = !providerAllowsOptionalApiKey(provider);
   const isLocal = isLocalProvider(provider);
 

@@ -120,6 +120,11 @@ async function inventory(p: NonNullable<Awaited<ReturnType<typeof provider>>>, a
     if (!existing) rows.set(model.id, { ...model, origin: manualOrigin ? "manual" : "synced" });
     else if (manualOrigin) rows.set(model.id, { ...existing, manualOverlay: { ...model } });
   }
+  if (p.id === 'augment-api') for (const [id, row] of rows) {
+    const truthful: Model = {...row, supported_parameters:['tools'], capabilities:{tools:true,streaming:true,vision:false,output_token_limit:false,sampling:false}, output_token_limit_supported:false};
+    for (const key of ['max_output_tokens','max_tokens','max_input_tokens','context_length','inputTokenLimit','outputTokenLimit']) delete truthful[key];
+    rows.set(id,truthful);
+  }
   return { rows, manual: manual as Model[], malformedSync };
 }
 

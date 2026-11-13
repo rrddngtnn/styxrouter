@@ -166,6 +166,8 @@ export type ProviderConfig = {
 };
 
 export type ProviderCredentials = {
+  /** Trusted request-scoped policy fence; never read from providerSpecificData or headers. */
+  augmentAuthorize?: () => Promise<void>;
   accessToken?: string;
   refreshToken?: string;
   apiKey?: string;

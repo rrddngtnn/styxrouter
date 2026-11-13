@@ -33,6 +33,24 @@ export function createModelSyncApi(deps: { fetch?: typeof fetch } = {}) {
       }
       const conn = await getProviderConnectionById(id) as any;
       if (!conn) return c.json({ error: "Connection not found" }, 404);
+      if(conn.provider === 'augment-api') {
+        if(conn.isActive === false)return c.json({error:'Connection is inactive'},409);
+        const {discoverAugment}=await import('../open-sse/services/augmentApi.ts');
+        const models=await discoverAugment(conn.providerSpecificData?.apiUrl,conn.apiKey);
+        if(!models.length)return c.json({error:'Upstream model catalog has no usable models'},502);
+        let published=false;
+        db.immediate(()=>{
+          const current=db.prepare("SELECT value FROM key_value WHERE namespace = 'codexSyncFence' AND key = ?").get(id) as {value:string}|undefined;
+          const active=db.prepare("SELECT is_active,provider_specific_data FROM provider_connections WHERE id = ? AND provider = 'augment-api'").get(id) as {is_active:number;provider_specific_data:string}|undefined;
+          if(current?.value!==fence||active?.is_active!==1)return;
+          const metadata=JSON.parse(active.provider_specific_data) as {apiUrl?:string};
+          if(metadata.apiUrl!==conn.providerSpecificData?.apiUrl)return;
+          db.prepare("INSERT OR REPLACE INTO key_value(namespace,key,value) VALUES ('syncedAvailableModels',?,?)").run(`augment-api:${id}`,JSON.stringify(normalizeSyncedAvailableModels(models.map(m=>({...m,supportsTools:true,supportsThinking:true,supportsVision:false})),conn.provider)));
+          published=true;
+        });
+        if(!published)return c.json({error:'Synchronization superseded or inactive'},409);
+        finishSyncedAvailableModelsWrite();invalidateDbCache('connections');return c.json({success:true,syncedModels:models.length});
+      }
       if (["opencode", "opencode-zen"].includes(conn.provider)) {
         if (conn.isActive === false) return c.json({ error: "Connection is inactive" }, 409);
         if (!conn.apiKey) return c.json({ error: "Connection requires authentication" }, 409);

@@ -375,6 +375,7 @@ export function createAdminApi() {
     .object({
       provider: z.string().trim().min(1).max(100),
       name: z.string().trim().min(1).max(200),
+      apiUrl: z.string().max(512).optional(),
       apiKey: z.string().trim().min(8).max(2000),
     })
     .strict();
@@ -389,6 +390,9 @@ export function createAdminApi() {
     const entry = Object.hasOwn(REGISTRY, provider) ? (REGISTRY as Record<string, any>)[provider]
       : Object.hasOwn(SPECIALTY_PROVIDERS, provider) ? SPECIALTY_PROVIDERS[provider] : undefined;
     let providerSpecificData: Record<string, unknown> | undefined;
+    if(provider === 'augment-api') {
+      try {const {augmentTenantUrl}=await import('../open-sse/services/augmentApi.ts');providerSpecificData={apiUrl:augmentTenantUrl(v.data.apiUrl)};} catch {return bad(c,'A valid Augment tenant API URL is required');}
+    }else if(v.data.apiUrl !== undefined)return bad(c,'apiUrl is supported only for Augment API');
     if (entry && entry.id === provider) {
       const modes: string[] = Array.isArray(entry.authModes) ? entry.authModes : [entry.authType];
       if (!modes.includes("apikey")) return bad(c, `Provider '${provider}' does not use an API key`);

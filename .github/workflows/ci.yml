@@ -11,7 +11,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Configure runner scratch directory
         # The runner context is available in steps, not job-level env.
@@ -27,8 +27,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends caddy
           caddy version
-      - name: Server tests (isolated)
-        run: bun run server:test
+      - name: Install browser fixture dependencies
+        run: |
+          bun apps/server/node_modules/playwright/cli.js install --with-deps chromium
+          browser=$(bun -e 'import {chromium} from "./apps/server/node_modules/playwright/index.mjs"; console.log(chromium.executablePath())')
+          test -x "$browser"
+          printf 'CHROMIUM_PATH=%s\nCHROME_PATH=%s\nPLAYWRIGHT_MODULE=%s/apps/server/node_modules/playwright/index.mjs\n' "$browser" "$browser" "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+      - name: Server tests (isolated, tests and experiments)
+        run: bun --no-env-file apps/server/scripts/test-isolated.ts tests experiments
       - name: Server Python tests
         run: bun run server:test:py
       - name: Panel tests

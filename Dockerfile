@@ -28,7 +28,8 @@ LABEL org.opencontainers.image.title="StyxRouter" \
       org.opencontainers.image.version="${STYX_VERSION}" \
       org.opencontainers.image.revision="${STYX_REVISION}" \
       org.opencontainers.image.source="https://github.com/rrddngtnn/styxrouter" \
-      org.opencontainers.image.created="${STYX_CREATED}"
+      org.opencontainers.image.created="${STYX_CREATED}" \
+      org.opencontainers.image.licenses="LicenseRef-StyxRouter-ThirdParty-Notices"
 ENV STYX_VERSION=${STYX_VERSION} \
     NODE_ENV=production \
     PORT=20128 \
@@ -39,6 +40,7 @@ COPY --from=deps /app/apps/server/node_modules ./node_modules
 COPY apps/server/ ./
 # Preserve root lineage and every retained legal/asset notice in the artifact.
 COPY LICENSE CREDITS.md /app/
+COPY docs/notices/augment-sdk-MIT.txt /app/notices/augment-sdk-MIT.txt
 COPY apps/panel/src/components/provider-icon-NOTICE.md /app/notices/provider-icon-NOTICE.md
 COPY --from=panel /build/apps/panel/dist ./panel
 RUN mkdir -p /data && chown -R bun:bun /data /app
