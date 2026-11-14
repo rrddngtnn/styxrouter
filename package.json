@@ -1,6 +1,6 @@
 {
   "name": "styxrouter",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "StyxRouter — lean AI model router (OpenAI/Anthropic/Google/Tencent/Z.ai) on Hono + Bun.",
   "license": "SEE LICENSE IN CREDITS.md",

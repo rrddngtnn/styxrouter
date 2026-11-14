@@ -1,6 +1,6 @@
 {
   "name": "@styxrouter/server",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "StyxRouter server — Hono+Bun host with executors, OAuth, DB.",
   "type": "module",
   "bin": {

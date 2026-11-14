@@ -36,7 +36,7 @@ jobs:
           PRIVATE_CATALOG_B64: ${{ secrets.HYGIENE_PRIVATE_CATALOG_B64 }}
           PRIVATE_ALLOWLIST_B64: ${{ secrets.HYGIENE_PRIVATE_ALLOWLIST_B64 }}
           # Maintenance bindings are isolated; preserve the newer main lineage secret.
-          PRIVATE_ALLOWLIST_GZIP_B64: ${{ secrets[(github.ref == 'refs/heads/release/v0.3.0' || github.ref == 'refs/tags/v0.3.0') && 'HYGIENE_RELEASE_V030_ALLOWLIST_GZIP_B64' || (github.ref == 'refs/heads/maintenance/v0.1.x' || github.ref == 'refs/tags/v0.1.6') && 'HYGIENE_MAINTENANCE_V016_ALLOWLIST_GZIP_B64' || 'HYGIENE_PRIVATE_ALLOWLIST_GZIP_B64'] }}
+          PRIVATE_ALLOWLIST_GZIP_B64: ${{ secrets[(github.ref == 'refs/heads/hotfix/custom-provider-api-key' || github.ref == 'refs/tags/v0.3.1') && 'HYGIENE_RELEASE_V031_ALLOWLIST_GZIP_B64' || (github.ref == 'refs/heads/release/v0.3.0' || github.ref == 'refs/tags/v0.3.0') && 'HYGIENE_RELEASE_V030_ALLOWLIST_GZIP_B64' || (github.ref == 'refs/heads/maintenance/v0.1.x' || github.ref == 'refs/tags/v0.1.6') && 'HYGIENE_MAINTENANCE_V016_ALLOWLIST_GZIP_B64' || 'HYGIENE_PRIVATE_ALLOWLIST_GZIP_B64'] }}
         run: python3 scripts/materialize-hygiene-inputs.py
       - name: Run authoritative offline hygiene gates
         run: |
