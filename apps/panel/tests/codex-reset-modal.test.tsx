@@ -29,10 +29,11 @@ if (inHarness) {
 // Preserve React's internal exports: the real development JSX runtime needs
 // them even though this harness replaces hooks to inspect the returned tree.
 const actualReact = { ...await import("react") };
-mock.module("react", () => ({ ...actualReact, useState: (initial: unknown) => { const i=cursor++; if (!(i in slots)) slots[i]=initial; return [slots[i], (v: unknown) => { slots[i]=typeof v === "function" ? v(slots[i]) : v; }]; }, useRef: (v: unknown) => { const i=cursor++; return slots[i] ?? (slots[i]={current:v}); }, useMemo: (fn: () => unknown) => fn() }));
+mock.module("react", () => ({ ...actualReact, useEffect: () => {}, useState: (initial: unknown) => { const i=cursor++; if (!(i in slots)) slots[i]=initial; return [slots[i], (v: unknown) => { slots[i]=typeof v === "function" ? v(slots[i]) : v; }]; }, useRef: (v: unknown) => { const i=cursor++; return slots[i] ?? (slots[i]={current:v}); }, useMemo: (fn: () => unknown) => fn() }));
+mock.module("react-router-dom", () => ({ Link: () => null, useSearchParams: () => [new URLSearchParams(), () => {}], useBlocker: () => ({ state: "unblocked" }) }));
 mock.module("../src/lib/preferences.tsx", () => ({ usePreferences: () => ({ t: (s: string) => s, language:"en" }) }));
 mock.module("../src/lib/useFetch.ts", () => ({useFetch: () => ({status:"ok",data:{providers:[row("a"),row("b")]},reload:()=>{}})}));
-mock.module("../src/lib/api.ts",()=>({api:{get:(url:string)=>get(url),post:async (_:string,body:unknown)=>{posts.push(body);return {ok:true,outcome:"reset",quotaRefreshed:false};}}}));
+mock.module("../src/lib/api.ts",()=>({ApiError: class ApiError extends Error {},api:{get:(url:string)=>get(url),post:async (_:string,body:unknown)=>{posts.push(body);return {ok:true,outcome:"reset",quotaRefreshed:false};}}}));
 mock.module("../src/lib/actions.tsx",()=>({Modal:()=>null}));
 mock.module("sonner",()=>({toast:{success:()=>{},error:()=>{}}}));
 afterAll(() => { mock.restore(); });

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { applyNativeZcodeInstructions, loadNativeZcodeInstructions, renderNativeZcodePrompt } from "../services/nativeZcodeInstructions.ts";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -263,7 +264,10 @@ export class ZcodeExecutor extends BaseExecutor {
 
     const body = asRecord(input.body);
     const messages = Array.isArray(body.messages) ? body.messages as OpenAIMsg[] : [];
-    const prompt = buildZcodePrompt(messages);
+    const instructions = loadNativeZcodeInstructions();
+    const prompt = renderNativeZcodePrompt(applyNativeZcodeInstructions({
+      conversation: buildZcodePrompt(messages),
+    }, instructions.text));
     input.log?.info?.("ZCODE", `local app-server turn started model=${resolution.model}`);
 
     try {
@@ -275,7 +279,7 @@ export class ZcodeExecutor extends BaseExecutor {
         response,
         url: ZCODE_URL,
         headers: {},
-        transformedBody: { model: resolution.model, promptLength: prompt.length, buffered: true },
+        transformedBody: { model: resolution.model, promptLength: prompt.length, buffered: true, instructionsStatus: instructions.status },
         transport: "local-zcode-app-server",
       };
     } catch (error) {

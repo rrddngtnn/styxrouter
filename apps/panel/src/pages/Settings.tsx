@@ -49,9 +49,9 @@ export function Settings() {
             <Cpu size={14} />
             <span>{tr("Models → Thinking Budget, Vision Bridge & Soul")}</span>
           </Link>
-          <Link to="/providers?tab=network" className="btn-ghost" style={{ textDecoration: "none" }}>
+          <Link to="/connection-policy" className="btn-ghost" style={{ textDecoration: "none" }}>
             <Database size={14} />
-            <span>{tr("Providers → Egress Proxies & Error Rules")}</span>
+            <span>{tr("Connection Policy → Proxies & Error Rules")}</span>
           </Link>
           <Link to="/activity" className="btn-ghost" style={{ textDecoration: "none" }}>
             <Activity size={14} />

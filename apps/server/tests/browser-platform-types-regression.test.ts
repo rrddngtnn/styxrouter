@@ -29,7 +29,7 @@ test("server typecheck includes browser platform types used by browser executors
         files: [source], include: [], exclude: [],
       }));
       return Bun.spawnSync([
-        "node", "--max-old-space-size=1024",
+        process.execPath, "--bun",
         resolve(root, "apps/panel/node_modules/typescript/bin/tsc"),
         "--noEmit", "--pretty", "false", "-p", config,
       ], { cwd: root, stdout: "pipe", stderr: "pipe", timeout: 30_000 });

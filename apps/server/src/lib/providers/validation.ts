@@ -1,3 +1,5 @@
+import { getProviderNodeById } from '@/lib/db/providers/nodes';
+import { validateCustomNodeApiKey } from './validation/customNode';
 import { getEmbeddingProvider } from "@styxrouter/open-sse/config/embeddingRegistry.ts";
 import { getRegistryEntry } from "@styxrouter/open-sse/config/providerRegistry.ts";
 import {
@@ -184,6 +186,11 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
   if (!provider || (requiresApiKey && !apiKey)) {
     return { valid: false, error: "Provider and API key required", unsupported: false };
   }
+
+  // Current custom definitions have opaque IDs, not the legacy type prefixes.
+  // Resolve the saved definition, rather than trusting connection-supplied URLs.
+  const customNode = await getProviderNodeById(provider);
+  if (customNode) return validateCustomNodeApiKey(customNode, apiKey);
 
   if (isOpenAICompatibleProvider(provider)) {
     try {

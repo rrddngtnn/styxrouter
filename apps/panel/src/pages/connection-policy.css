@@ -1,0 +1,8 @@
+.connection-policy-page .tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+.connection-policy-page .tab { white-space: normal; text-align: center; justify-content: center; text-decoration: none; min-width: 0; }
+.connection-policy-page .tab.active { color: var(--text); border-color: #c36e73; background: color-mix(in srgb, #c36e73 14%, var(--bg)); }
+.connection-policy-page [hidden] { display: none; }
+.connection-policy-page .settings-card, .connection-policy-page label, .connection-policy-page input, .connection-policy-page select { min-width: 0; max-width: 100%; }
+.connection-policy-page .card { flex-wrap: wrap; gap: 8px; overflow-wrap: anywhere; }
+.connection-policy-page h1:focus-visible { outline: 2px solid #c36e73; outline-offset: 4px; }
+@media (pointer: coarse) { .connection-policy-page .tab { min-height: 44px; } }

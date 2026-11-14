@@ -1,4 +1,18 @@
-.quota-page { min-width: 0; }
+.quota-page { min-width: 0; --accent: #a04d58; --accent-bright: #a04d58; }
+[data-theme="dark"] .quota-page { --accent: #e1a1a0; --accent-bright: #e1a1a0; }
+.quota-page [hidden] { display: none !important; }
+.quota-page .quota-workspace-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; gap: 4px; }
+.quota-page .quota-workspace-tabs .tab { white-space: normal; overflow-wrap: anywhere; min-width: 0; min-height: 44px; padding: 12px 8px; }
+.quota-page .quota-workspace-tabs .tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.quota-pools-workspace { min-width: 0; }
+.quota-pool-form { margin: 16px 0; max-width: 520px; }
+.quota-pool-form label { display: grid; gap: 4px; min-width: 0; }
+.quota-pool-form :is(input, select) { width: 100%; min-width: 0; max-width: 100%; min-height: 44px; }
+.quota-pool-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 12px; gap: 8px; margin: 8px 0; }
+.quota-pool-row > div { min-width: 0; overflow-wrap: anywhere; }
+/* Keep the inherited danger action readable on this workspace's light surface. */
+[data-theme="light"] .quota-pools-workspace .btn-danger { color: #a52a3a; }
+.quota-page .quota-pool-form .btn-add { background: #a04d58; border-color: #a04d58; color: #fff; }
 .quota-page .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .quota-page .toolbar input[type="search"] { min-width: 0; width: min(100%, 300px); min-height: 44px; padding: 0 11px; }
 .quota-page button, .quota-page summary { min-height: 44px; }

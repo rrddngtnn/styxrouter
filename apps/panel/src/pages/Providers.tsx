@@ -30,7 +30,8 @@ import { filterProviders } from "../lib/provider-search.ts";
 import { OAuthConnect, type FlowType } from "./OAuthConnect.tsx";
 import { ProviderModels } from "./ProviderModels.tsx";
 import { ProviderImport } from "./ProviderImport.tsx";
-import { ProviderNetworkRulesPanel } from "../components/settings/RoutingPoliciesPanel.tsx";
+import { LegacyPolicyRedirect } from "./ConnectionPolicy.tsx";
+import { legacyPolicyLocation } from "../lib/connection-policy.ts";
 import "./provider-workspace.css";
 
 interface Provider {
@@ -83,17 +84,22 @@ interface Node {
   createdAt: string | null;
 }
 
-type Tab = "oauth" | "apikey" | "custom" | "network";
+type Tab = "oauth" | "apikey" | "custom";
 
 const API_TYPES = ["chat", "responses", "embeddings", "rerank", "audio-transcriptions", "audio-speech", "images-generations"] as const;
 const blankNode = { type: "openai-compatible", name: "", prefix: "", apiType: "chat", baseUrl: "", chatPath: "", modelsPath: "" };
 
 export function Providers() {
+  const location = useLocation();
+  return legacyPolicyLocation(location.search, location.hash) ? <LegacyPolicyRedirect /> : <ProviderCatalog />;
+}
+
+function ProviderCatalog() {
   const tr = useTranslator();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
   const tab: Tab =
-    initialTab === "apikey" || initialTab === "custom" || initialTab === "network"
+    initialTab === "apikey" || initialTab === "custom"
       ? initialTab
       : "oauth";
   const setTab = (next: Tab) => setSearchParams({ tab: next }, { replace: true });
@@ -140,7 +146,7 @@ export function Providers() {
   const counts = useMemo(() => {
     const c: Record<string, { total: number; active: number }> = {};
     for (const a of accounts) {
-      if (tab !== "custom" && tab !== "network" && normalizeAccountAuthBucket(a.authType) !== tab) continue;
+      if (tab !== "custom" && normalizeAccountAuthBucket(a.authType) !== tab) continue;
       const slot = c[a.provider] ?? { total: 0, active: 0 };
       slot.total += 1;
       if (a.isActive && a.testStatus === "active") slot.active += 1;
@@ -183,19 +189,9 @@ export function Providers() {
               onClick={() => setTab("custom")}
             >{tr("Custom Providers")}<span className="tab-count">{nodes.length}</span>
             </button>
-            <button
-              role="tab"
-              aria-selected={tab === "network"}
-              className={tab === "network" ? "tab active" : "tab"}
-              onClick={() => setTab("network")}
-            >{tr("Proxies & Error Rules")}
-            </button>
           </div>
 
-          {tab === "network" ? (
-            <ProviderNetworkRulesPanel />
-          ) : (
-            <>
+          <>
           <div className="panel-provider-search">
             <label>{tr("Search providers")}<input type="search" aria-label={tr("Search providers")} placeholder={tr("Search providers")}
                 value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -305,8 +301,7 @@ export function Providers() {
               </ul>
             </section>
           )}
-            </>
-          )}
+          </>
         </>
       )}
     </div>
@@ -428,13 +423,17 @@ export function NodeForm({ node, onDone, onCancel, onDirtyChange }: { node?: Nod
         if (alive.current) onDone(node, false);
       } else {
         const result = await api.post<{ node?: Node }>("/api/provider-nodes", payload);
-        if (!result.node?.id) throw new Error("Missing provider identity");
+        if (typeof result.node?.id !== "string" || !result.node.id.trim() || result.node.id !== result.node.id.trim()) throw new Error("Missing provider identity");
         if (alive.current) onDone(result.node, addKey);
       }
-    } catch {
+    } catch (error) {
       if (alive.current) {
-        setError(tr(editing ? "Endpoint could not be saved." : "Creation was not confirmed. Close and reload the provider list before creating again."));
-        if (!editing) setUncertain(true);
+        // These statuses are authoritative pre-write rejections from the API.
+        // Transport failures, malformed success bodies and server errors remain
+        // unknown writes: never invite a duplicate create after those failures.
+        const rejected = error instanceof ApiError && [400, 403, 404, 409, 422, 429].includes(error.status);
+        setError(rejected ? error.message : tr(editing ? "Endpoint could not be saved." : "Creation was not confirmed. Close and reload the provider list before creating again."));
+        if (!editing && !rejected) setUncertain(true);
       }
     } finally { submitting.current = false; if (alive.current) setBusy(false); }
   }

@@ -25,7 +25,7 @@ test("backup result and CodeBuddy message narrowing typecheck", () => {
     const check = (body: string) => {
       writeFileSync(source, imports + body);
       return Bun.spawnSync([
-        "node", "--max-old-space-size=1024",
+        process.execPath, "--bun",
         resolve(root, "apps/panel/node_modules/typescript/bin/tsc"),
         "--noEmit", "--pretty", "false", "-p", config,
       ], { cwd: root, stdout: "pipe", stderr: "pipe", timeout: 45_000 });

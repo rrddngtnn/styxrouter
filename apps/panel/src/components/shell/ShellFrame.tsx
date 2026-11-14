@@ -18,6 +18,18 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
   const { t, language, setLanguage, theme, setTheme } = usePreferences();
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const keyboardRouteLink = useRef<HTMLAnchorElement | null>(null);
+  useEffect(() => {
+    const source = keyboardRouteLink.current;
+    keyboardRouteLink.current = null;
+    if (!source) return;
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement !== source && document.activeElement !== triggerRef.current && document.activeElement !== document.body) return;
+      const title = document.querySelector<HTMLElement>('#main-content h1');
+      if (title) { title.tabIndex = -1; title.focus(); }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [location.pathname]);
   // Route change closes the drawer.
   useEffect(() => nav.close(), [location, nav.close]);
 
@@ -109,7 +121,11 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
             <X size={16} />
           </button>}
         </div>
-        <nav id="styx-nav" className="sidebar shell-drawer-nav" aria-label={t("Main navigation")}>
+        <nav id="styx-nav" className="sidebar shell-drawer-nav" aria-label={t("Main navigation")}
+          onClickCapture={event => {
+            const link = (event.target as HTMLElement).closest('a');
+            keyboardRouteLink.current = event.detail === 0 && link instanceof HTMLAnchorElement ? link : null;
+          }}>
           {brand}
           <NavigationLinks onNavigate={nav.close} />
         </nav>

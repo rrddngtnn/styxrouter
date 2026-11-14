@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RefreshCw, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../../lib/api.ts";
@@ -861,7 +861,7 @@ export interface RedactedProxyEntry {
   hasPassword?: boolean;
 }
 
-export function OutboundProxyConfigSection() {
+export function OutboundProxyConfigSection({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void } = {}) {
   const tr = useTranslator();
   const state = useFetch<{
     global: RedactedProxyEntry | null;
@@ -872,6 +872,8 @@ export function OutboundProxyConfigSection() {
   const [targetId, setTargetId] = useState("");
   const [proxyUrl, setProxyUrl] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => { onDirtyChange?.(!!proxyUrl || !!targetId); }, [proxyUrl, targetId, onDirtyChange]);
 
   async function saveProxy(e: React.FormEvent) {
     e.preventDefault();
@@ -885,6 +887,7 @@ export function OutboundProxyConfigSection() {
       });
       toast.success(proxyUrl.trim() ? "Outbound proxy updated" : "Outbound proxy cleared");
       setProxyUrl("");
+      setTargetId("");
       state.reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
@@ -921,6 +924,10 @@ export function OutboundProxyConfigSection() {
         </div>
       </div>
 
+      {state.status === "loading" && <p role="status">{tr("Loading proxy bindings…")}</p>}
+      {state.status === "error" && <p role="alert" className="bad">{state.error.message} <button type="button" className="btn-ghost" onClick={state.reload}>{tr("Retry")}</button></p>}
+      <button type="button" className="btn-ghost" disabled={busy} onClick={state.reload}>{tr("Reload bindings")}</button>
+      <p className="muted">{tr("Stored global, provider and account-connection bindings; not client API keys. Effective egress also depends on global disable, explicit Proxy Off, client-key gates, registry or legacy bindings, combo selection and automatic fallback.")}</p>
       <form onSubmit={saveProxy} className="stack-form" style={{ marginBottom: 16 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
           <label>
@@ -1016,9 +1023,9 @@ export function OutboundProxyConfigSection() {
             </div>
           ))}
         </div>
-      ) : (
-        <p className="muted" style={{ margin: 0 }}>{tr("No custom outbound proxies assigned (using direct host egress).")}</p>
-      )}
+      ) : state.status === "ok" ? (
+        <p className="muted" style={{ margin: 0 }}>{tr("No stored outbound proxy bindings. Effective egress depends on runtime policy.")}</p>
+      ) : null}
     </section>
   );
 }

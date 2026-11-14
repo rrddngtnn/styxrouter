@@ -105,7 +105,10 @@ class HygieneTransport(unittest.TestCase):
         release_selector = "(github.ref == 'refs/heads/release/v0.3.0' || github.ref == 'refs/tags/v0.3.0')"
         self.assertIn(release_selector + " && 'HYGIENE_RELEASE_V030_ALLOWLIST_GZIP_B64' || ", workflow)
         patch_selector = "(github.ref == 'refs/heads/hotfix/custom-provider-api-key' || github.ref == 'refs/tags/v0.3.1')"
-        self.assertIn("secrets[" + patch_selector + " && 'HYGIENE_RELEASE_V031_ALLOWLIST_GZIP_B64' || ", workflow)
+        self.assertIn(patch_selector + " && 'HYGIENE_RELEASE_V031_ALLOWLIST_GZIP_B64' || ", workflow)
+        current_selector = "(github.ref == 'refs/heads/hotfix/provider-policy-quota' || github.ref == 'refs/tags/v0.3.2')"
+        self.assertIn("secrets[" + current_selector + " && 'HYGIENE_RELEASE_V032_ALLOWLIST_GZIP_B64' || ", workflow)
+        self.assertNotIn('&& secrets.HYGIENE_RELEASE_V032', workflow)
         self.assertNotIn('&& secrets.HYGIENE_RELEASE_V031', workflow)
         self.assertIn('run: python3 scripts/materialize-hygiene-inputs.py', workflow)
         self.assertNotIn('base64 --decode', workflow)
