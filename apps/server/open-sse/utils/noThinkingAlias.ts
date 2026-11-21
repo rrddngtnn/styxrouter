@@ -3,6 +3,7 @@
  * Prior source was inspected: this is not a clean-room provenance claim.
  */
 import { getModelSpec } from "@/shared/constants/modelSpecs";
+import { applyFixedEffortAliasCapabilities } from "../services/catalogEffortContract.ts";
 export const NO_THINKING_PREFIX = "no-think/";
 export function isNoThinkingAlias(value: unknown): value is string {
   return typeof value === "string" && value.startsWith(NO_THINKING_PREFIX);
@@ -34,12 +35,30 @@ export function shouldExposeNoThinkingAlias(model: Entry): boolean {
 }
 export function appendNoThinkingVariants<T extends Entry>(models: T[], aliasToCanonical?: Record<string, string>): T[] {
   const additions: T[] = [];
+  const existingIds = new Set(models.map((model) => model.id));
   for (const model of models) {
     if (!shouldExposeNoThinkingAlias(model)) continue;
     const parts = (model.id as string).split("/");
     if (parts.length > 1 && aliasToCanonical && Object.hasOwn(aliasToCanonical, parts[0])) parts[0] = aliasToCanonical[parts[0]] || parts[0];
     const id = parts.join("/");
-    additions.push({ ...model, id: toNoThinkingAlias(id), root: toNoThinkingAlias(modelName(id)), ...(typeof model.name === "string" && model.name ? { name: `${model.name} (no thinking)` } : {}) });
+    const variantId = toNoThinkingAlias(id);
+    if (existingIds.has(variantId)) continue;
+    existingIds.add(variantId);
+    additions.push(
+      applyFixedEffortAliasCapabilities(
+        {
+          ...model,
+          id: variantId,
+          root: toNoThinkingAlias(modelName(id)),
+          ...(typeof model.name === "string" && model.name ? { name: `${model.name} (no thinking)` } : {}),
+        },
+        {
+          baseId: id,
+          effort: "none",
+          disablesThinking: true,
+        }
+      )
+    );
   }
   return additions.length ? models.concat(additions) : models;
 }

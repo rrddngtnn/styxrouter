@@ -36,7 +36,17 @@ import { createModelCapabilityResolutionSnapshot } from "@/lib/modelCapabilityRe
 import { isModelCatalogNamesEnabled } from "@/shared/utils/featureFlags";
 import { extractApiKey } from "@/sse/services/auth";
 import { maybeOmitCatalogModelName } from "./catalogHelpers";
-import { isCodexModelCatalogClient } from "./catalogRequest";
+import { isCompactEffortCatalog, isCodexModelCatalogClient } from "./catalogRequest";
+import {
+  ANTIGRAVITY_EFFORT_FAMILY,
+  ANTIGRAVITY_EFFORT_MEMBERS,
+  projectAntigravityFamilyMetadata,
+} from "./antigravityEffortCatalog";
+import {
+  compactEffortAliases,
+  markStaticEffortAliases,
+  resolveStaticCatalogEffortAlias,
+} from "@styxrouter/open-sse/services/catalogEffortContract.ts";
 
 /**
  * Post-filter chain applied AFTER the API-key filter, so variants and mirrors are
@@ -54,9 +64,11 @@ export async function applyCatalogPostFilters(
     prefixMode: string;
     aliasToProviderId: Record<string, string>;
     hideNoThinkVariants?: boolean;
+    codexLiteralSyncedIds?: ReadonlySet<string>;
   }
 ): Promise<Array<Record<string, any>>> {
   const yieldTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+  const compact = isCompactEffortCatalog(request);
   let finalModels = models;
 
   // variants are only generated for surviving models.
@@ -65,6 +77,49 @@ export async function applyCatalogPostFilters(
       if (!m.root) return true;
       return hasEligibleConnectionForModel(ctx.connections, m.root);
     });
+  }
+
+  const scopedCodexTiers = new Map<string, readonly string[]>();
+  for (const row of finalModels) {
+    if (
+      row.owned_by === "codex" &&
+      (!row.type || row.type === "chat") &&
+      typeof row.id === "string" &&
+      Array.isArray(row.capabilities?.effort_tiers)
+    ) {
+      scopedCodexTiers.set(row.id, row.capabilities.effort_tiers);
+    }
+  }
+
+  const resolveStaticAlias = (row: Record<string, any>) => {
+    if (
+      typeof row.owned_by !== "string" ||
+      typeof row.root !== "string" ||
+      typeof row.id !== "string" ||
+      !(row.id === row.root || row.id.endsWith(`/${row.root}`))
+    ) {
+      return null;
+    }
+    const prefix = row.id.slice(0, -row.root.length);
+    const resolved = resolveStaticCatalogEffortAlias(row.owned_by, row.root, {
+      scopedTiers:
+        row.owned_by === "codex"
+          ? (candidate) => scopedCodexTiers.get(prefix + candidate)
+          : undefined,
+      literalIds: row.owned_by === "codex" ? ctx.codexLiteralSyncedIds : undefined,
+    });
+    if (!resolved) return null;
+    return {
+      baseId: prefix + resolved.baseModel,
+      effort: resolved.effort,
+      disablesThinking: resolved.disablesThinking,
+    };
+  };
+
+  if (compact) {
+    finalModels = compactEffortAliases(finalModels, resolveStaticAlias);
+  } else {
+    finalModels = markStaticEffortAliases(finalModels, resolveStaticAlias);
   }
 
   // #9147: the variant-append passes each walk the full model list (O(n) per pass),
@@ -77,20 +132,28 @@ export async function applyCatalogPostFilters(
   // model is permitted. Runs before the no-thinking pass: the gateway already routes these
   // suffixed ids (claudeEffortVariant.ts), this just makes them selectable in catalog-only
   // clients (OpenCode) that can't set a reasoning_effort config the way VS Code does.
-  finalModels = appendClaudeEffortVariants(
-    finalModels,
-    ctx.prefixMode === "canonical" ? ctx.aliasToProviderId : undefined
-  );
+  // Compact mode omits synthetic compatibility aliases.
+  if (!compact) {
+    finalModels = appendClaudeEffortVariants(
+      finalModels,
+      ctx.prefixMode === "canonical" ? ctx.aliasToProviderId : undefined
+    );
+  }
 
   // Advertise no-thinking gateway variants (Fase 8.1). Derived from the already
   // key-filtered list, so a variant only appears when its real model is permitted.
   // #9418: skip when hideNoThinkVariants is on — the ids are still routable when
   // sent explicitly, just not advertised in the catalog.
-  if (!ctx.hideNoThinkVariants) {
-    finalModels = appendNoThinkingVariants(
-      finalModels,
+  // Compact mode omits synthetic compatibility aliases.
+  if (!compact && !ctx.hideNoThinkVariants) {
+    const sources = finalModels.filter((entry) => !Reflect.get(entry, ANTIGRAVITY_EFFORT_FAMILY));
+    const derived = appendNoThinkingVariants(
+      sources,
       ctx.prefixMode === "canonical" ? ctx.aliasToProviderId : undefined
     );
+    if (derived.length > sources.length) {
+      finalModels = [...finalModels, ...derived.slice(sources.length)];
+    }
   }
 
   // Advertise `claude/<id>` discovery-mirror aliases so Claude Code's gateway
@@ -103,13 +166,14 @@ export async function applyCatalogPostFilters(
   const ccAliasGlobal = isCcAliasGlobalEnabled();
   const ccAliasSettings = getCcAliasSettingsBulk();
   if (ccAliasGlobal || ccAliasSettings.providers.size > 0 || ccAliasSettings.models.size > 0) {
+    const allowAlias = buildCcAliasPredicate({
+      global: ccAliasGlobal,
+      providers: ccAliasSettings.providers,
+      models: ccAliasSettings.models,
+    });
     finalModels = appendCcDiscoveryAliases(
       finalModels,
-      buildCcAliasPredicate({
-        global: ccAliasGlobal,
-        providers: ccAliasSettings.providers,
-        models: ccAliasSettings.models,
-      })
+      (entry) => !Reflect.get(entry, ANTIGRAVITY_EFFORT_FAMILY) && allowAlias(entry)
     );
   }
 
@@ -151,7 +215,10 @@ export async function applyCatalogPostFilters(
   // #7694: advertise `<provider>/<model>-<tier>` variants for synced models that
   // captured `reasoning.supported_efforts` at sync time (capabilities.effort_tiers).
   // Derived from the already key-filtered list; skips codex/kimi (own suffix mechanism).
-  finalModels = appendSyncedEffortVariants(finalModels);
+  // Compact mode omits synthetic compatibility aliases.
+  if (!compact) {
+    finalModels = appendSyncedEffortVariants(finalModels);
+  }
 
   await yieldTurn();
 
@@ -236,6 +303,24 @@ export async function finalizeCatalogResponse(
     let listedModel: Record<string, unknown>;
     if (model.owned_by === "combo") {
       listedModel = maybeOmitCatalogModelName(model, includeModelNames);
+    } else if (Reflect.get(model, ANTIGRAVITY_EFFORT_FAMILY)) {
+      const members = Reflect.get(model, ANTIGRAVITY_EFFORT_MEMBERS);
+      const enrichedMembers = Array.isArray(members)
+        ? members.map((member) => {
+            const entry = enrichCatalogModelEntry(member as Record<string, unknown>, undefined, {
+              ...enrichmentSnapshot,
+              capabilityResolutionSnapshot,
+            });
+            const fallbackContextLength = getContextFallback(entry);
+            return fallbackContextLength
+              ? { ...entry, context_length: fallbackContextLength }
+              : entry;
+          })
+        : [];
+      listedModel = maybeOmitCatalogModelName(
+        projectAntigravityFamilyMetadata(model, enrichedMembers),
+        includeModelNames
+      );
     } else {
       const entry = enrichCatalogModelEntry(model, undefined, {
         ...enrichmentSnapshot,
@@ -281,7 +366,7 @@ export async function finalizeCatalogResponse(
     object: "list",
     data: orderedModels,
   };
-  if (isCodexModelCatalogClient(request)) {
+  if (!isCompactEffortCatalog(request) && isCodexModelCatalogClient(request)) {
     responseBody.models = [];
   }
 

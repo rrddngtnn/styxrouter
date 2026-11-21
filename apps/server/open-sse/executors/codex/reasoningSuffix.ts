@@ -45,3 +45,52 @@ export function splitCodexReasoningSuffix(model: unknown): {
   }
   return { baseModel: modelId, effort: null };
 }
+
+/**
+ * Maximum reasoning effort allowed per Codex model.
+ * Models not listed here retain the legacy xhigh cap.
+ * Shared by both CodexExecutor clamping and catalog effort-tier advertisement so
+ * the catalog never advertises a tier the executor clamps away.
+ */
+export const CODEX_MAX_EFFORT_BY_MODEL: Record<string, CodexEffortLevel> = {
+  "gpt-6.1-terra": "ultra",
+  "gpt-5.6-sol": "ultra",
+  "gpt-5.6-terra": "ultra",
+  "gpt-5.6-luna": "max",
+  "gpt-5.3-codex": "xhigh",
+  "gpt-5.1-codex-max": "xhigh",
+  "gpt-5-mini": "high",
+  "gpt-5.1-mini": "high",
+  "gpt-4.1-mini": "high",
+};
+
+export function getCodexDefaultEffortTiers(model: string): CodexEffortLevel[] {
+  const { baseModel } = splitCodexReasoningSuffix(model);
+  const cap: CodexEffortLevel = CODEX_MAX_EFFORT_BY_MODEL[baseModel] ?? "xhigh";
+  const maxIdx = CODEX_EFFORT_ORDER.indexOf(cap);
+  const startIdx = baseModel === "gpt-6.1-terra" ? 0 : 1;
+  return [...CODEX_EFFORT_ORDER.slice(startIdx, maxIdx + 1)];
+}
+
+export function filterCodexEffortTiers(
+  model: string,
+  efforts: readonly string[]
+): CodexEffortLevel[] {
+  const { baseModel } = splitCodexReasoningSuffix(model);
+  const cap: CodexEffortLevel = CODEX_MAX_EFFORT_BY_MODEL[baseModel] ?? "xhigh";
+  const maxIdx = CODEX_EFFORT_ORDER.indexOf(cap);
+  const allowed = new Set<string>(CODEX_EFFORT_ORDER.slice(0, maxIdx + 1));
+  const normalized = new Set<string>();
+  for (const effort of efforts) {
+    if (typeof effort !== "string") continue;
+    const lowered = effort.trim().toLowerCase();
+    if (allowed.has(lowered)) normalized.add(lowered);
+  }
+  return CODEX_EFFORT_ORDER.filter((level) => normalized.has(level));
+}
+
+export function isCodexReasoningBaseModel(model: string): boolean {
+  if (!model || splitCodexReasoningSuffix(model).effort !== null) return false;
+  if (Object.hasOwn(CODEX_MAX_EFFORT_BY_MODEL, model)) return true;
+  return /^gpt-(?:5(?:\.\d+)?|6(?:\.\d+)?)(?:-|$)/i.test(model);
+}

@@ -9,6 +9,7 @@ import { logAuditEvent } from "../src/lib/compliance/index.ts";
 import { getModelAliases } from "../src/lib/db/models/aliases.ts";
 import { appendClaudeEffortVariants } from "../open-sse/utils/claudeEffortVariants.ts";
 import { appendSyncedEffortVariants } from "../open-sse/utils/syncedEffortVariants.ts";
+import { resolveStaticCatalogEffortAlias } from "../open-sse/services/catalogEffortContract.ts";
 import { EMBEDDING_PROVIDERS } from "../open-sse/config/embeddingRegistry.ts";
 import { getAllImageModels } from "../open-sse/config/imageRegistry.ts";
 import { getAllRerankModels } from "../open-sse/config/rerankRegistry.ts";
@@ -81,6 +82,17 @@ export function expandAdminInventories(inventories: ScopedInventory[], aliases: 
   }
   for (const inventory of inventories) {
     const existing = new Set(inventory.models.map(m => m.id));
+    const syncedLiteralIds = new Set(inventory.models.filter(m => m.origin === "synced").map(m => m.id));
+    for (const model of inventory.models) {
+      if (model.origin === "synced") continue;
+      const staticAlias = resolveStaticCatalogEffortAlias(inventory.providerId, model.id, { literalIds: syncedLiteralIds });
+      if (!staticAlias || !existing.has(staticAlias.baseModel)) continue;
+      delete model.supportedThinkingEfforts;
+      model.effortConfigurable = false;
+      model.fixedEffort = staticAlias.effort;
+      model.baseLocalId = staticAlias.baseModel;
+      model.supportsThinking = !staticAlias.disablesThinking;
+    }
     for (const model of [...inventory.models]) {
       const qualified = { ...model, name: model.name, id: `${inventory.prefix}/${model.id}`, root: model.id, owned_by: inventory.providerId,
         capabilities: model.origin === "synced" && Array.isArray(model.supportedThinkingEfforts) ? { effort_tiers: model.supportedThinkingEfforts } : undefined };
@@ -89,7 +101,21 @@ export function expandAdminInventories(inventories: ScopedInventory[], aliases: 
         const localId = variant.id.slice(inventory.prefix.length + 1);
         if (existing.has(localId)) continue;
         existing.add(localId);
-        inventory.models.push({ ...model, id: localId, name: variant.name, origin: "generated-effort", baseLocalId: model.id });
+        const { supportedThinkingEfforts: _droppedTiers, ...baseFields } = model;
+        const variantCaps = variant.capabilities && typeof variant.capabilities === "object"
+          ? (variant.capabilities as Record<string, unknown>)
+          : undefined;
+        inventory.models.push({
+          ...baseFields,
+          id: localId,
+          name: variant.name,
+          origin: "generated-effort",
+          baseLocalId: model.id,
+          effortConfigurable: false,
+          ...(typeof variantCaps?.fixed_effort === "string" ? { fixedEffort: variantCaps.fixed_effort } : {}),
+          ...(typeof variantCaps?.supportsThinking === "boolean" ? { supportsThinking: variantCaps.supportsThinking } : {}),
+          ...(variantCaps ? { capabilities: variantCaps } : {}),
+        });
       }
     }
   }

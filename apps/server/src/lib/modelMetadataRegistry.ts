@@ -29,6 +29,13 @@ import {
   CANONICAL_EFFORT_VALUES,
   extendCodexGpt56EffortValues,
 } from "@/shared/reasoning/effortStandardization";
+import {
+  CATALOG_CODEX_NO_EFFORT_TIERS,
+  buildFixedEffortAliasCapabilities,
+  getClaudeSelectableEffortTiers,
+  getFixedEffortAliasMeta,
+  getOpencodeSelectableEffortTiers,
+} from "@styxrouter/open-sse/services/catalogEffortContract.ts";
 
 const MODEL_METADATA_SCHEMA_VERSION = "model-metadata-v1";
 
@@ -470,6 +477,8 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
     entry.capabilities && typeof entry.capabilities === "object"
       ? (entry.capabilities as JsonRecord)
       : {};
+  const fixedAliasMeta = getFixedEffortAliasMeta(entry);
+  const codexNoEffortTiers = Boolean(Reflect.get(entry, CATALOG_CODEX_NO_EFFORT_TIERS));
   const declaredEffortTiers = Array.isArray(existingCapabilities.effort_tiers)
     ? existingCapabilities.effort_tiers.filter(
         (effort): effort is string => typeof effort === "string" && effort.length > 0
@@ -478,24 +487,32 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
   const sourceDeclaresThinking =
     typeof existingCapabilities.thinking === "boolean" ||
     typeof existingCapabilities.supportsThinking === "boolean";
+  const claudeTiers = getClaudeSelectableEffortTiers(metadata.provider, metadata.model);
+  const opencodeTiers = getOpencodeSelectableEffortTiers(metadata.provider, metadata.model);
   const effortTiers =
-    metadata.capabilities.supportedThinkingEfforts &&
-    metadata.capabilities.supportedThinkingEfforts.length > 0
-      ? [...metadata.capabilities.supportedThinkingEfforts]
-      : declaredEffortTiers.length > 0
-        ? declaredEffortTiers
-        : sourceDeclaresThinking
-          ? undefined
-          : // #10963: GLM-family models never inherit generic OpenAI tiers — an
-            // explicit empty list is authoritative unless a provider-declared
-            // contract exists (handled by declaredEffortTiers above).
-            isGlmFamilyModel(metadata.model, metadata.displayName)
-            ? []
-            : extendCodexGpt56EffortValues(
-                metadata.provider,
-                metadata.model,
-                CANONICAL_EFFORT_VALUES
-              );
+    fixedAliasMeta || codexNoEffortTiers
+      ? undefined
+      : metadata.capabilities.supportedThinkingEfforts &&
+          metadata.capabilities.supportedThinkingEfforts.length > 0
+        ? [...metadata.capabilities.supportedThinkingEfforts]
+        : declaredEffortTiers.length > 0
+          ? declaredEffortTiers
+          : opencodeTiers
+            ? opencodeTiers
+            : sourceDeclaresThinking
+              ? undefined
+              : // #10963: GLM-family models never inherit generic OpenAI tiers — an
+                // explicit empty list is authoritative unless a provider-declared
+                // contract exists (handled by declaredEffortTiers above).
+                isGlmFamilyModel(metadata.model, metadata.displayName)
+                ? []
+                : claudeTiers ??
+                  extendCodexGpt56EffortValues(
+                    metadata.provider,
+                    metadata.model,
+                    CANONICAL_EFFORT_VALUES
+                  );
+  const hasSelectableEffortTiers = Array.isArray(effortTiers) && effortTiers.length > 0;
   const capabilityFields = {
     ...(typeof metadata.capabilities.vision === "boolean"
       ? { vision: metadata.capabilities.vision }
@@ -523,11 +540,19 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
       ? {
           thinking: metadata.capabilities.supportsThinking,
           supportsThinking: metadata.capabilities.supportsThinking,
-          ...(metadata.capabilities.supportsThinking && effortTiers
-            ? { effort_tiers: effortTiers }
-            : {}),
+          ...(metadata.capabilities.supportsThinking && hasSelectableEffortTiers
+            ? { effort_tiers: effortTiers, effort_configurable: true }
+            : { effort_configurable: false }),
         }
-      : {}),
+      : !fixedAliasMeta && !codexNoEffortTiers && opencodeTiers && hasSelectableEffortTiers
+        ? {
+            reasoning: true,
+            thinking: true,
+            supportsThinking: true,
+            effort_tiers: effortTiers,
+            effort_configurable: true,
+          }
+        : {}),
     ...(typeof metadata.capabilities.attachment === "boolean"
       ? { attachment: metadata.capabilities.attachment }
       : {}),
@@ -539,10 +564,29 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
       : {}),
   };
 
-  nextEntry.capabilities = {
+  const mergedCapabilities: JsonRecord = {
     ...existingCapabilities,
     ...capabilityFields,
   };
+  if (codexNoEffortTiers) {
+    delete mergedCapabilities.effort_tiers;
+    mergedCapabilities.effort_configurable = false;
+  } else if (
+    Array.isArray(mergedCapabilities.effort_tiers) &&
+    mergedCapabilities.effort_tiers.length === 0
+  ) {
+    delete mergedCapabilities.effort_tiers;
+    mergedCapabilities.effort_configurable = false;
+  } else if (
+    Array.isArray(mergedCapabilities.effort_tiers) &&
+    mergedCapabilities.effort_tiers.length > 0 &&
+    mergedCapabilities.effort_configurable === undefined
+  ) {
+    mergedCapabilities.effort_configurable = true;
+  }
+  nextEntry.capabilities = fixedAliasMeta
+    ? buildFixedEffortAliasCapabilities(mergedCapabilities, fixedAliasMeta)
+    : mergedCapabilities;
 
   if (!Array.isArray(entry.input_modalities) && metadata.modalities.input.length > 0) {
     nextEntry.input_modalities = metadata.modalities.input;

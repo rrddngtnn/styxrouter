@@ -20,7 +20,7 @@ import { getCatalogPermissionRevision } from "@/lib/db/catalogPermissionRevision
 import { getCatalogContextRevision } from "@/lib/db/catalogContextRevision";
 import { extractApiKey } from "@/sse/services/auth";
 
-import { isCodexModelCatalogClient } from "./catalogRequest";
+import { getCatalogEffortMode, isCodexModelCatalogClient } from "./catalogRequest";
 
 /** Fingerprint an API key for the catalog memo Map. Never store the raw secret. */
 export function fingerprintCatalogAuthKey(apiKey: string): string {
@@ -145,11 +145,12 @@ function buildCatalogCacheKey(request: Request, catalogSettings?: CatalogResolve
   const url = new URL(request.url);
   const prefix = url.searchParams.get("prefix") || "";
   const apiKey = extractApiKey(request) || "";
-  const isCodex = isCodexModelCatalogClient(request) ? "1" : "0";
+  const effortMode = getCatalogEffortMode(request);
+  const isCodex = effortMode !== "compact" && isCodexModelCatalogClient(request) ? "1" : "0";
   const configuredOnly = url.searchParams.get("configuredOnly") === "true" ? "1" : "0";
   const hideAuto = catalogSettings?.hideAutoCombos ? "1" : "0";
   const hideNoThink = catalogSettings?.hideNoThinkVariants ? "1" : "0";
-  return `${prefix}|${isCodex}|${fingerprintCatalogAuthKey(apiKey)}|${configuredOnly}|${hideAuto}|${hideNoThink}`;
+  return `${prefix}|${isCodex}|${fingerprintCatalogAuthKey(apiKey)}|${configuredOnly}|${hideAuto}|${hideNoThink}|${effortMode}`;
 }
 
 // Tracks the model-catalog cache version (src/lib/db/readCache.ts) as of the last

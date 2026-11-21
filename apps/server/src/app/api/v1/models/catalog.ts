@@ -114,9 +114,17 @@ import {
 } from "./catalogProviderMaps";
 import {
   getModelCatalogAuthRejection,
+  isCompactEffortCatalog,
   isCodexModelCatalogClient,
   isCcDiscoveryModelCatalogClient,
 } from "./catalogRequest";
+import { attachCodexBaseEffortTiers } from "./codexEffortTiers";
+import { applyDeclaredEffortFamilies } from "./antigravityEffortCatalog";
+import {
+  antigravityEffortWireAclId,
+  loadAntigravityCatalogScope,
+  supportsExactEffortFamily,
+} from "@styxrouter/open-sse/services/antigravityEffortFamily.ts";
 import { incrementCcDiscoveryHitCount } from "@/lib/db/ccDiscoveryMetrics";
 import { isUnifiedChatSourceModelSelectable } from "./catalogModelPolicy";
 import { isFreeModel, providerHasFreeModels } from "@/shared/utils/freeModels";
@@ -1875,6 +1883,8 @@ async function buildUnifiedModelsResponseCore(
     // Filter by API key permissions if requested
     const apiKey = extractApiKey(request);
     let finalModels = models;
+    let keyMetaForScope: Awaited<ReturnType<typeof import("@/lib/db/apiKeys").getApiKeyMetadata>> | null =
+      null;
     if (apiKey) {
       const { isModelAllowedForKey, getApiKeyMetadata } = await import("@/lib/db/apiKeys");
 
@@ -1882,6 +1892,7 @@ async function buildUnifiedModelsResponseCore(
       // virtual models. #4806: build from the hidden qtSd/* combos directly — the base
       // `models` list drops hidden combos, so filtering it returned nothing (0 models).
       const keyMeta = await getApiKeyMetadata(apiKey);
+      keyMetaForScope = keyMeta;
       if (keyMeta && keyMeta.allowedQuotas && keyMeta.allowedQuotas.length > 0) {
         const { buildQuotaExclusiveModels } = await import("@/lib/quota/quotaCombos");
         finalModels = await buildQuotaExclusiveModels(
@@ -1913,12 +1924,87 @@ async function buildUnifiedModelsResponseCore(
         finalModels = filtered;
       }
     }
+    // Attach canonical Codex base effort tiers identically for BOTH expanded and
+    // compact modes so base capabilities never diverge between listing modes.
+    let codexLiteralSyncedIds: Set<string> | undefined;
+    if (
+      !keyMetaForScope?.allowedQuotas?.length &&
+      finalModels.some((row) => row.owned_by === "codex" && (!row.type || row.type === "chat"))
+    ) {
+      const scopedConnectionIds = keyMetaForScope?.allowedConnections?.length
+        ? new Set(keyMetaForScope.allowedConnections)
+        : null;
+      const codexConnections = getConnectionsForProvider("codex", "cx").filter(
+        (conn) => !scopedConnectionIds || scopedConnectionIds.has(conn.id)
+      );
+      let codexSyncedByConnection: Record<string, SyncedAvailableModel[]> = {};
+      try {
+        codexSyncedByConnection = await getSyncedAvailableModelsByConnection("codex");
+      } catch {}
+      const attached = attachCodexBaseEffortTiers(
+        finalModels,
+        codexConnections,
+        codexSyncedByConnection,
+        getRegistryModel
+      );
+      finalModels = attached.rows;
+      codexLiteralSyncedIds = attached.literalSyncedIds;
+    }
+    // Project Antigravity effort families identically across BOTH expanded and
+    // compact modes so base family effort_tiers never diverge between modes.
+    if (
+      !keyMetaForScope?.allowedQuotas?.length &&
+      finalModels.some(
+        (row) => typeof row.owned_by === "string" && supportsExactEffortFamily(row.owned_by)
+      )
+    ) {
+      const { isModelAllowedForKey } = await import("@/lib/db/apiKeys");
+      const scopedApiKey = keyMetaForScope ? apiKey : null;
+      const scopedConnectionIds = keyMetaForScope?.allowedConnections?.length
+        ? new Set(keyMetaForScope.allowedConnections)
+        : null;
+      let cachedAgyScope: ReturnType<typeof loadAntigravityCatalogScope> | undefined;
+      const loadAgyScope = (provider: string) =>
+        (cachedAgyScope ??= loadAntigravityCatalogScope(provider, scopedConnectionIds));
+      if (scopedConnectionIds) {
+        const { unauthorizedOnlyModelIds } = await loadAgyScope("antigravity");
+        if (unauthorizedOnlyModelIds.size > 0) {
+          finalModels = finalModels.filter(
+            (row) =>
+              !(
+                typeof row.owned_by === "string" &&
+                supportsExactEffortFamily(row.owned_by) &&
+                typeof row.root === "string" &&
+                unauthorizedOnlyModelIds.has(row.root)
+              )
+          );
+        }
+      }
+      finalModels = await applyDeclaredEffortFamilies(
+        finalModels,
+        (provider) =>
+          supportsExactEffortFamily(provider)
+            ? loadAgyScope(provider).then((scope) => scope.families)
+            : Promise.resolve(undefined),
+        async (provider, id, model, wire) =>
+          !isModelHiddenBulk(provider, model) &&
+          (await isModelAllowedForKey(scopedApiKey, id)) &&
+          (!wire ||
+            (await isModelAllowedForKey(
+              scopedApiKey,
+              antigravityEffortWireAclId(model, provider, id)
+            ))),
+        isCompactEffortCatalog(request),
+        keyMetaForScope?.allowedConnections
+      );
+    }
     // ?configuredOnly — hide models that have no eligible DB connection.
     finalModels = await applyCatalogPostFilters(request, finalModels, {
       connections,
       prefixMode,
       aliasToProviderId,
       hideNoThinkVariants: settings.hideNoThinkVariants === true,
+      codexLiteralSyncedIds,
     });
 
     const getDefaultContextFallback = (model: any): number | undefined => {
