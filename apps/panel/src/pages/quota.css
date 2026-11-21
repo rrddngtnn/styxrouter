@@ -1,7 +1,7 @@
 .quota-page { min-width: 0; }
 .quota-page .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .quota-page .toolbar input[type="search"] { min-width: 0; width: min(100%, 300px); min-height: 44px; padding: 0 11px; }
-.quota-page button, .quota-page summary { min-height: 44px; }
+.quota-page button:not(.tab), .quota-page summary { min-height: 44px; }
 .quota-page .pagination button, .quota-page .pagination select { min-width: 44px; min-height: 44px; }
 .quota-page :is(button, input, select, summary):focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
 .quota-selector { margin: 20px 0; min-width: 0; }

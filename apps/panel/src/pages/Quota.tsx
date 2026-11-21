@@ -4,7 +4,7 @@ import {canRedeemCredit,redemptionOutcome} from '../lib/banked-reset';
 import {creditIdentity,beginCreditAttempt,readCreditAttempts,settleCreditAttempt} from '../lib/banked-reset-ledger';
 import {ApiError} from '../lib/api';
 import {quotaResetLabel} from "../lib/quota-reset-label";
-import {Tabs} from "@radix-ui/themes";
+import { useWorkspaceTabs } from "../lib/workspace-tabs.ts";
 import {useSearchParams} from "react-router-dom";
 import {QuotaWindowInspector} from "../components/QuotaWindowInspector";
 import "../components/quota-interactions.css";
@@ -79,6 +79,7 @@ export function Quota() {
   const tr = useQuotaTranslator();
   const [params,setParams]=useSearchParams();
   const workspace=params.get("tab")==="pools"?"pools":"accounts";
+  const workspaceTabs = useWorkspaceTabs(workspace);
   const changeWorkspace=(tab:string)=>{const next=new URLSearchParams(params);next.set("tab",tab);setParams(next);};
   const inventory=useFetch<{connections?: {id:string;name:string|null;provider:string}[]}>(workspace==="pools"?"/api/connections":null);
   const poolConnections = inventory.status === "ok" ? (inventory.data.connections ?? []).map(a=>({connectionId:a.id,name:a.name ?? a.id,provider:a.provider})) : [];
@@ -301,11 +302,36 @@ export function Quota() {
     <div className="page quota-page">
       {confirmation.dialog}
       {workspace === "accounts" && <ReadFreshness state={state} />}<ReadFreshness resource="Providers" state={provs}/><ReadFreshness resource="Custom Providers" state={nodes}/>
-      <h1>{tr("Quota")}</h1>
-      <p className="muted">{tr("Choose a provider to explore account allowances, model windows, and reset times. Quotas are cached until refreshed.")}</p>
-      <Tabs.Root value={workspace} onValueChange={changeWorkspace} activationMode="manual">
-       <Tabs.List aria-label={tr("Quota workspace")}><Tabs.Trigger value="accounts">{tr("Account Quota")}</Tabs.Trigger><Tabs.Trigger value="pools">{tr("Shared Pools")}</Tabs.Trigger></Tabs.List>
-       <Tabs.Content value="accounts" forceMount hidden={workspace !== "accounts"}>
+      <div className="section-head" style={{ marginBottom: 16 }}>
+        <div>
+          <h1 style={{ marginBottom: 4 }}>{tr("Quota")}</h1>
+          <p className="muted" style={{ margin: 0 }}>{tr("Choose a provider to explore account allowances, model windows, and reset times. Quotas are cached until refreshed.")}</p>
+        </div>
+      </div>
+      <div className="tabs" role="tablist" onKeyDown={workspaceTabs.onKeyDown} aria-label={tr("Quota workspace")}>
+        <button
+          type="button"
+          role="tab"
+          {...workspaceTabs.tabProps("accounts")}
+          aria-selected={workspace === "accounts"}
+          className={workspace === "accounts" ? "tab active" : "tab"}
+          onClick={() => changeWorkspace("accounts")}
+        >
+          <span>{tr("Account Quota")}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          {...workspaceTabs.tabProps("pools")}
+          aria-selected={workspace === "pools"}
+          className={workspace === "pools" ? "tab active" : "tab"}
+          onClick={() => changeWorkspace("pools")}
+        >
+          <span>{tr("Shared Pools")}</span>
+        </button>
+      </div>
+      <div {...workspaceTabs.panelProps}>
+        <div hidden={workspace !== "accounts"}>
       <div className="toolbar">
         <button type="button" className="btn-add" disabled={syncingAll} onClick={syncAllNow}>
           {syncingAll ? tr("Syncing all…") : tr("Sync all quotas")}
@@ -319,9 +345,14 @@ export function Quota() {
       {state.status === "error" && <p className="bad">{state.error.message}</p>}
       {state.status === "ok" && !state.data.providers?.length && <p className="muted">{tag ? tr("No matching accounts.") : tr("No accounts connected.")}</p>}
       {state.status === "ok" && <QuotaBrowser rows={state.data.providers ?? []} names={names} live={live} syncingAll={syncingAll} onRefresh={refresh} onCheckGroup={checkGroup} selectedProvider={selectedProvider} onSelectProvider={setSelectedProvider} onOpenResetCredits={openResetCredits} />}
-       </Tabs.Content>
-       <Tabs.Content value="pools"><ReadFreshness resource="Account inventory" state={inventory}/><QuotaPoolsSection connections={poolConnections}/></Tabs.Content>
-      </Tabs.Root>
+        </div>
+        {workspace === "pools" && (
+          <>
+            <ReadFreshness resource="Account inventory" state={inventory}/>
+            <QuotaPoolsSection connections={poolConnections}/>
+          </>
+        )}
+      </div>
       <Modal
         open={resetCreditTarget !== null}
         onOpenChange={(open) => {
