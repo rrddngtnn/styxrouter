@@ -27,6 +27,7 @@
  * model that legitimately ends in an effort-like token (e.g. a model named "...-high").
  */
 import { CANONICAL_EFFORT_VALUES } from "@/shared/reasoning/effortStandardization.ts";
+import { applyFixedEffortAliasCapabilities } from "../services/catalogEffortContract.ts";
 
 /** Provider ids with dedicated `-{effort}` aliases — never synthesize another suffix layer. */
 export const SYNCED_EFFORT_SKIP_PROVIDERS = new Set(["codex", "glm", "glm-cn", "glmt"]);
@@ -102,7 +103,16 @@ export function appendSyncedEffortVariants<T extends CatalogModelEntry>(models: 
       const variantId = `${model.id}-${tier}`;
       if (existingIds.has(variantId)) continue;
       existingIds.add(variantId);
-      variants.push({ ...model, id: variantId, root: `${baseRoot}-${tier}` });
+      variants.push(
+        applyFixedEffortAliasCapabilities(
+          { ...model, id: variantId, root: `${baseRoot}-${tier}` },
+          {
+            baseId: model.id,
+            effort: tier,
+            disablesThinking: tier === "none",
+          }
+        )
+      );
     }
   }
 

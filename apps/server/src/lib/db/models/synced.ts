@@ -1,6 +1,7 @@
 import { isRetiredGitHubCopilotModelId } from "@styxrouter/open-sse/config/providers/registry/github/retiredModels.ts";
 
 import { asRecord, toNonEmptyString } from "./shared";
+import { normalizeEffortVariant, type EffortVariant } from "@/shared/reasoning/effortVariants";
 
 export interface SyncedAvailableModel {
   id: string;
@@ -12,6 +13,7 @@ export interface SyncedAvailableModel {
   supportedEndpoints?: string[];
   supportedThinkingEfforts?: string[];
   defaultThinkingEffort?: string;
+  effortVariant?: EffortVariant;
   inputTokenLimit?: number;
   outputTokenLimit?: number;
   description?: string;
@@ -49,9 +51,11 @@ function normalizeSyncedAvailableModel(model: unknown): SyncedAvailableModel | n
       ).sort()
     : undefined;
 
+  const effortVariant = normalizeEffortVariant(record.effortVariant, id);
   return {
     id,
     name,
+    ...(effortVariant ? { effortVariant } : {}),
     source: "imported",
     ...(toNonEmptyString(record.apiFormat)
       ? { apiFormat: toNonEmptyString(record.apiFormat)! }

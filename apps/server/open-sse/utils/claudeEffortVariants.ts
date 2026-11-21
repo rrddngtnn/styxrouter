@@ -30,6 +30,7 @@
  */
 import { getModelSpec } from "@/shared/constants/modelSpecs";
 import { supportsXHighEffort } from "../config/providerModels.ts";
+import { applyFixedEffortAliasCapabilities } from "../services/catalogEffortContract.ts";
 
 /** Base reasoning-effort levels advertised for every effort-capable Claude model. */
 export const CLAUDE_EFFORT_VARIANT_LEVELS = ["low", "medium", "high"] as const;
@@ -144,6 +145,7 @@ export function appendClaudeEffortVariants<T extends CatalogModelEntry>(
 ): T[] {
   if (!Array.isArray(models)) return models;
   const variants: T[] = [];
+  const existingIds = new Set(models.map((model) => model.id));
   for (const model of models) {
     if (!shouldExposeClaudeEffortVariants(model)) continue;
     const rawId = model.id;
@@ -153,14 +155,22 @@ export function appendClaudeEffortVariants<T extends CatalogModelEntry>(
     const bareName = bareModelName(qualifiedId);
     for (const level of claudeEffortLevelsFor(providerId, bareName)) {
       const variantId = `${qualifiedId}-${level}`;
+      if (existingIds.has(variantId)) continue;
+      existingIds.add(variantId);
       // root stays UNPREFIXED (base root, or the bare model name, plus the suffix):
       // the provider-scoped models route uses `root` verbatim as the unprefixed id.
       const baseRoot = typeof model.root === "string" && model.root ? model.root : bareName;
-      const variant: T = { ...model, id: variantId, root: `${baseRoot}-${level}` };
+      const baseVariant: T = { ...model, id: variantId, root: `${baseRoot}-${level}` };
       if (typeof model.name === "string" && model.name) {
-        variant.name = `${model.name} (${formatClaudeEffortLabel(level)})`;
+        baseVariant.name = `${model.name} (${formatClaudeEffortLabel(level)})`;
       }
-      variants.push(variant);
+      variants.push(
+        applyFixedEffortAliasCapabilities(baseVariant, {
+          baseId: qualifiedId,
+          effort: level,
+          disablesThinking: false,
+        })
+      );
     }
   }
   return variants.length > 0 ? [...models, ...variants] : models;

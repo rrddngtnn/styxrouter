@@ -74,6 +74,13 @@ import { rejectPeerRequest } from "@/shared/resilience/peerRouting";
 import { deleteHandoff, getHandoff } from "@/lib/db/contextHandoffs";
 import { getComboByName, updateCombo } from "@/lib/db/combos";
 import { isModelAllowedForKey } from "@/lib/db/apiKeys";
+import {
+  antigravityEffortWireAclId,
+  isDeferredAntigravityStaticAlias,
+  loadAntigravityEffortFamilies,
+  resolveExactEffortRoute,
+  supportsExactEffortFamily,
+} from "@styxrouter/open-sse/services/antigravityEffortFamily.ts";
 import { promoteSuccessfulComboModel } from "@/lib/combos/autoPromote";
 import {
   deleteSessionAccountAffinity,
@@ -1004,7 +1011,7 @@ async function handleChatImplementation(
       })();
       if (!provider) return true; // can't determine provider, let it try
 
-      const resolvedModel = modelInfo.model || modelString;
+      const baseModel = modelInfo.model || modelString;
       if (requestedConnectionId && target?.connectionId && target.connectionId !== requestedConnectionId) return false;
       const forcedConnectionId = requestedConnectionId || target?.connectionId || null;
       const hasForcedConnection =
@@ -1024,6 +1031,60 @@ async function handleChatImplementation(
       }
 
       if (Array.isArray(allowedConnections) && allowedConnections.length === 0) {
+        return false;
+      }
+
+      const familyScopeConnections = hasForcedConnection
+        ? allowedConnections
+          ? allowedConnections.includes(forcedConnectionId!)
+            ? [forcedConnectionId!]
+            : []
+          : [forcedConnectionId!]
+        : allowedConnections;
+      const familyRoute = exactTargetProbe()
+        ? null
+        : await resolveExactEffortRoute(
+            provider,
+            baseModel,
+            body,
+            url.pathname,
+            reasoningDecision?.targetEffort,
+            familyScopeConnections ? new Set(familyScopeConnections) : null
+          );
+      if (familyRoute === false) return false;
+      if (
+        hasForcedConnection &&
+        familyRoute === null &&
+        supportsExactEffortFamily(provider) &&
+        !exactTargetProbe() &&
+        !isDeferredAntigravityStaticAlias(
+          provider,
+          baseModel,
+          body,
+          url.pathname,
+          reasoningDecision?.targetEffort
+        ) &&
+        (
+          await loadAntigravityEffortFamilies(
+            provider,
+            allowedConnections ? new Set(allowedConnections) : null
+          )
+        ).has(baseModel)
+      ) {
+        return false;
+      }
+      const resolvedModel = familyRoute?.wireId ?? baseModel;
+      const preflightApiKey = extractApiKey(request);
+      if (
+        familyRoute &&
+        preflightApiKey &&
+        apiKeyInfo?.id &&
+        apiKeyInfo.id !== "env-key" &&
+        !(await isModelAllowedForKey(
+          preflightApiKey,
+          antigravityEffortWireAclId(resolvedModel, provider, modelString)
+        ))
+      ) {
         return false;
       }
 
@@ -1457,7 +1518,7 @@ async function handleSingleModelChat(
 
   const {
     provider: resolvedProvider,
-    model,
+    model: baseModel,
     sourceFormat,
     targetFormat,
     extendedContext,
@@ -1500,6 +1561,68 @@ async function handleSingleModelChat(
       quotaScope.connectionIds
     );
   }
+
+  const singleFamilyScopeConnections = hasForcedConnection
+    ? effectiveAllowedConnections
+      ? effectiveAllowedConnections.includes(runtimeOptions.forcedConnectionId!)
+        ? [runtimeOptions.forcedConnectionId!]
+        : []
+      : [runtimeOptions.forcedConnectionId!]
+    : effectiveAllowedConnections;
+  const familyRoute = exactTargetProbe()
+    ? null
+    : await resolveExactEffortRoute(
+        provider,
+        baseModel,
+        body,
+        clientRawRequest?.endpoint,
+        runtimeOptions.reasoningDecision?.targetEffort,
+        singleFamilyScopeConnections ? new Set(singleFamilyScopeConnections) : null
+      );
+  if (familyRoute === false) {
+    return errorResponse(
+      HTTP_STATUS.BAD_REQUEST,
+      "No exact wire model is declared for the requested effort (or no unambiguous default is declared)"
+    );
+  }
+  if (
+    hasForcedConnection &&
+    familyRoute === null &&
+    supportsExactEffortFamily(provider) &&
+    !exactTargetProbe() &&
+    !isDeferredAntigravityStaticAlias(
+      provider,
+      baseModel,
+      body,
+      clientRawRequest?.endpoint,
+      runtimeOptions.reasoningDecision?.targetEffort
+    ) &&
+    (
+      await loadAntigravityEffortFamilies(
+        provider,
+        effectiveAllowedConnections ? new Set(effectiveAllowedConnections) : null
+      )
+    ).has(baseModel)
+  ) {
+    return errorResponse(
+      HTTP_STATUS.SERVICE_UNAVAILABLE,
+      "Pinned connection does not advertise the exact effort model"
+    );
+  }
+  const singleApiKey = request ? extractApiKey(request) : null;
+  if (
+    familyRoute &&
+    singleApiKey &&
+    apiKeyInfo?.id &&
+    apiKeyInfo.id !== "env-key" &&
+    !(await isModelAllowedForKey(
+      singleApiKey,
+      antigravityEffortWireAclId(familyRoute.wireId, provider, modelStr)
+    ))
+  ) {
+    return errorResponse(HTTP_STATUS.FORBIDDEN, "Model not permitted for this API key");
+  }
+  const model = familyRoute?.wireId ?? baseModel;
 
   const bypassReason = forceLiveComboTest
     ? "combo live test"

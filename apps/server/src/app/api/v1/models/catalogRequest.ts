@@ -53,6 +53,16 @@ export async function getModelCatalogAuthRejection(
   );
 }
 
+export type CatalogEffortMode = "compact" | "expanded";
+
+export function getCatalogEffortMode(request: Request): CatalogEffortMode {
+  return new URL(request.url).searchParams.get("effort") === "compact" ? "compact" : "expanded";
+}
+
+export function isCompactEffortCatalog(request: Request): boolean {
+  return getCatalogEffortMode(request) === "compact";
+}
+
 /**
  * Detect the Codex CLI's model-catalog refresh client. Codex sends an `originator` header
  * of `codex_exec` (codex exec) / `codex_cli_rs` (interactive TUI) — see openai/codex

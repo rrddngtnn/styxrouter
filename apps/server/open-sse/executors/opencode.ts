@@ -96,6 +96,11 @@ const EFFORT_TIERS: Record<string, readonly string[]> = {
   "muse-spark-1.2-contributor": ["minimal", "low", "medium", "high", "xhigh"],
 };
 
+export function getOpencodeEffortTiers(model: string): readonly string[] | undefined {
+  const m = String(model || "");
+  return Object.hasOwn(EFFORT_TIERS, m) ? EFFORT_TIERS[m] : undefined;
+}
+
 /**
  * Parse a model string with an effort-level suffix.
  * e.g. "deepseek-v4-pro-low" → { baseModel: "deepseek-v4-pro", effort: "low" }

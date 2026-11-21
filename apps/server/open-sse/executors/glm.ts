@@ -60,7 +60,7 @@ function getEffectiveKey(credentials: ProviderCredentials): string {
 
 export type GlmEffortLevel = "low" | "high" | "max";
 
-type GlmEffortTier = {
+export type GlmEffortTier = {
   baseModel: string;
   effort: GlmEffortLevel;
   /** Transport where the upstream honors the effort selector for this family. */
@@ -80,7 +80,7 @@ type GlmEffortTier = {
  * https://docs.z.ai/devpack/latest-model
  * https://docs.z.ai/guides/llm/glm-5.3
  */
-function parseGlmEffortTier(model: string): GlmEffortTier | null {
+export function parseGlmEffortTier(model: string): GlmEffortTier | null {
   switch (model) {
     case "glm-5.2-high":
       return { baseModel: "glm-5.2", effort: "high", transport: "anthropic" };
