@@ -64,15 +64,46 @@ Examples:
 
 ## 2. Display name
 
-The display name (`name` field in registry entries and catalog responses) is
-human-readable and separate from the ID. It may contain spaces and capital
-letters. Never use the display name for routing — only the canonical ID.
+The display name (`name` field in catalog responses) is human-readable and
+separate from the ID. Never use the display name for routing — only the
+canonical ID.
 
-| ID | Display name |
-|---|---|
-| `codex/gpt-6.1-terra` | `GPT-6.1 Terra` |
-| `codex/gpt-5.6-terra` | `GPT 5.6 Terra` |
-| `codebuddy-cn/deepseek-v4.1-flash` | `DeepSeek-V4.1-Flash` |
+`/v1/models` (both `?effort=compact` and the default expanded listing) and
+`GET /api/admin/provider-catalog` normalize every name through
+`src/lib/catalogDisplayName.ts`:
+
+- Base model: `<Base Name> (<Provider>)`.
+- Fixed-effort alias (expanded only): `<Base Name> <Tier> (<Provider>)`, where
+  `<Tier>` is one of `None`, `Low`, `Medium`, `High`, `XHigh`, `Max`, `Ultra`.
+- Virtual combos have no provider suffix.
+- Parentheses are reserved for the trailing provider label. Qualifiers such as
+  `Tiered`, `Thinking`, and backend tags (`Volc`) appear inline.
+- Upstream labels are cleaned: redundant leading provider prefixes, billing
+  multipliers (`(2.0x credit)`), and capability badges already exposed in
+  structured `capabilities` (`(Vision)`, or `(Thinking)` when the ID is not a
+  `-thinking` model) are removed.
+- Brands, acronyms, and versions are normalized (`GPT-5.5`, `GLM-5.3`,
+  `Claude Opus 5.5`, `DeepSeek V3.2`, `GPT-OSS 120B`, `MoE`, `FP8`, `8x7B`), and
+  ISO dates in IDs are preserved (`2024-08-06`).
+- A name is never empty or a raw slug; when upstream provides none, it is
+  derived from the model ID. Custom provider nodes use their configured name as
+  the provider label.
+
+| ID | Listing | Display name |
+|---|---|---|
+| `codex/gpt-6.1-terra` | compact, expanded | `GPT-6.1 Terra (Codex)` |
+| `codex/gpt-6.1-terra-high` | expanded | `GPT-6.1 Terra High (Codex)` |
+| `kiro/claude-opus-5.5` | compact, expanded | `Claude Opus 5.5 (Kiro)` |
+| `codebuddy-cn/deepseek-v4.1-flash` | compact, expanded | `DeepSeek V4.1 Flash (CodeBuddy CN)` |
+
+The per-provider editor endpoint `GET /api/providers/:id/models` keeps raw
+stored names because it edits them.
+
+Compact listing (`?effort=compact`) omits every fixed-effort alias, `no-think/`
+alias, and redundant wire row whose base is listed: effort suffixes, `-tiered`
+alias targets and sub-families covered by their parent family, and static
+single-tier wire IDs (for example `gpt-oss-120b-medium` is listed as
+`gpt-oss-120b` with `fixed_effort: "medium"` and no selectable tiers).
 
 ## 3. Effort variants (Codex)
 
