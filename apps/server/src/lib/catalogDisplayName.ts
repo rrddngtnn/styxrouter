@@ -413,8 +413,10 @@ function normalizeCanonicalPhrases(text: string): string {
   // GLM-<version> (e.g. "GLM 5.3 Flash" -> "GLM-5.3 Flash", "GLM 5V Turbo" -> "GLM-5V Turbo").
   out = out.replace(/\bGLM (\d+(?:\.\d+)?[Vv]?)\b/g, "GLM-$1");
 
-  // Claude <Family> <major> <minor> -> Claude <Family> <major>.<minor>.
+  // Claude <Family> <major> <minor> -> Claude <Family> <major>.<minor>,
+  // and Claude <major> <minor> <Family> -> Claude <major>.<minor> <Family>.
   out = out.replace(/\b(Claude (?:Opus|Sonnet|Haiku)) (\d) (\d)\b/g, "$1 $2.$3");
+  out = out.replace(/\bClaude (\d) (\d)\b/g, "Claude $1.$2");
 
   // DeepSeek version normalization:
   // "DeepSeek 3.2" -> "DeepSeek V3.2", "DeepSeek V3 2" -> "DeepSeek V3.2".

@@ -39,6 +39,7 @@ test("normalizeCatalogDisplayName enforces `<Base> (<Provider>)`, `<Base> <Tier>
   expect(normalizeCatalogDisplayName("MiMo-V2.6-Pro", { modelId: "mimo-v2.6-pro", provider: "codebuddy-cn" })).toBe("MiMo V2.6 Pro (CodeBuddy CN)");
   expect(normalizeCatalogDisplayName("Space-Bunny", { modelId: "space-bunny", provider: "codebuddy-cn" })).toBe("Space Bunny (CodeBuddy CN)");
   expect(normalizeCatalogDisplayName("claude-sonnet-5-5", { modelId: "claude-sonnet-5-5", provider: "antigravity" })).toBe("Claude Sonnet 5.5 (Antigravity)");
+  expect(normalizeCatalogDisplayName("claude-3-5-sonnet", { modelId: "claude-3-5-sonnet", provider: "anthropic" })).toBe("Claude 3.5 Sonnet (Anthropic)");
   expect(normalizeCatalogDisplayName("Claude Sonnet 4.6 (Thinking)", { modelId: "claude-sonnet-4-6", provider: "antigravity" })).toBe("Claude Sonnet 4.6 (Antigravity)");
   expect(normalizeCatalogDisplayName("Claude Opus 4.6 (Thinking)", { modelId: "claude-opus-4-6-thinking", provider: "antigravity" })).toBe("Claude Opus 4.6 Thinking (Antigravity)");
   expect(normalizeCatalogDisplayName("Gemini 3.8 Flash (Tiered)", { modelId: "gemini-3.8-flash-tiered", provider: "antigravity" })).toBe("Gemini 3.8 Flash Tiered (Antigravity)");
