@@ -110,13 +110,13 @@ test("normalizeCatalogDisplayName enforces `<Base> (<Provider>)`, `<Base> <Tier>
   ).toBe("Claude Sonnet 4.6 None (Claude)");
 
   // Combos never return undefined and have no upstream provider parens
-  expect(normalizeCatalogDisplayName(undefined, { modelId: "Muse", isCombo: true })).toBe("Muse");
+  expect(normalizeCatalogDisplayName(undefined, { modelId: "fixture-combo", isCombo: true })).toBe("Fixture Combo");
   expect(normalizeCatalogDisplayName(undefined, { modelId: "auto/coding", isCombo: true })).toBe("Auto Coding");
 });
 
 test("/v1/models compact & expanded enforce `<Base> (<Provider>)` / `<Base> <Tier> (<Provider>)` and clean compact edge cases", async () => {
   await createCombo({
-    name: "Muse",
+    name: "fixture-combo",
     strategy: "priority",
     models: ["codex/gpt-5.5"],
     isActive: true,
@@ -268,7 +268,7 @@ test("/v1/models compact & expanded enforce `<Base> (<Provider>)` / `<Base> <Tie
   expect(byId(expanded, "antigravity/agy-dyn-tiered-high")?.name).toBe("AGY Dynamic Tiered High (Antigravity)");
 
   // Combo has non-undefined name without provider parens
-  expect(byId(compact, "Muse")?.name).toBe("Muse");
+  expect(byId(compact, "fixture-combo")?.name).toBe("Fixture Combo");
 
   // 2. Codex gpt-6.1-terra-none is collapsed in compact & marked fixed_effort: "none" in expanded
   expect(byId(compact, "codex/gpt-6.1-terra")?.name).toBe("GPT-6.1 Terra (Codex)");
