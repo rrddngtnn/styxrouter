@@ -1,6 +1,11 @@
 import { CANONICAL_EFFORT_VALUES } from "@/shared/reasoning/effortStandardization";
 import type { EffortFamily } from "@/shared/reasoning/effortVariants";
-import { normalizeCatalogDisplayName, stripTrailingEffortLabel } from "@/lib/catalogDisplayName";
+import {
+  formatCanonicalEffortLabel,
+  formatProviderDisplayLabel,
+  normalizeCatalogDisplayName,
+  stripTrailingEffortLabel,
+} from "@/lib/catalogDisplayName";
 import { applyFixedEffortAliasCapabilities } from "@styxrouter/open-sse/services/catalogEffortContract.ts";
 import {
   getAntigravityTieredAliasTarget,
@@ -37,11 +42,38 @@ function deriveAntigravityFamilyDisplayName(
 
   let memberCandidate: string | null = null;
   if (!explicitName) {
+    const providerLabel = formatProviderDisplayLabel(ownedBy);
     for (const member of enrichedMembers) {
       if (typeof member.name !== "string" || !member.name.trim()) continue;
       const memberRoot = typeof member.root === "string" ? member.root.trim() : "";
       if (memberRoot && member.name.trim() === memberRoot) continue;
-      const stripped = stripTrailingEffortLabel(member.name);
+      let stripped = member.name.trim();
+      if (providerLabel) {
+        stripped = stripped
+          .replace(
+            new RegExp(`\\s*\\(\\s*${providerLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\)\\s*$`, "i"),
+            ""
+          )
+          .trim();
+      }
+      stripped = stripTrailingEffortLabel(stripped);
+      const memberCaps =
+        member.capabilities && typeof member.capabilities === "object"
+          ? (member.capabilities as Record<string, unknown>)
+          : {};
+      const memberEffort =
+        typeof memberCaps.fixed_effort === "string"
+          ? memberCaps.fixed_effort
+          : (memberRoot.match(/-(none|low|medium|high|xhigh|max|ultra)$/i)?.[1]?.toLowerCase() ??
+            fixedEffort);
+      if (memberEffort) {
+        const tierWord = formatCanonicalEffortLabel(memberEffort);
+        if (tierWord) {
+          stripped = stripped.replace(new RegExp(`\\s+${tierWord}$`, "i"), "").trim();
+        }
+      } else {
+        stripped = stripped.replace(/\s+(?:None|Low|Medium|High|XHigh|Max|Ultra)$/i, "").trim();
+      }
       if (stripped && stripped !== root) {
         memberCandidate = stripped;
         break;

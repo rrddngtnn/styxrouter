@@ -375,6 +375,7 @@ async function buildUnifiedModelsResponseCore(
     // Build map of provider node ID to prefix and type for compatible providers
     const providerIdToPrefix: Record<string, string> = {};
     const providerNodeIdByPrefix: Record<string, string> = {};
+    const providerNodeNameByPrefix: Record<string, string> = {};
     const nodeIdToProviderType: Record<string, string> = {};
     for (const node of providerNodes) {
       const resolvedPrefix =
@@ -397,6 +398,7 @@ async function buildUnifiedModelsResponseCore(
       if (reservedProviderPrefixes.has(prefix)) continue;
       const winner = selectCompatibleNodeForPrefix(providerNodes, prefix);
       if (winner?.id) providerNodeIdByPrefix[prefix] = winner.id;
+      if (typeof (winner as any)?.name === "string" && (winner as any).name.trim()) providerNodeNameByPrefix[prefix] = (winner as any).name.trim();
     }
 
     // #8327: `resolveCanonicalProviderId`/`canonicalProviderId` only know the static
@@ -2044,6 +2046,7 @@ async function buildUnifiedModelsResponseCore(
         modelsDevPricing,
         capabilityResolutionSnapshot,
         providerNodeIdsByPrefix: providerNodeIdByPrefix,
+        providerNodeNamesByPrefix: providerNodeNameByPrefix,
       };
       // The production profile identified pricing snapshot construction as the last
       // dominant synchronous stage. Let already-queued health checks run before the

@@ -10,6 +10,7 @@ import { getModelAliases } from "../src/lib/db/models/aliases.ts";
 import { appendClaudeEffortVariants } from "../open-sse/utils/claudeEffortVariants.ts";
 import { appendSyncedEffortVariants } from "../open-sse/utils/syncedEffortVariants.ts";
 import { resolveStaticCatalogEffortAlias } from "../open-sse/services/catalogEffortContract.ts";
+import { normalizeCatalogDisplayName } from "../src/lib/catalogDisplayName.ts";
 import { EMBEDDING_PROVIDERS } from "../open-sse/config/embeddingRegistry.ts";
 import { getAllImageModels } from "../open-sse/config/imageRegistry.ts";
 import { getAllRerankModels } from "../open-sse/config/rerankRegistry.ts";
@@ -33,11 +34,22 @@ const patchSchema = z.object({ ...fields, inputTokenLimit: tokenLimit.nullable()
 
 type Model = Record<string, any> & { id: string };
 
-type ScopedInventory = { providerId: string; nodeId: string | null; prefix: string; models: Model[] };
+type ScopedInventory = { providerId: string; nodeId: string | null; prefix: string; providerLabel?: string | null; models: Model[] };
 export function buildScopedInventoryRows(inventories: ScopedInventory[]) {
-  return inventories.flatMap(({ providerId, nodeId, prefix, models }) => models
+  return inventories.flatMap(({ providerId, nodeId, prefix, providerLabel, models }) => models
     .filter(model => model && typeof model.id === "string" && model.id.length > 0)
-    .map(model => ({ ...model, id: `${prefix}/${model.id}`, providerId, nodeId, localId: model.id })));
+    .map(model => {
+      const fixedEffort = typeof model.fixedEffort === "string" ? model.fixedEffort : null;
+      const isFixedAlias = Boolean(fixedEffort && typeof model.baseLocalId === "string" && model.baseLocalId !== model.id);
+      const name = normalizeCatalogDisplayName(typeof model.name === "string" ? model.name : null, {
+        modelId: model.id,
+        provider: nodeId ? prefix : providerId,
+        providerLabel: providerLabel ?? null,
+        fixedEffort,
+        appendEffortLabel: isFixedAlias,
+      });
+      return { ...model, name, id: `${prefix}/${model.id}`, providerId, nodeId, localId: model.id };
+    }));
 }
 export function expandEmbeddingInventory(inventories: ScopedInventory[]) {
   for (const inventory of inventories) {
@@ -237,11 +249,11 @@ export function createProviderModelsApi() {
   api.get("/admin/provider-catalog", async c => {
     const nodes = await getProviderNodes() as Model[];
     const providers = Object.entries(REGISTRY).filter(([id, entry]) => entry.id === id)
-      .map(([id, entry]) => ({ id, prefix: id, builtins: entry.models || [], nodeId: null as string | null }));
-    for (const node of nodes) providers.push({ id: node.id, prefix: node.prefix || node.id, builtins: [], nodeId: node.id });
+      .map(([id, entry]) => ({ id, prefix: id, builtins: entry.models || [], nodeId: null as string | null, providerLabel: null as string | null }));
+    for (const node of nodes) providers.push({ id: node.id, prefix: node.prefix || node.id, builtins: [], nodeId: node.id, providerLabel: typeof node.name === "string" ? node.name : null });
     const inventories = await Promise.all(providers.map(async p => {
       const loaded = await inventory(p, true);
-      return { providerId: p.id, nodeId: p.nodeId, prefix: p.prefix, models: [...loaded.rows.values()], malformedSync: loaded.malformedSync };
+      return { providerId: p.id, nodeId: p.nodeId, prefix: p.prefix, providerLabel: p.providerLabel, models: [...loaded.rows.values()], malformedSync: loaded.malformedSync };
     }));
     const prefixes = new Map<string, string[]>();
     for (const p of providers) for (const prefix of new Set([p.id, p.prefix, REGISTRY[p.id]?.alias].filter((v): v is string => !!v))) {

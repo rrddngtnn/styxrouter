@@ -55,6 +55,7 @@ type JsonRecord = Record<string, unknown>;
 export interface CatalogEnrichmentSnapshot {
   modelsDevPricing: PricingByProvider | null;
   providerNodeIdsByPrefix?: Readonly<Record<string, string>>;
+  providerNodeNamesByPrefix?: Readonly<Record<string, string>>;
   /** #9147: build-local bulk load of synced capabilities + token/context overrides
    * so per-entry enrichment never hits SQLite again (see catalogResponse.ts). */
   capabilityResolutionSnapshot?: ModelCapabilityResolutionSnapshot | null;
@@ -674,9 +675,12 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
     fixedAliasMeta && typeof entry.id === "string" && fixedAliasMeta.baseId !== entry.id
   );
   const rawDisplayName = existingName || metadata.displayName || null;
+  const nodeLabelOverride =
+    publicProvider ? snapshot?.providerNodeNamesByPrefix?.[publicProvider] : undefined;
   nextEntry.name = normalizeCatalogDisplayName(rawDisplayName, {
     modelId: model || (typeof entry.id === "string" ? entry.id : ""),
     provider: publicProvider || metadata.provider,
+    providerLabel: nodeLabelOverride || metadata.providerLabel,
     fixedEffort: fixedAliasMeta?.effort ?? null,
     appendEffortLabel: isFixedAliasRow,
   });

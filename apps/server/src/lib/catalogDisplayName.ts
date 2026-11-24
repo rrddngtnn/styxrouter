@@ -1,17 +1,15 @@
 /**
- * Unified semantic display-name normalizer for `/v1/models` (both compact and expanded).
+ * Unified semantic display-name normalizer for `/v1/models` (both compact and expanded)
+ * and the admin provider catalog.
  *
- * Guarantees every catalog entry has a clean, consistent human-readable `name`:
- * - Never `undefined`, empty, or an unformatted raw slug.
- * - Uniform base vs fixed-effort variant formatting:
- *     - Base model: `<Base Name>`
- *     - Fixed-effort variant (expanded): `<Base Name> (<Tier>)`
- *       with canonical tier labels: `None`, `Low`, `Medium`, `High`, `XHigh`, `Max`, `Ultra`.
- * - Consistent brand, acronym, version, and casing normalization across all providers.
- * - Clean upstream label strategy: strips redundant leading provider prefixes (when not part of
- *   the model ID itself), billing/credit multipliers (e.g. `(1.3x credit)`), and redundant
- *   capability badges (e.g. `(Vision)`, or `(Thinking)` when the model ID is not `-thinking`),
- *   leaving provider disambiguation to `disambiguateCatalogModelNames()`.
+ * Canonical format:
+ * - Compact / base model: `<Base Name> (<Provider>)`
+ * - Expanded fixed-effort variant: `<Base Name> <Tier> (<Provider>)`
+ *   with canonical tier labels: `None`, `Low`, `Medium`, `High`, `XHigh`, `Max`, `Ultra`.
+ * - Virtual combo (`owned_by === "combo"`): `<Combo Name>` (no upstream provider suffix).
+ *
+ * Parentheses are reserved exclusively for `(<Provider>)` at the end — qualifiers such as
+ * `Tiered`, `Thinking`, `Volc`, and effort tiers appear inline without nested parentheses.
  *
  * Pure module: no DB, no IO, no private provider codenames.
  */
@@ -32,9 +30,11 @@ const KNOWN_BRAND_TOKENS: Readonly<Record<string, string>> = {
   api: "API",
   audio: "Audio",
   auto: "Auto",
+  bf16: "BF16",
   chat: "Chat",
   chatgpt: "ChatGPT",
   claude: "Claude",
+  cli: "CLI",
   code: "Code",
   coder: "Coder",
   codex: "Codex",
@@ -43,6 +43,7 @@ const KNOWN_BRAND_TOKENS: Readonly<Record<string, string>> = {
   embedding: "Embedding",
   flash: "Flash",
   flashx: "FlashX",
+  fp8: "FP8",
   gemini: "Gemini",
   glm: "GLM",
   gpt: "GPT",
@@ -62,6 +63,7 @@ const KNOWN_BRAND_TOKENS: Readonly<Record<string, string>> = {
   mini: "Mini",
   minimax: "MiniMax",
   mistral: "Mistral",
+  moe: "MoE",
   nano: "Nano",
   next: "Next",
   none: "None",
@@ -78,6 +80,7 @@ const KNOWN_BRAND_TOKENS: Readonly<Record<string, string>> = {
   sonar: "Sonar",
   sonnet: "Sonnet",
   spark: "Spark",
+  swe: "SWE",
   thinking: "Thinking",
   tiered: "Tiered",
   tts: "TTS",
@@ -86,9 +89,56 @@ const KNOWN_BRAND_TOKENS: Readonly<Record<string, string>> = {
   video: "Video",
   vision: "Vision",
   vl: "VL",
+  vlm: "VLM",
   volc: "Volc",
   xhigh: "XHigh",
   xl: "XL",
+};
+
+const PROVIDER_DISPLAY_LABELS: Readonly<Record<string, string>> = {
+  antigravity: "Antigravity",
+  agy: "Antigravity",
+  ag: "Antigravity",
+  codex: "Codex",
+  cx: "Codex",
+  kiro: "Kiro",
+  kr: "Kiro",
+  "codebuddy-cn": "CodeBuddy CN",
+  cbcn: "CodeBuddy CN",
+  glm: "GLM",
+  "glm-cn": "GLM CN",
+  glmt: "GLM Thinking",
+  claude: "Claude",
+  cc: "Claude",
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  gemini: "Gemini",
+  github: "GitHub Copilot",
+  gh: "GitHub Copilot",
+  opencode: "OpenCode",
+  oc: "OpenCode",
+  "opencode-go": "OpenCode Go",
+  "opencode-zen": "OpenCode Zen",
+  openrouter: "OpenRouter",
+  or: "OpenRouter",
+  deepseek: "DeepSeek",
+  ds: "DeepSeek",
+  cursor: "Cursor",
+  vertex: "Vertex AI",
+  bedrock: "Bedrock",
+  groq: "Groq",
+  cerebras: "Cerebras",
+  nvidia: "NVIDIA",
+  kimi: "Kimi",
+  "kimi-coding": "Kimi",
+  "kimi-coding-apikey": "Kimi",
+  minimax: "MiniMax",
+  zai: "Z.ai",
+  zcode: "ZCode",
+  mistral: "Mistral",
+  xai: "xAI",
+  perplexity: "Perplexity",
+  ollama: "Ollama",
 };
 
 const PROVIDER_PREFIX_LABELS: Readonly<Record<string, readonly string[]>> = {
@@ -108,6 +158,9 @@ const TRAILING_EFFORT_PAREN_RE =
 
 const BILLING_BADGE_RE = /\s*\(\s*\d+(?:\.\d+)?x\s+credits?\s*\)/gi;
 
+const ISO_DATE_TOKEN_RE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATE_PLACEHOLDER_PREFIX = "ISODATETOKEN";
+
 export function formatCanonicalEffortLabel(effort: string): string {
   const key = effort.trim().toLowerCase();
   if (Object.hasOwn(CANONICAL_EFFORT_LABELS, key)) {
@@ -116,8 +169,32 @@ export function formatCanonicalEffortLabel(effort: string): string {
   return key ? key.charAt(0).toUpperCase() + key.slice(1) : "";
 }
 
+export function formatProviderDisplayLabel(
+  provider: string | null | undefined,
+  providerLabelOverride?: string | null
+): string | null {
+  const override =
+    typeof providerLabelOverride === "string"
+      ? providerLabelOverride
+          .replace(/\s*\([^)]*\)/g, "")
+          .replace(/\s+/g, " ")
+          .trim()
+      : "";
+  const raw = typeof provider === "string" ? provider.trim() : "";
+  if (raw) {
+    const key = raw.toLowerCase();
+    if (Object.hasOwn(PROVIDER_DISPLAY_LABELS, key)) {
+      return PROVIDER_DISPLAY_LABELS[key];
+    }
+  }
+  if (override) return override;
+  if (!raw) return null;
+  return formatTokenSequence(raw);
+}
+
 /**
- * Strip a trailing parenthesized effort label such as `(Low)`, `(xHigh)`, or `(no thinking)`.
+ * Strip a trailing parenthesized effort label such as `(Low)`, `(xHigh)`, or `(no thinking)`,
+ * and/or a trailing provider label `(<Provider>)` when extracting a base model name.
  */
 export function stripTrailingEffortLabel(name: string): string {
   let result = name.trim();
@@ -179,9 +256,16 @@ function stripRedundantProviderPrefix(
 function stripUpstreamNoise(
   value: string,
   provider: string | null | undefined,
-  modelId: string
+  modelId: string,
+  providerLabel: string | null
 ): string {
   let result = value.trim();
+  // Strip any existing trailing `(<Provider>)` so re-normalizing is idempotent.
+  if (providerLabel) {
+    result = result
+      .replace(new RegExp(`\\s*\\(\\s*${escapeRegExp(providerLabel)}\\s*\\)\\s*$`, "i"), "")
+      .trim();
+  }
   // Remove billing / credit multiplier annotations (e.g. "(2.0x credit)", "(0.4x credits)").
   result = result.replace(BILLING_BADGE_RE, "");
   // Remove redundant "(Vision)" badge — vision is exposed in structured capabilities.
@@ -192,7 +276,7 @@ function stripUpstreamNoise(
     // Strip redundant "(Thinking)" badge when the model ID itself is not a `-thinking` variant.
     result = result.replace(/\s*\(\s*thinking\s*\)/gi, "");
   } else {
-    // Normalize "(Thinking)" into a plain word when `-thinking` is part of the model identity.
+    // Flatten "(Thinking)" into plain word when `-thinking` is part of the model identity.
     result = result.replace(/\s*\(\s*thinking\s*\)/gi, " Thinking");
   }
 
@@ -202,12 +286,7 @@ function stripUpstreamNoise(
 
 function formatSingleToken(token: string): string {
   if (!token) return token;
-
-  // Preserve parenthesized qualifiers while normalizing their inner tokens.
-  if (token.startsWith("(") && token.endsWith(")") && token.length > 2) {
-    const inner = formatTokenSequence(token.slice(1, -1));
-    return `(${inner})`;
-  }
+  if (ISO_DATE_TOKEN_RE.test(token)) return token;
 
   const lower = token.toLowerCase();
   if (Object.hasOwn(KNOWN_BRAND_TOKENS, lower)) {
@@ -230,17 +309,27 @@ function formatSingleToken(token: string): string {
     return `Qwen${qwenVer[1]}`;
   }
 
-  // Vision/size/version alphanumerics: "5v" -> "5V", "4.6v" -> "4.6V", "120b" -> "120B", "v3.2" -> "V3.2", "m2.7" -> "M2.7", "k3.1" -> "K3.1", "r1" -> "R1".
-  const versionLetterSuffix = /^(\d+(?:\.\d+)?)([vb])$/i.exec(token);
-  if (versionLetterSuffix) {
-    return `${versionLetterSuffix[1]}${versionLetterSuffix[2].toUpperCase()}`;
+  // MoE / parameter / context tokens: "8x7b" -> "8x7B", "a3b" -> "A3B", "128k" -> "128K", "1m" -> "1M".
+  const moeSize = /^(\d+)x(\d+(?:\.\d+)?)b$/i.exec(token);
+  if (moeSize) {
+    return `${moeSize[1]}x${moeSize[2]}B`;
   }
+  const activeParams = /^a(\d+(?:\.\d+)?)b$/i.exec(token);
+  if (activeParams) {
+    return `A${activeParams[1]}B`;
+  }
+  const sizeSuffix = /^(\d+(?:\.\d+)?)([vbkm])$/i.exec(token);
+  if (sizeSuffix) {
+    return `${sizeSuffix[1]}${sizeSuffix[2].toUpperCase()}`;
+  }
+
+  // Version prefixes: "v3.2" -> "V3.2", "m2.7" -> "M2.7", "k3.1" -> "K3.1", "r1" -> "R1".
   const versionLetterPrefix = /^([vmkr])(\d+(?:\.\d+)?)$/i.exec(token);
   if (versionLetterPrefix) {
     return `${versionLetterPrefix[1].toUpperCase()}${versionLetterPrefix[2]}`;
   }
-  // OpenAI o-series ("o1", "o3", "o4") stays lowercase "o".
-  if (/^o\d+(?:\.\d+)?$/i.test(token)) {
+  // OpenAI o-series ("o1", "o3", "o4") and "4o" stay lowercase "o".
+  if (/^o\d+(?:\.\d+)?$/i.test(token) || /^\d+(?:\.\d+)?o$/i.test(token)) {
     return lower;
   }
 
@@ -249,8 +338,7 @@ function formatSingleToken(token: string): string {
     return token;
   }
 
-  // Preserve mixed-case intentional identifiers (e.g. "OpenAI", "DeepSeek", "FlashX", "MiMo")
-  // if they already contain internal capitals and are not all-lowercase.
+  // Preserve mixed-case intentional identifiers (e.g. "OpenAI", "DeepSeek", "FlashX", "MiMo").
   if (/[A-Z]/.test(token) && /[a-z]/.test(token)) {
     return token;
   }
@@ -270,21 +358,42 @@ function formatTokenSequence(input: string): string {
     }
   }
 
-  // Protect parenthesized segments from hyphen splitting so "(Volc)" stays intact.
+  // Protect ISO dates (YYYY-MM-DD) from hyphen splitting so `gpt-4o-2024-08-06` keeps `2024-08-06`.
+  const protectedDates: string[] = [];
+  const withProtectedDates = input.replace(
+    /(^|[-_\s/])(\d{4}-\d{2}-\d{2})(?=$|[-_\s/])/g,
+    (_m, lead: string, date: string) => {
+      const idx = protectedDates.push(date) - 1;
+      return `${lead}${ISO_DATE_PLACEHOLDER_PREFIX}${idx}END`;
+    }
+  );
+
+  // Flatten any non-provider parenthesized qualifiers into inline words so parentheses
+  // are reserved exclusively for `(<Provider>)` at the end.
   const parts: string[] = [];
   const tokenRe = /\([^)]*\)|[^\s]+/g;
   let match: RegExpExecArray | null;
-  while ((match = tokenRe.exec(input)) !== null) {
+  while ((match = tokenRe.exec(withProtectedDates)) !== null) {
     const raw = match[0];
-    if (raw.startsWith("(") && raw.endsWith(")")) {
-      parts.push(formatSingleToken(raw));
-      continue;
-    }
+    const unwrapped = raw.startsWith("(") && raw.endsWith(")") ? raw.slice(1, -1).trim() : raw;
+    if (!unwrapped) continue;
 
-    // Split hyphen/underscore-delimited words, keeping internal dots (versions) intact.
-    const subtokens = raw.split(/[-_]+/).filter(Boolean);
-    for (const sub of subtokens) {
-      parts.push(formatSingleToken(sub));
+    for (const word of unwrapped.split(/\s+/)) {
+      const dateMatch = /^ISODATETOKEN(\d+)END$/.exec(word);
+      if (dateMatch) {
+        parts.push(protectedDates[Number(dateMatch[1])]);
+        continue;
+      }
+      // Split hyphen/underscore-delimited subtokens while restoring any embedded ISO date placeholders.
+      const subtokens = word.split(/[-_]+/).filter(Boolean);
+      for (const sub of subtokens) {
+        const embeddedDate = /^ISODATETOKEN(\d+)END$/.exec(sub);
+        if (embeddedDate) {
+          parts.push(protectedDates[Number(embeddedDate[1])]);
+        } else {
+          parts.push(formatSingleToken(sub));
+        }
+      }
     }
   }
 
@@ -297,26 +406,23 @@ function normalizeCanonicalPhrases(text: string): string {
   // GPT-OSS (keep hyphen between GPT and OSS).
   out = out.replace(/\bGPT OSS\b/gi, "GPT-OSS");
 
-  // GPT-<version> (e.g. "GPT 5.6 Sol" -> "GPT-5.6 Sol", "GPT 6 Astra" -> "GPT-6 Astra").
+  // GPT-<version> (e.g. "GPT 5.6 Sol" -> "GPT-5.6 Sol", "GPT 4o" -> "GPT-4o").
   // Keeps non-versioned names spaced ("GPT Reserve").
   out = out.replace(/\bGPT (\d+(?:\.\d+)?[A-Za-z]?)\b/g, "GPT-$1");
 
   // GLM-<version> (e.g. "GLM 5.3 Flash" -> "GLM-5.3 Flash", "GLM 5V Turbo" -> "GLM-5V Turbo").
   out = out.replace(/\bGLM (\d+(?:\.\d+)?[Vv]?)\b/g, "GLM-$1");
 
-  // Claude <Family> <major> <minor> -> Claude <Family> <major>.<minor> (e.g. "Claude Sonnet 5 5" -> "Claude Sonnet 5.5").
-  out = out.replace(
-    /\b(Claude (?:Opus|Sonnet|Haiku)) (\d) (\d)\b/g,
-    "$1 $2.$3"
-  );
+  // Claude <Family> <major> <minor> -> Claude <Family> <major>.<minor>.
+  out = out.replace(/\b(Claude (?:Opus|Sonnet|Haiku)) (\d) (\d)\b/g, "$1 $2.$3");
 
   // DeepSeek version normalization:
   // "DeepSeek 3.2" -> "DeepSeek V3.2", "DeepSeek V3 2" -> "DeepSeek V3.2".
   out = out.replace(/\bDeepSeek (\d+(?:\.\d+)?)\b/g, "DeepSeek V$1");
   out = out.replace(/\bDeepSeek V(\d) (\d)\b/g, "DeepSeek V$1.$2");
 
-  // Clean up spacing before parenthesized qualifiers.
-  out = out.replace(/\s+\(/g, " (").replace(/\(\s+/g, "(").replace(/\s+\)/g, ")");
+  // Collapse accidental duplicate consecutive words (e.g. "Tiered Tiered").
+  out = out.replace(/\b(\w+)\s+\1\b/gi, "$1");
 
   return out.trim();
 }
@@ -331,9 +437,11 @@ function looksLikeRawSlug(value: string): boolean {
 export interface NormalizeCatalogDisplayNameOptions {
   modelId: string;
   provider?: string | null;
+  /** Optional friendly provider display name (e.g. custom node name). */
+  providerLabel?: string | null;
   /** Locked effort level when this entry is a fixed-effort alias. */
   fixedEffort?: string | null;
-  /** Whether to append ` (<Tier>)` to the display name (true for fixed-effort alias rows). */
+  /** Whether to append ` <Tier>` after the base name (true for expanded fixed-effort alias rows). */
   appendEffortLabel?: boolean;
   /** Whether to strip any trailing parenthesized effort label (true for synthesized base family rows). */
   stripEffortLabel?: boolean;
@@ -360,6 +468,8 @@ export function normalizeCatalogDisplayName(
     return looksLikeRawSlug(source) ? formatTokenSequence(source) : source;
   }
 
+  const providerLabel = formatProviderDisplayLabel(opts.provider, opts.providerLabel);
+
   let cleanModelId = modelId.replace(/^no-think\//i, "");
   if (opts.fixedEffort && opts.appendEffortLabel) {
     const escaped = escapeRegExp(opts.fixedEffort.trim().toLowerCase());
@@ -368,7 +478,7 @@ export function normalizeCatalogDisplayName(
 
   let candidate = trimmedRaw;
   if (candidate) {
-    candidate = stripUpstreamNoise(candidate, opts.provider, cleanModelId);
+    candidate = stripUpstreamNoise(candidate, opts.provider, cleanModelId, providerLabel);
     if (opts.fixedEffort && opts.appendEffortLabel) {
       candidate = stripSpecificTrailingEffort(candidate, opts.fixedEffort);
     } else if (opts.stripEffortLabel) {
@@ -387,19 +497,17 @@ export function normalizeCatalogDisplayName(
 
   // Preserve distinguishing "-tiered" identity when upstream displayName omits it
   // (e.g. a separate `*-tiered` wire family whose displayName matches the non-tiered sibling).
-  if (
-    /(?:^|[-_/])tiered$/i.test(cleanModelId) &&
-    !/\btiered\b/i.test(normalizedBase)
-  ) {
+  if (/(?:^|[-_/])tiered$/i.test(cleanModelId) && !/\btiered\b/i.test(normalizedBase)) {
     normalizedBase = `${normalizedBase} Tiered`;
   }
 
+  let body = normalizedBase;
   if (opts.fixedEffort && opts.appendEffortLabel) {
     const tierLabel = formatCanonicalEffortLabel(opts.fixedEffort);
     if (tierLabel) {
-      return `${normalizedBase} (${tierLabel})`;
+      body = `${body} ${tierLabel}`;
     }
   }
 
-  return normalizedBase;
+  return providerLabel ? `${body} (${providerLabel})` : body;
 }
