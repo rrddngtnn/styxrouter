@@ -175,12 +175,20 @@ export function resolveStaticCatalogEffortAlias(
 
   if (entry.executor === "codex") {
     const { baseModel, effort } = splitCodexReasoningSuffix(modelId);
-    if (!effort || baseModel === modelId) return null;
+    if (!effort || baseModel === modelId) {
+      const m = /^(.+)-(max|ultra)$/.exec(modelId);
+      if (m && opts?.scopedTiers?.(m[1])?.includes(m[2])) {
+        return { baseModel: m[1], effort: m[2], disablesThinking: false };
+      }
+      return null;
+    }
 
-    const allowedTiers = opts?.scopedTiers
-      ? opts.scopedTiers(baseModel)
-      : getCodexDefaultEffortTiers(baseModel);
-    if (!allowedTiers || !allowedTiers.includes(effort)) return null;
+    const defaultTiers = getCodexDefaultEffortTiers(baseModel);
+    const allowedTiers = opts?.scopedTiers ? opts.scopedTiers(baseModel) : defaultTiers;
+    const effortSupported =
+      Boolean(allowedTiers && allowedTiers.includes(effort)) ||
+      (effort === "none" && defaultTiers.includes("none"));
+    if (!effortSupported) return null;
 
     return {
       baseModel,

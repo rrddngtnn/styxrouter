@@ -36,6 +36,10 @@ import {
   getFixedEffortAliasMeta,
   getOpencodeSelectableEffortTiers,
 } from "@styxrouter/open-sse/services/catalogEffortContract.ts";
+import {
+  normalizeCatalogDisplayName,
+  stripTrailingEffortLabel,
+} from "@/lib/catalogDisplayName";
 
 const MODEL_METADATA_SCHEMA_VERSION = "model-metadata-v1";
 
@@ -489,6 +493,8 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
     typeof existingCapabilities.supportsThinking === "boolean";
   const claudeTiers = getClaudeSelectableEffortTiers(metadata.provider, metadata.model);
   const opencodeTiers = getOpencodeSelectableEffortTiers(metadata.provider, metadata.model);
+  const isAntigravityProvider =
+    metadata.provider === "antigravity" || metadata.provider === "agy";
   const effortTiers =
     fixedAliasMeta || codexNoEffortTiers
       ? undefined
@@ -501,17 +507,19 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
             ? opencodeTiers
             : sourceDeclaresThinking
               ? undefined
-              : // #10963: GLM-family models never inherit generic OpenAI tiers — an
-                // explicit empty list is authoritative unless a provider-declared
-                // contract exists (handled by declaredEffortTiers above).
+              : // #10963: GLM-family models and non-Claude Antigravity standalone wire rows
+                // never inherit generic OpenAI tiers — an explicit empty list is authoritative
+                // unless a provider-declared contract exists (handled above).
                 isGlmFamilyModel(metadata.model, metadata.displayName)
                 ? []
                 : claudeTiers ??
-                  extendCodexGpt56EffortValues(
-                    metadata.provider,
-                    metadata.model,
-                    CANONICAL_EFFORT_VALUES
-                  );
+                  (isAntigravityProvider
+                    ? []
+                    : extendCodexGpt56EffortValues(
+                        metadata.provider,
+                        metadata.model,
+                        CANONICAL_EFFORT_VALUES
+                      ));
   const hasSelectableEffortTiers = Array.isArray(effortTiers) && effortTiers.length > 0;
   const capabilityFields = {
     ...(typeof metadata.capabilities.vision === "boolean"
@@ -662,9 +670,16 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
   if (typeof metadata.metadata.openWeights === "boolean") {
     nextEntry.open_weights = metadata.metadata.openWeights;
   }
-  if (!existingName && metadata.displayName) {
-    nextEntry.name = metadata.displayName;
-  }
+  const isFixedAliasRow = Boolean(
+    fixedAliasMeta && typeof entry.id === "string" && fixedAliasMeta.baseId !== entry.id
+  );
+  const rawDisplayName = existingName || metadata.displayName || null;
+  nextEntry.name = normalizeCatalogDisplayName(rawDisplayName, {
+    modelId: model || (typeof entry.id === "string" ? entry.id : ""),
+    provider: publicProvider || metadata.provider,
+    fixedEffort: fixedAliasMeta?.effort ?? null,
+    appendEffortLabel: isFixedAliasRow,
+  });
 
   if (nextEntry.pricing == null) {
     const pricing = resolveCatalogPricing(provider, model, snapshot);
@@ -857,31 +872,44 @@ export async function resolveModelAliasLookup(
  * used for display. Model IDs, routing, and request parsing are unchanged.
  */
 export function disambiguateCatalogModelNames<T extends JsonRecord>(models: T[]): T[] {
-  // Count how many distinct provider prefixes use each display name.
-  const nameToProviders = new Map<string, Set<string>>();
+  // Count how many distinct provider prefixes use each base display name (ignoring
+  // trailing effort tier labels so a model shared across providers is consistently
+  // provider-qualified across both its base entry and all expanded effort variants).
+  const baseNameToProviders = new Map<string, Set<string>>();
   for (const model of models) {
     const name = asNonEmptyString(model.name);
     if (!name) continue;
     const id = asNonEmptyString(model.id);
-    const prefix = id && id.includes("/") ? id.slice(0, id.indexOf("/")) : null;
+    const effectiveId = id?.startsWith("no-think/") ? id.slice("no-think/".length) : id;
+    const prefix =
+      effectiveId && effectiveId.includes("/")
+        ? effectiveId.slice(0, effectiveId.indexOf("/"))
+        : null;
     if (!prefix) continue;
-    const existing = nameToProviders.get(name) || new Set<string>();
+    const baseName = stripTrailingEffortLabel(name) || name;
+    const existing = baseNameToProviders.get(baseName) || new Set<string>();
     existing.add(prefix);
-    nameToProviders.set(name, existing);
+    baseNameToProviders.set(baseName, existing);
   }
 
-  // Only rewrite names that are shared across 2+ providers.
+  // Only rewrite names whose base display name is shared across 2+ providers.
   const ambiguous = new Set<string>();
-  for (const [name, providers] of nameToProviders) {
-    if (providers.size > 1) ambiguous.add(name);
+  for (const [baseName, providers] of baseNameToProviders) {
+    if (providers.size > 1) ambiguous.add(baseName);
   }
   if (ambiguous.size === 0) return models;
 
   return models.map((model) => {
     const name = asNonEmptyString(model.name);
-    if (!name || !ambiguous.has(name)) return model;
+    if (!name) return model;
+    const baseName = stripTrailingEffortLabel(name) || name;
+    if (!ambiguous.has(baseName)) return model;
     const id = asNonEmptyString(model.id);
-    const prefix = id && id.includes("/") ? id.slice(0, id.indexOf("/")) : null;
+    const effectiveId = id?.startsWith("no-think/") ? id.slice("no-think/".length) : id;
+    const prefix =
+      effectiveId && effectiveId.includes("/")
+        ? effectiveId.slice(0, effectiveId.indexOf("/"))
+        : null;
     if (!prefix) return model;
     return { ...model, name: `${prefix}/${name}` };
   });

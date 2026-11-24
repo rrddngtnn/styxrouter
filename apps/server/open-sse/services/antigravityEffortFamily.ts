@@ -24,6 +24,8 @@ type StaticEffortFamilySpec = {
 
 function buildStaticAntigravityEffortFamilies(): Map<string, StaticEffortFamilySpec> {
   const grouped = new Map<string, Map<CanonicalEffort, string>>();
+  const publicIds = new Set(ANTIGRAVITY_PUBLIC_MODELS.map((entry) => entry.id));
+  const claimedWireIds = new Set<string>();
   for (const entry of ANTIGRAVITY_PUBLIC_MODELS) {
     for (const effort of STATIC_TIER_SUFFIXES) {
       const token = `-${effort}`;
@@ -32,10 +34,26 @@ function buildStaticAntigravityEffortFamilies(): Map<string, StaticEffortFamilyS
       let tiers = grouped.get(base);
       if (!tiers) grouped.set(base, (tiers = new Map()));
       tiers.set(effort, entry.id);
+      claimedWireIds.add(entry.id);
       break;
     }
   }
   const staticAliases = ANTIGRAVITY_MODEL_ALIASES as Record<string, string>;
+  // Link static alias-mapped tiers (e.g. `gemini-3.1-pro-high` -> `gemini-pro-agent`)
+  // into a family that already has a public tier (`gemini-3.1-pro-low`).
+  for (const [aliasKey, targetWireId] of Object.entries(staticAliases)) {
+    if (!publicIds.has(targetWireId) || claimedWireIds.has(targetWireId)) continue;
+    for (const effort of STATIC_TIER_SUFFIXES) {
+      const token = `-${effort}`;
+      if (!aliasKey.endsWith(token) || aliasKey.length <= token.length) continue;
+      const base = aliasKey.slice(0, -token.length);
+      const tiers = grouped.get(base);
+      if (!tiers || tiers.has(effort)) break;
+      tiers.set(effort, targetWireId);
+      claimedWireIds.add(targetWireId);
+      break;
+    }
+  }
   const families = new Map<string, StaticEffortFamilySpec>();
   for (const [base, tiers] of grouped) {
     if (tiers.size < 2) continue;
@@ -50,6 +68,8 @@ function buildStaticAntigravityEffortFamilies(): Map<string, StaticEffortFamilyS
       }
     } else if (tiers.has("medium")) {
       defaultEffort = "medium";
+    } else if (tiers.has("high")) {
+      defaultEffort = "high";
     }
     families.set(base, { tiers, ...(defaultEffort ? { defaultEffort } : {}) });
   }
@@ -57,6 +77,40 @@ function buildStaticAntigravityEffortFamilies(): Map<string, StaticEffortFamilyS
 }
 
 const STATIC_ANTIGRAVITY_EFFORT_FAMILIES = buildStaticAntigravityEffortFamilies();
+
+function buildStaticAntigravitySingleTierAliases(): Map<
+  string,
+  { baseModel: string; effort: CanonicalEffort }
+> {
+  const map = new Map<string, { baseModel: string; effort: CanonicalEffort }>();
+  const staticAliases = ANTIGRAVITY_MODEL_ALIASES as Record<string, string>;
+  for (const [baseModel, wireId] of Object.entries(staticAliases)) {
+    if (STATIC_ANTIGRAVITY_EFFORT_FAMILIES.has(baseModel)) continue;
+    if (baseModel.endsWith("-thinking")) continue;
+    for (const effort of STATIC_TIER_SUFFIXES) {
+      if (wireId === `${baseModel}-${effort}`) {
+        map.set(wireId, { baseModel, effort });
+        break;
+      }
+    }
+  }
+  return map;
+}
+
+const STATIC_ANTIGRAVITY_SINGLE_TIER_ALIASES = buildStaticAntigravitySingleTierAliases();
+
+export function getStaticAntigravitySingleTierAlias(
+  wireId: string
+): { baseModel: string; effort: CanonicalEffort } | null {
+  return STATIC_ANTIGRAVITY_SINGLE_TIER_ALIASES.get(wireId) ?? null;
+}
+
+export function getAntigravityTieredAliasTarget(baseModel: string): string | null {
+  const staticAliases = ANTIGRAVITY_MODEL_ALIASES as Record<string, string>;
+  if (!Object.hasOwn(staticAliases, baseModel)) return null;
+  const target = staticAliases[baseModel];
+  return typeof target === "string" && target.endsWith("-tiered") ? target : null;
+}
 
 // Antigravity's catalog records the native level on each exact wire row.
 // Require corroborating rows at distinct native levels before accepting the

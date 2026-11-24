@@ -1,12 +1,62 @@
 import { CANONICAL_EFFORT_VALUES } from "@/shared/reasoning/effortStandardization";
 import type { EffortFamily } from "@/shared/reasoning/effortVariants";
+import { normalizeCatalogDisplayName, stripTrailingEffortLabel } from "@/lib/catalogDisplayName";
 import { applyFixedEffortAliasCapabilities } from "@styxrouter/open-sse/services/catalogEffortContract.ts";
+import {
+  getAntigravityTieredAliasTarget,
+  getStaticAntigravitySingleTierAlias,
+} from "@styxrouter/open-sse/services/antigravityEffortFamily.ts";
 import { intersectStringArrays, isPositiveFiniteNumber } from "./catalogHelpers";
 
 export const ANTIGRAVITY_EFFORT_FAMILY = Symbol("antigravityEffortFamily");
 export const ANTIGRAVITY_EFFORT_MEMBERS = Symbol("antigravityEffortMembers");
 
 type Entry = Record<string, unknown>;
+
+function deriveAntigravityFamilyDisplayName(
+  baseRow: Record<string, unknown>,
+  enrichedMembers: ReadonlyArray<Record<string, unknown>>
+): string {
+  const root =
+    typeof baseRow.root === "string" && baseRow.root.trim()
+      ? baseRow.root.trim()
+      : typeof baseRow.id === "string"
+        ? baseRow.id.split("/").pop() || baseRow.id
+        : "";
+  const ownedBy = typeof baseRow.owned_by === "string" ? baseRow.owned_by : undefined;
+  const baseCaps =
+    baseRow.capabilities && typeof baseRow.capabilities === "object"
+      ? (baseRow.capabilities as Record<string, unknown>)
+      : {};
+  const fixedEffort = typeof baseCaps.fixed_effort === "string" ? baseCaps.fixed_effort : null;
+
+  const explicitName =
+    typeof baseRow.name === "string" && baseRow.name.trim() && baseRow.name.trim() !== root
+      ? baseRow.name.trim()
+      : null;
+
+  let memberCandidate: string | null = null;
+  if (!explicitName) {
+    for (const member of enrichedMembers) {
+      if (typeof member.name !== "string" || !member.name.trim()) continue;
+      const memberRoot = typeof member.root === "string" ? member.root.trim() : "";
+      if (memberRoot && member.name.trim() === memberRoot) continue;
+      const stripped = stripTrailingEffortLabel(member.name);
+      if (stripped && stripped !== root) {
+        memberCandidate = stripped;
+        break;
+      }
+    }
+  }
+
+  return normalizeCatalogDisplayName(explicitName || memberCandidate, {
+    modelId: root,
+    provider: ownedBy,
+    fixedEffort,
+    appendEffortLabel: false,
+    stripEffortLabel: true,
+  });
+}
 
 export function projectAntigravityFamilyMetadata(
   baseRow: Record<string, unknown>,
@@ -17,16 +67,20 @@ export function projectAntigravityFamilyMetadata(
       ? (baseRow.capabilities as Record<string, unknown>)
       : {};
   const tiers = Array.isArray(baseCaps.effort_tiers) ? baseCaps.effort_tiers : [];
+  const fixedEffort = typeof baseCaps.fixed_effort === "string" ? baseCaps.fixed_effort : undefined;
+  const displayName = deriveAntigravityFamilyDisplayName(baseRow, enrichedMembers);
   if (enrichedMembers.length === 0) {
     return {
       ...baseRow,
+      name: displayName,
       capabilities: {
         ...baseCaps,
         reasoning: true,
         thinking: true,
         supportsThinking: true,
-        effort_configurable: tiers.length > 0,
-        ...(tiers.length > 0 ? { effort_tiers: tiers } : {}),
+        effort_configurable: tiers.length > 0 && !fixedEffort,
+        ...(tiers.length > 0 && !fixedEffort ? { effort_tiers: tiers } : {}),
+        ...(fixedEffort ? { fixed_effort: fixedEffort } : {}),
       },
     };
   }
@@ -73,6 +127,7 @@ export function projectAntigravityFamilyMetadata(
 
   return {
     ...baseRow,
+    name: displayName,
     ...(contextLength !== undefined ? { context_length: contextLength } : {}),
     ...(maxInputTokens !== undefined ? { max_input_tokens: maxInputTokens } : {}),
     ...(maxOutputTokens !== undefined ? { max_output_tokens: maxOutputTokens } : {}),
@@ -83,8 +138,9 @@ export function projectAntigravityFamilyMetadata(
       reasoning: true,
       thinking: true,
       supportsThinking: true,
-      effort_configurable: tiers.length > 0,
-      ...(tiers.length > 0 ? { effort_tiers: tiers } : {}),
+      effort_configurable: tiers.length > 0 && !fixedEffort,
+      ...(tiers.length > 0 && !fixedEffort ? { effort_tiers: tiers } : {}),
+      ...(fixedEffort ? { fixed_effort: fixedEffort } : {}),
       tool_calling: allToolCalling,
       ...(allVision ? { vision: true } : allBooleanVision ? { vision: false } : {}),
     },
@@ -96,7 +152,9 @@ export function projectAntigravityFamilyMetadata(
  * and expanded modes:
  * - Both modes expose the canonical base family row with identical `effort_tiers`
  *   and `effort_configurable: true`.
- * - Compact mode omits member wire rows (`-low`, `-medium`, `-high`).
+ * - Compact mode omits member wire rows (`-low`, `-medium`, `-high`), redundant
+ *   `-tiered` alias targets/sub-families already covered by the base family, and
+ *   static single-tier suffixed wire rows whose canonical base alias is emitted.
  * - Expanded mode retains member wire rows as fixed-effort aliases
  *   (`reasoning: true`, `effort_configurable: false`, `fixed_effort: "<tier>"`,
  *   without `effort_tiers`).
@@ -143,34 +201,73 @@ export async function applyDeclaredEffortFamilies(
     const [provider, prefix] = scope.split("\0");
     if (!inventories.has(provider)) inventories.set(provider, await loadFamilies(provider));
     const families = inventories.get(provider);
-    if (!families) continue;
+    const claimedMembers = new Set<Entry>();
 
-    for (const [base, family] of families) {
-      const id = prefix + base;
-      const existing = entries.get(base);
-      if ((ids.has(id) && !existing) || !(await isAllowed(provider, id, base, false))) continue;
+    type PlannedFamily = {
+      id: string;
+      base: string;
+      existing: (Entry & { id: string }) | undefined;
+      memberEntries: Array<{ row: Entry; effort: string }>;
+      tiers: string[];
+      family: EffortFamily;
+    };
+    const plannedFamilies = new Map<string, PlannedFamily>();
 
-      const memberEntries: Array<{ row: Entry; effort: string }> = [];
-      const tiers: string[] = [];
-      for (const effort of CANONICAL_EFFORT_VALUES) {
-        const route = family.tiers.get(effort);
-        const row = route && entries.get(route.wireId);
-        if (!route || !row) continue;
-        if (
-          !(await isAllowed(provider, row.id, route.wireId, true)) ||
-          (allowedConnections?.length &&
-            !allowedConnections.some((connId) => route.connectionIds.has(connId)))
-        ) {
-          removed.add(row);
+    if (families) {
+      for (const [base, family] of families) {
+        const id = prefix + base;
+        const existing = entries.get(base);
+        if ((ids.has(id) && !existing) || !(await isAllowed(provider, id, base, false))) continue;
+
+        const memberEntries: Array<{ row: Entry; effort: string }> = [];
+        const tiers: string[] = [];
+        for (const effort of CANONICAL_EFFORT_VALUES) {
+          const route = family.tiers.get(effort);
+          const row = route && entries.get(route.wireId);
+          if (!route || !row) continue;
+          if (
+            !(await isAllowed(provider, row.id, route.wireId, true)) ||
+            (allowedConnections?.length &&
+              !allowedConnections.some((connId) => route.connectionIds.has(connId)))
+          ) {
+            removed.add(row);
+            continue;
+          }
+          memberEntries.push({ row, effort });
+          tiers.push(effort);
+        }
+        if (!memberEntries.length) continue;
+
+        plannedFamilies.set(base, { id, base, existing, memberEntries, tiers, family });
+      }
+    }
+
+    const survivingBases = new Set<string>();
+    for (const [base, planned] of plannedFamilies) {
+      const { id, existing, memberEntries, tiers, family } = planned;
+
+      // In compact mode, omit a redundant `<parent>-tiered` family when `<parent>`
+      // already survives in the same scope and covers all of its tiers.
+      if (compact && base.endsWith("-tiered")) {
+        const parentBase = base.slice(0, -"-tiered".length);
+        const parent = plannedFamilies.get(parentBase);
+        if (parent && tiers.every((tier) => parent.tiers.includes(tier))) {
+          if (existing) removed.add(existing);
+          for (const { row } of memberEntries) {
+            removed.add(row);
+            claimedMembers.add(row);
+          }
           continue;
         }
-        memberEntries.push({ row, effort });
-        tiers.push(effort);
       }
-      if (!memberEntries.length) continue;
 
+      survivingBases.add(base);
       const members = memberEntries.map((m) => m.row);
       const { object, created, owned_by, permission } = members[0];
+      const existingName =
+        existing && typeof existing.name === "string" && existing.name.trim() && existing.name.trim() !== base
+          ? existing.name.trim()
+          : undefined;
       const baseFamilyRow: Entry = {
         id,
         root: base,
@@ -180,7 +277,7 @@ export async function applyDeclaredEffortFamilies(
         permission,
         parent: null,
         type: "chat",
-        name: existing && typeof existing.name === "string" && existing.name ? existing.name : base,
+        ...(existingName ? { name: existingName } : {}),
         capabilities: {
           reasoning: true,
           thinking: true,
@@ -202,6 +299,7 @@ export async function applyDeclaredEffortFamilies(
       }
       ids.add(id);
 
+      for (const { row } of memberEntries) claimedMembers.add(row);
       if (compact) {
         for (const { row } of memberEntries) removed.add(row);
       } else {
@@ -215,6 +313,100 @@ export async function applyDeclaredEffortFamilies(
             })
           );
         }
+      }
+    }
+
+    // Handle static `-tiered` alias targets (e.g. `gemini-3.8-flash-tiered`,
+    // `gemini-3.7-flash-tiered`) whose base family survives in the same scope.
+    for (const base of survivingBases) {
+      const tieredTarget = getAntigravityTieredAliasTarget(base);
+      if (!tieredTarget) continue;
+      const tieredRow = entries.get(tieredTarget);
+      if (!tieredRow || claimedMembers.has(tieredRow) || removed.has(tieredRow)) continue;
+      if (compact) {
+        removed.add(tieredRow);
+      } else {
+        const prevCaps =
+          tieredRow.capabilities && typeof tieredRow.capabilities === "object"
+            ? { ...(tieredRow.capabilities as Record<string, unknown>) }
+            : {};
+        delete prevCaps.effort_tiers;
+        replacements.set(tieredRow, {
+          ...tieredRow,
+          capabilities: {
+            ...prevCaps,
+            reasoning: true,
+            thinking: true,
+            supportsThinking: true,
+            effort_configurable: false,
+          },
+        });
+      }
+    }
+
+    // Handle explicit static single-tier aliases (e.g. `gpt-oss-120b` -> `gpt-oss-120b-medium`)
+    // so compact mode emits the canonical un-suffixed base ID without fabricating effort tiers.
+    for (const [root, row] of entries) {
+      if (claimedMembers.has(row) || removed.has(row) || replacements.has(row)) continue;
+      const singleAlias = getStaticAntigravitySingleTierAlias(root);
+      if (!singleAlias) continue;
+      const baseId = prefix + singleAlias.baseModel;
+      const existing = entries.get(singleAlias.baseModel);
+      if (
+        (ids.has(baseId) && !existing) ||
+        !(await isAllowed(provider, baseId, singleAlias.baseModel, false)) ||
+        !(await isAllowed(provider, row.id, root, true))
+      ) {
+        continue;
+      }
+
+      const { object, created, owned_by, permission } = row;
+      const existingName =
+        existing &&
+        typeof existing.name === "string" &&
+        existing.name.trim() &&
+        existing.name.trim() !== singleAlias.baseModel
+          ? existing.name.trim()
+          : undefined;
+      const baseRow: Entry = {
+        id: baseId,
+        root: singleAlias.baseModel,
+        object,
+        created,
+        owned_by,
+        permission,
+        parent: null,
+        type: "chat",
+        ...(existingName ? { name: existingName } : {}),
+        capabilities: {
+          reasoning: true,
+          thinking: true,
+          supportsThinking: true,
+          effort_configurable: false,
+          fixed_effort: singleAlias.effort,
+        },
+      };
+      Reflect.set(baseRow, ANTIGRAVITY_EFFORT_FAMILY, true);
+      Reflect.set(baseRow, ANTIGRAVITY_EFFORT_MEMBERS, [row]);
+
+      if (existing) {
+        replacements.set(existing, baseRow);
+      } else {
+        added.push(baseRow);
+      }
+      ids.add(baseId);
+
+      if (compact) {
+        removed.add(row);
+      } else {
+        replacements.set(
+          row,
+          applyFixedEffortAliasCapabilities(row, {
+            baseId,
+            effort: singleAlias.effort,
+            disablesThinking: false,
+          })
+        );
       }
     }
   }

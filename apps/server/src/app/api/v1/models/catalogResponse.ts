@@ -32,6 +32,7 @@ import {
   enrichCatalogModelEntry,
   type CatalogEnrichmentSnapshot,
 } from "@/lib/modelMetadataRegistry";
+import { normalizeCatalogDisplayName } from "@/lib/catalogDisplayName";
 import { createModelCapabilityResolutionSnapshot } from "@/lib/modelCapabilityResolutionSnapshot";
 import { isModelCatalogNamesEnabled } from "@/shared/utils/featureFlags";
 import { extractApiKey } from "@/sse/services/auth";
@@ -302,7 +303,14 @@ export async function finalizeCatalogResponse(
   for (const model of finalModels) {
     let listedModel: Record<string, unknown>;
     if (model.owned_by === "combo") {
-      listedModel = maybeOmitCatalogModelName(model, includeModelNames);
+      const comboName = normalizeCatalogDisplayName(
+        typeof model.name === "string" ? model.name : null,
+        {
+          modelId: typeof model.id === "string" ? model.id : "",
+          isCombo: true,
+        }
+      );
+      listedModel = maybeOmitCatalogModelName({ ...model, name: comboName }, includeModelNames);
     } else if (Reflect.get(model, ANTIGRAVITY_EFFORT_FAMILY)) {
       const members = Reflect.get(model, ANTIGRAVITY_EFFORT_MEMBERS);
       const enrichedMembers = Array.isArray(members)

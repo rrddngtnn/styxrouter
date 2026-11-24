@@ -1187,7 +1187,12 @@ async function buildUnifiedModelsResponseCore(
           // Same owned_by the alias/canonical entries below will carry — computed once
           // so the effort_tiers exclusion (codex/glm/kimi) and the entries agree.
           const syncedOwnedBy = resolvePublicOwnerId(providerId, canonicalProviderId);
+          const syncedName =
+            typeof sm.name === "string" && sm.name.trim() && sm.name.trim() !== sm.id
+              ? sm.name.trim()
+              : undefined;
           const syncedFields = {
+            ...(syncedName ? { name: syncedName } : {}),
             ...(modelType ? { type: modelType } : {}),
             ...(apiFormat !== "chat-completions" ? { api_format: apiFormat } : {}),
             ...(classification.subtype ? { subtype: classification.subtype } : {}),
@@ -1431,6 +1436,7 @@ async function buildUnifiedModelsResponseCore(
         object: "model",
         created: timestamp,
         owned_by: imgModel.provider,
+        root: rawModelId,
         type: "image",
         supported_sizes: imgModel.supportedSizes,
         input_modalities: imgModel.inputModalities || ["text"],

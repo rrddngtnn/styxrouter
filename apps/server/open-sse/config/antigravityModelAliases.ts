@@ -1,3 +1,9 @@
+const ANTIGRAVITY_TIER_LABELS = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+} as const;
+
 export const ANTIGRAVITY_PUBLIC_MODELS = Object.freeze([
   {
     id: "gemini-4-argon",
@@ -9,7 +15,7 @@ export const ANTIGRAVITY_PUBLIC_MODELS = Object.freeze([
   },
   ...(["low", "medium", "high"] as const).map((tier) => ({
     id: `gemini-4-argon-${tier}`,
-    name: `Gemini 4 Argon (${tier})`,
+    name: `Gemini 4 Argon (${ANTIGRAVITY_TIER_LABELS[tier]})`,
     contextLength: 1048576,
     maxOutputTokens: 65536,
     supportsReasoning: true,
@@ -17,7 +23,7 @@ export const ANTIGRAVITY_PUBLIC_MODELS = Object.freeze([
   })),
   ...(["low", "medium", "high"] as const).map((tier) => ({
     id: `gemini-3.8-flash-${tier}`,
-    name: `Gemini 3.8 Flash (${tier})`,
+    name: `Gemini 3.8 Flash (${ANTIGRAVITY_TIER_LABELS[tier]})`,
     contextLength: 1048576,
     maxOutputTokens: 65536,
     supportsReasoning: true,
@@ -44,7 +50,7 @@ export const ANTIGRAVITY_PUBLIC_MODELS = Object.freeze([
   },
   ...(["low", "medium", "high"] as const).map((tier) => ({
     id: `claude-sonnet-5-5-${tier}`,
-    name: `Claude Sonnet 5.5 (${tier})`,
+    name: `Claude Sonnet 5.5 (${ANTIGRAVITY_TIER_LABELS[tier]})`,
     contextLength: 1048576,
     maxOutputTokens: 65536,
     supportsReasoning: true,
@@ -62,7 +68,7 @@ export const ANTIGRAVITY_PUBLIC_MODELS = Object.freeze([
   },
   ...(["low", "medium", "high"] as const).map((tier) => ({
     id: `claude-opus-5-5-${tier}`,
-    name: `Claude Opus 5.5 (${tier})`,
+    name: `Claude Opus 5.5 (${ANTIGRAVITY_TIER_LABELS[tier]})`,
     contextLength: 1048576,
     maxOutputTokens: 65536,
     supportsReasoning: true,
