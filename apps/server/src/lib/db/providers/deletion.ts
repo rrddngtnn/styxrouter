@@ -16,8 +16,9 @@ import {
   removeConnectionHealth,
   removeConnectionIndex,
 } from "@styxrouter/open-sse/services/apiKeyRotator.ts";
-import { invalidateDbCache } from "../readCache";
+import { invalidateDbCache, invalidateModelCatalogCache } from "../readCache";
 import { invalidateReasoningRoutingRuleCache } from "../reasoningRoutingRules";
+import { removeCredentialHealth } from "../../credentialHealth/cache";
 import { bumpProxyConfigGeneration } from "../settings";
 import { toRecord } from "./columns";
 import { reconcileCodexContextWindowsInTransaction } from "../../contextWindowResolver";
@@ -44,19 +45,49 @@ function _deleteAccountProxyAssignments(db: DbLike, ids: string[]) {
   ).run(...ids);
 }
 
-function _selectExistingConnectionIds(db: DbLike, ids: string[]): string[] {
+function _selectExistingConnections(db: DbLike, ids: string[]): Array<{ id: string; provider: string }> {
   if (ids.length === 0) return [];
 
   const placeholders = ids.map(() => "?").join(",");
 
   return db
-    .prepare(`SELECT id FROM provider_connections WHERE id IN (${placeholders})`)
+    .prepare(`SELECT id, provider FROM provider_connections WHERE id IN (${placeholders})`)
     .all(...ids)
     .map((row) => {
       const record = toRecord(row);
-      return typeof record.id === "string" ? record.id : null;
+      const id = typeof record.id === "string" ? record.id : null;
+      if (!id) return null;
+      const provider =
+        typeof record.provider === "string" ? record.provider : String(record.provider || "");
+      return { id, provider };
     })
-    .filter((id): id is string => id !== null);
+    .filter((entry): entry is { id: string; provider: string } => entry !== null);
+}
+
+function _deleteConnectionCachesInTransaction(
+  db: DbLike,
+  connections: Array<{ id: string; provider: string }>
+): boolean {
+  if (connections.length === 0) return false;
+
+  const ids = connections.map((c) => c.id);
+  const idPlaceholders = ids.map(() => "?").join(",");
+  db.prepare(
+    `DELETE FROM key_value WHERE namespace = 'providerLimitsCache' AND key IN (${idPlaceholders})`
+  ).run(...ids);
+
+  const syncedKeys = connections
+    .filter((c) => c.provider.length > 0)
+    .map((c) => `${c.provider}:${c.id}`);
+  if (syncedKeys.length === 0) return false;
+
+  const syncedPlaceholders = syncedKeys.map(() => "?").join(",");
+  const result = db
+    .prepare(
+      `DELETE FROM key_value WHERE namespace = 'syncedAvailableModels' AND key IN (${syncedPlaceholders})`
+    )
+    .run(...syncedKeys);
+  return (result.changes ?? 0) > 0;
 }
 
 async function _cleanupDeletedComboConnectionRefs(connectionIds: string | string[]): Promise<void> {
@@ -78,17 +109,39 @@ async function _cleanupDeletedLKGPConnectionRefs(connectionIds: string | string[
   }
 }
 
+async function _cleanupInMemoryConnectionCaches(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  for (const id of ids) {
+    removeConnectionHealth(id);
+    removeConnectionIndex(id);
+    removeCredentialHealth(id);
+  }
+  await import("../../../domain/quotaCache")
+    .then((module) => {
+      for (const id of ids) module.removeConnectionQuotaCache(id);
+    })
+    .catch(() => {});
+}
+
 export async function deleteProviderConnection(id: string) {
   const db = getDbInstance() as unknown as DbLike;
   const existing = db.prepare("SELECT provider FROM provider_connections WHERE id = ?").get(id);
   if (!existing) return false;
 
+  const existingRecord = toRecord(existing);
+  const providerId =
+    typeof existingRecord.provider === "string"
+      ? existingRecord.provider
+      : String(existingRecord.provider || "");
+
   await backupBeforeDestructiveWrite();
+  let deletedSyncedModels = false;
   db.transaction(() => {
     _deleteAccountProxyAssignments(db, [id]);
     db.prepare("DELETE FROM quota_snapshots WHERE connection_id = ?").run(id);
+    deletedSyncedModels = _deleteConnectionCachesInTransaction(db, [{ id, provider: providerId }]);
     db.prepare("DELETE FROM provider_connections WHERE id = ?").run(id);
-    if (toRecord(existing).provider === "codex") reconcileCodexContextWindowsInTransaction();
+    if (providerId === "codex") reconcileCodexContextWindowsInTransaction();
   })();
 
   await _cleanupDeletedComboConnectionRefs(id);
@@ -97,17 +150,12 @@ export async function deleteProviderConnection(id: string) {
     .then((module) => module.revokeNativeCodexTurnPinsForConnection(id))
     .catch(() => {});
 
-  removeConnectionHealth(id);
-  removeConnectionIndex(id);
+  await _cleanupInMemoryConnectionCaches([id]);
   bumpProxyConfigGeneration();
-  const existingRecord = toRecord(existing);
-  const providerId =
-    typeof existingRecord.provider === "string"
-      ? existingRecord.provider
-      : String(existingRecord.provider || "");
   reorderConnections(db, providerId);
   // No post-write backup: the attempt precedes deletion.
   invalidateDbCache("connections"); // Bust connections read cache
+  if (deletedSyncedModels) invalidateModelCatalogCache();
   invalidateReasoningRoutingRuleCache();
   return true;
 }
@@ -116,10 +164,12 @@ export async function deleteProviderConnections(ids: string[]): Promise<number> 
   if (ids.length === 0) return 0;
 
   const db = getDbInstance() as unknown as DbLike;
-  const existingIds = _selectExistingConnectionIds(db, ids);
+  const existingConnections = _selectExistingConnections(db, ids);
+  const existingIds = existingConnections.map((c) => c.id);
 
   if (existingIds.length === 0) return 0;
   await backupBeforeDestructiveWrite();
+  let deletedSyncedModels = false;
   const deletedCount = db.transaction(() => {
     const placeholders = existingIds.map(() => "?").join(",");
     const hasCodex = !!db.prepare(`SELECT 1 FROM provider_connections WHERE provider = 'codex' AND id IN (${placeholders}) LIMIT 1`).get(...existingIds);
@@ -127,6 +177,7 @@ export async function deleteProviderConnections(ids: string[]): Promise<number> 
     db.prepare(`DELETE FROM quota_snapshots WHERE connection_id IN (${placeholders})`).run(...existingIds);
 
     _deleteAccountProxyAssignments(db, existingIds);
+    deletedSyncedModels = _deleteConnectionCachesInTransaction(db, existingConnections);
 
     const result = db
       .prepare(`DELETE FROM provider_connections WHERE id IN (${placeholders})`)
@@ -140,15 +191,15 @@ export async function deleteProviderConnections(ids: string[]): Promise<number> 
   await _cleanupDeletedLKGPConnectionRefs(existingIds);
 
   for (const id of existingIds) {
-    removeConnectionHealth(id);
-    removeConnectionIndex(id);
     void import("@styxrouter/open-sse/services/combo/nativeCodexTurnPin.ts")
       .then((module) => module.revokeNativeCodexTurnPinsForConnection(id))
       .catch(() => {});
   }
+  await _cleanupInMemoryConnectionCaches(existingIds);
 
   // No post-write backup: the attempt precedes deletion.
   invalidateDbCache("connections");
+  if (deletedSyncedModels) invalidateModelCatalogCache();
   invalidateReasoningRoutingRuleCache();
 
   return deletedCount;
@@ -166,6 +217,7 @@ export async function deleteProviderConnectionsByProvider(providerId: string) {
     .filter((id): id is string => id !== null);
 
   if (connectionIds.length > 0) await backupBeforeDestructiveWrite();
+  let deletedSyncedModels = false;
   const result = db.transaction(() => {
     if (connectionIds.length > 0) {
       const deleteSnapshots = db.prepare("DELETE FROM quota_snapshots WHERE connection_id = ?");
@@ -173,6 +225,10 @@ export async function deleteProviderConnectionsByProvider(providerId: string) {
         deleteSnapshots.run(connectionId);
       }
       _deleteAccountProxyAssignments(db, connectionIds);
+      deletedSyncedModels = _deleteConnectionCachesInTransaction(
+        db,
+        connectionIds.map((id) => ({ id, provider: providerId }))
+      );
     }
     if (connectionIds.length === 0) return { changes: 0 };
     const placeholders = connectionIds.map(() => "?").join(",");
@@ -185,14 +241,14 @@ export async function deleteProviderConnectionsByProvider(providerId: string) {
   await _cleanupDeletedLKGPConnectionRefs(connectionIds);
 
   for (const connectionId of connectionIds) {
-    removeConnectionHealth(connectionId);
-    removeConnectionIndex(connectionId);
     void import("@styxrouter/open-sse/services/combo/nativeCodexTurnPin.ts")
       .then((module) => module.revokeNativeCodexTurnPinsForConnection(connectionId))
       .catch(() => {});
   }
+  await _cleanupInMemoryConnectionCaches(connectionIds);
   // No post-write backup: the attempt precedes deletion.
   invalidateDbCache("connections");
+  if (deletedSyncedModels) invalidateModelCatalogCache();
   invalidateReasoningRoutingRuleCache();
   return result.changes;
 }

@@ -6,8 +6,10 @@ import { v4 as uuidv4 } from "uuid";
 import { getDbInstance, rowToCamel } from "../core";
 import { selectProviderNodeForConnection } from "../providerNodeSelect";
 import { backupDbFile } from "../backup";
-import { invalidateDbCache } from "../readCache";
+import { backupBeforeDestructiveWrite } from "../preWriteBackup";
+import { invalidateDbCache, invalidateModelCatalogCache } from "../readCache";
 import { toRecord, type JsonRecord } from "./columns";
+import { deleteProviderConnectionsByProvider } from "./deletion";
 
 interface StatementLike<TRow = unknown> {
   all: (...params: unknown[]) => TRow[];
@@ -17,6 +19,7 @@ interface StatementLike<TRow = unknown> {
 
 interface DbLike {
   prepare: <TRow = unknown>(sql: string) => StatementLike<TRow>;
+  transaction: <T>(fn: () => T) => () => T;
   immediate: (fn: () => void) => void;
 }
 
@@ -206,8 +209,27 @@ export async function deleteProviderNode(id: string) {
   const existing = db.prepare("SELECT * FROM provider_nodes WHERE id = ?").get(id);
   if (!existing) return null;
 
-  db.prepare("DELETE FROM provider_nodes WHERE id = ?").run(id);
-  backupDbFile("pre-write");
+  const deletedConnections = (await deleteProviderConnectionsByProvider(id)) ?? 0;
+  if (deletedConnections === 0) {
+    await backupBeforeDestructiveWrite();
+  }
+
+  const syncedPrefix = `${id}:`;
+  db.transaction(() => {
+    db.prepare("DELETE FROM provider_nodes WHERE id = ?").run(id);
+    db.prepare(
+      "DELETE FROM key_value WHERE namespace = 'syncedAvailableModels' AND substr(key, 1, ?) = ?"
+    ).run(syncedPrefix.length, syncedPrefix);
+    db.prepare(
+      "DELETE FROM key_value WHERE namespace IN ('customModels', 'modelCompatOverrides', 'providerAliases', 'proxyConfig') AND key = ?"
+    ).run(id);
+  })();
+
+  await import("../../../domain/quotaCache")
+    .then((module) => module.removeProviderQuotaCache(id))
+    .catch(() => {});
+
   invalidateDbCache("nodes");
+  invalidateModelCatalogCache();
   return rowToCamel(existing);
 }

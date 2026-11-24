@@ -832,34 +832,26 @@ export async function getSanitizedCachedProviderLimitsMap(): Promise<
   Record<string, ProviderLimitsCacheEntry>
 > {
   const caches = getAllProviderLimitsCache();
-  // Only Antigravity quota keys and CodeBuddy CN cached messages need sanitization.
   // Skip connection lookups entirely when there are no cached entries.
   const connectionIds = Object.keys(caches);
   if (connectionIds.length === 0) return {};
 
-  const sanitizableConnections = [
-    ...((await getProviderConnections({ provider: "codebuddy-cn" })) as unknown as ProviderConnectionLike[]),
-    ...((await getProviderConnections({
-      isActive: true,
-      provider: "antigravity",
-    })) as unknown as ProviderConnectionLike[]),
-    ...((await getProviderConnections({
-      isActive: true,
-      provider: "agy",
-    })) as unknown as ProviderConnectionLike[]),
-  ];
-  const hasBogusClaudeMessage = Object.values(caches).some(
-    (e) => typeof e?.message === "string" && e.message.includes("Usage API requires admin permissions")
+  const allConnections = (await getProviderConnections({})) as unknown as ProviderConnectionLike[];
+  const existingIds = new Set(allConnections.map((conn) => conn.id));
+  const sanitizableById = new Map(
+    allConnections
+      .filter(
+        (conn) =>
+          conn.provider === "codebuddy-cn" ||
+          ((conn.provider === "antigravity" || conn.provider === "agy") && conn.isActive !== false)
+      )
+      .map((conn) => [conn.id, conn])
   );
-  if (sanitizableConnections.length === 0 && !hasBogusClaudeMessage) {
-    // No connection can change the cache → return the raw entries unchanged.
-    return { ...caches };
-  }
 
-  const byId = new Map(sanitizableConnections.map((conn) => [conn.id, conn]));
   const sanitized: Record<string, ProviderLimitsCacheEntry> = {};
   for (const [connectionId, entry] of Object.entries(caches)) {
-    const conn = byId.get(connectionId);
+    if (!existingIds.has(connectionId)) continue;
+    const conn = sanitizableById.get(connectionId);
     const safeEntry = conn?.provider === "codebuddy-cn" ? sanitizeCodeBuddyCache(entry) : entry;
     sanitized[connectionId] = sanitizeProviderLimitsCacheForConnection(conn, safeEntry) || safeEntry;
   }

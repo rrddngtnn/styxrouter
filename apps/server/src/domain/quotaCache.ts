@@ -262,6 +262,22 @@ export function __clearForTests() {
   getState().cache.clear();
 }
 
+export function removeConnectionQuotaCache(connectionId: string): void {
+  const state = getState();
+  state.cache.delete(connectionId);
+  state.refreshingSet.delete(connectionId);
+}
+
+export function removeProviderQuotaCache(providerId: string): void {
+  const state = getState();
+  for (const [connectionId, entry] of state.cache.entries()) {
+    if (entry.provider === providerId) {
+      state.cache.delete(connectionId);
+      state.refreshingSet.delete(connectionId);
+    }
+  }
+}
+
 function resolveAntigravityQuotaWindowsForModel(
   quotaNames: string[],
   requestedModel: string
