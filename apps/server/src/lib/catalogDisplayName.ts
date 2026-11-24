@@ -383,7 +383,16 @@ export function normalizeCatalogDisplayName(
       ? candidate
       : cleanModelId || candidate || modelId;
 
-  const normalizedBase = formatTokenSequence(source) || modelId || "Model";
+  let normalizedBase = formatTokenSequence(source) || modelId || "Model";
+
+  // Preserve distinguishing "-tiered" identity when upstream displayName omits it
+  // (e.g. a separate `*-tiered` wire family whose displayName matches the non-tiered sibling).
+  if (
+    /(?:^|[-_/])tiered$/i.test(cleanModelId) &&
+    !/\btiered\b/i.test(normalizedBase)
+  ) {
+    normalizedBase = `${normalizedBase} Tiered`;
+  }
 
   if (opts.fixedEffort && opts.appendEffortLabel) {
     const tierLabel = formatCanonicalEffortLabel(opts.fixedEffort);

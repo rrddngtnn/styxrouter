@@ -215,10 +215,15 @@ export async function applyCatalogPostFilters(
 
   // #7694: advertise `<provider>/<model>-<tier>` variants for synced models that
   // captured `reasoning.supported_efforts` at sync time (capabilities.effort_tiers).
-  // Derived from the already key-filtered list; skips codex/kimi (own suffix mechanism).
+  // Derived from the already key-filtered list; skips codex/kimi (own suffix mechanism)
+  // and Antigravity effort families (already emit their exact wire tier rows above).
   // Compact mode omits synthetic compatibility aliases.
   if (!compact) {
-    finalModels = appendSyncedEffortVariants(finalModels);
+    const nonAgyFamily = finalModels.filter((entry) => !Reflect.get(entry, ANTIGRAVITY_EFFORT_FAMILY));
+    const derived = appendSyncedEffortVariants(nonAgyFamily);
+    if (derived.length > nonAgyFamily.length) {
+      finalModels = [...finalModels, ...derived.slice(nonAgyFamily.length)];
+    }
   }
 
   await yieldTurn();

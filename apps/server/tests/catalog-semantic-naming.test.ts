@@ -240,13 +240,22 @@ test("/v1/models compact & expanded enforce semantic names and clean compact edg
   const byId = (rows: Array<Record<string, any>>, id: string) => rows.find((r) => r.id === id);
 
   // 1. Every entry in BOTH compact and expanded has a non-empty semantic name (never undefined or raw lowercase slug)
-  for (const row of [...compact, ...expanded]) {
-    expect(typeof row.name).toBe("string");
-    expect(row.name.trim().length).toBeGreaterThan(0);
-    if (row.owned_by !== "combo" && typeof row.root === "string" && row.root.includes("-")) {
-      expect(row.name).not.toBe(row.root);
+  //    and no duplicate display names exist within either listing.
+  for (const listing of [compact, expanded]) {
+    const seenNames = new Map<string, string>();
+    for (const row of listing) {
+      expect(typeof row.name).toBe("string");
+      expect(row.name.trim().length).toBeGreaterThan(0);
+      if (row.owned_by !== "combo" && typeof row.root === "string" && row.root.includes("-")) {
+        expect(row.name).not.toBe(row.root);
+      }
+      expect(seenNames.get(row.name)).toBeUndefined();
+      seenNames.set(row.name, row.id);
     }
   }
+  expect(byId(expanded, "antigravity/gemini-3.1-pro-high")).toBeUndefined();
+  expect(byId(expanded, "antigravity/agy-dyn-tiered")?.name).toBe("AGY Dynamic Tiered");
+  expect(byId(expanded, "antigravity/agy-dyn-tiered-high")?.name).toBe("AGY Dynamic Tiered (High)");
 
   // Combo has non-undefined name
   expect(byId(compact, "Muse")?.name).toBe("Muse");
