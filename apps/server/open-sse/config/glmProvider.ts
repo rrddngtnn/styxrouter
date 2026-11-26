@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { getClaudeCodeUserAgent } from "@/shared/constants/claudeCodeClient";
 import { getZcodeVersionPin } from "@/lib/db/zcodeVersionPin";
 
@@ -652,16 +653,14 @@ export function getZcodeDeviceMid(): string {
   const override = (process.env.STYX_ZCODE_DEVICE_MID || "").trim();
   if (override) return override;
   if (_zcodeDeviceMid) return _zcodeDeviceMid;
-  _zcodeDeviceMid =
-    globalThis.crypto?.randomUUID?.() ||
-    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  _zcodeDeviceMid = randomUUID();
   return _zcodeDeviceMid;
 }
 
 export function buildZcodeStartPlanHeaders(zcodeJwt: string, stream = true): Record<string, string> {
   const zcodeVersion = getZcodeVersionPin() ?? getCachedZcodeVersion();
-  const reqId = globalThis.crypto?.randomUUID?.() || `${Date.now()}`;
-  const traceId = globalThis.crypto?.randomUUID?.() || `${Date.now()}`;
+  const reqId = randomUUID();
+  const traceId = randomUUID();
   return {
     "Content-Type": "application/json",
     Accept: stream ? "text/event-stream" : "application/json",

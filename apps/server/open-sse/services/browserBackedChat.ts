@@ -17,6 +17,7 @@
  */
 
 import { Buffer } from "node:buffer";
+import { randomUUID } from "node:crypto";
 import {
   acquireBrowserContext,
   openPage,
@@ -179,7 +180,7 @@ async function settlePoolKey(
   // Use a unique key per non-reuse call so the pool always creates a
   // fresh context. Slower but isolates state.
   return {
-    key: `${requestedKey}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    key: `${requestedKey}-${randomUUID()}`,
     acquired: false,
   };
 }
