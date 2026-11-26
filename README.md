@@ -15,7 +15,7 @@ endpoints. Account rotation and protocol support depend on the provider.
 
 ## Quick start
 
-The published `v0.1.1` container supports `linux/amd64`. You need Docker with
+The published `v0.3.2` container supports `linux/amd64`. You need Docker with
 Compose for a local build, or Docker alone for the published image.
 
 ```sh
@@ -34,7 +34,7 @@ docker run -d --name styxrouter \
   -p 127.0.0.1:20128:20128 \
   --env-file .env \
   -v styx-data:/data \
-  ghcr.io/rrddngtnn/styxrouter:v0.1.1
+  ghcr.io/rrddngtnn/styxrouter:v0.3.2
 curl --fail http://127.0.0.1:20128/api/health
 ```
 

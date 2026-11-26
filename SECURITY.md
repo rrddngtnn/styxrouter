@@ -9,15 +9,14 @@ plaintext; see the limitations below. Treat credential-handling issues as sensit
 Please report security issues **privately**, not through public issues or pull
 requests.
 
-Private vulnerability reporting is currently disabled on this repository, and
-the maintainer profile does not list a public email address. Until a private
-channel is published, open a non-sensitive issue asking the maintainer for one.
-Do not include vulnerability details, credentials, or a working exploit in that
-issue. Do not assume an issue or pull request is private.
+Use GitHub private vulnerability reporting: open the repository's **Security**
+tab and choose **Report a vulnerability**, or go directly to
+<https://github.com/rrddngtnn/styxrouter/security/advisories/new>. Do not include
+vulnerability details, credentials, or a working exploit in a public issue or
+pull request.
 
-Once a private channel is available, include the affected component, a
-reproduction, and the observed impact. Allow time for investigation before
-public disclosure.
+Include the affected component and version or commit, a reproduction, and the
+observed impact. Allow time for investigation before public disclosure.
 
 ## Handling of secrets
 
