@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { isPanelProbeLogContext } from "../../src/lib/panelProbeLogContext";
 import { getProviderNodeById } from "@/lib/db/providers/nodes";
 import {
@@ -2144,10 +2143,12 @@ export async function handleChatCore({
   let translatedBody = body;
   const scopeAntigravitySignatures = provider === "antigravity" &&
     targetFormat === FORMATS.ANTIGRAVITY && sourceFormat !== targetFormat;
-  const signatureSessionScope = scopeAntigravitySignatures ? createHash("sha256").update(JSON.stringify([
-    apiKeyInfo?.id ?? null,
-    explicitSessionIdHeader?.trim().slice(0, 128) || sessionAffinityKey || null,
-  ])).digest("hex") : null;
+  // Both IDs are already scoped by API key at HTTP admission. The conversation
+  // ID is stable across aliases when the client supplies x-styx-session-id.
+  const signatureSessionScope = scopeAntigravitySignatures
+    ? (explicitSessionIdHeader?.trim() ? conversationId : null) ?? sessionAffinityKey ??
+      JSON.stringify(["no-session", apiKeyInfo?.id ?? null])
+    : null;
   let antigravitySignatureReplay: { namespace: string; sessionScope: string | null } | undefined;
   const isClaudePassthrough = sourceFormat === FORMATS.CLAUDE && targetFormat === FORMATS.CLAUDE;
   const isClaudeCodeCompatible = usesClaudeBridge(provider, targetFormat, credentials);
