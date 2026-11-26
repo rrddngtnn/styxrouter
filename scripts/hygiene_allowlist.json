@@ -108,7 +108,7 @@
     "pattern": "P-STRUCT-OMNI",
     "file": "docs/release-readiness-audit.md",
     "surface": "tracked_file",
-    "sha256": "6bdcea0ae46c090375264fbb733443622b9b843ddf31417500dfe679847a6756",
+    "sha256": "84d6bef9bf1313304225987244bae5b61a458174d6fdb08225c419e2b512a2a2",
     "lines": [
       169,
       169
@@ -119,7 +119,7 @@
     "pattern": "P-STRUCT-OMNI",
     "file": "docs/release-readiness-audit.md",
     "surface": "tracked_file",
-    "sha256": "6bdcea0ae46c090375264fbb733443622b9b843ddf31417500dfe679847a6756",
+    "sha256": "84d6bef9bf1313304225987244bae5b61a458174d6fdb08225c419e2b512a2a2",
     "lines": [
       236,
       236
@@ -130,7 +130,7 @@
     "pattern": "P-STRUCT-OMNI",
     "file": "docs/release-readiness-audit.md",
     "surface": "tracked_file",
-    "sha256": "6bdcea0ae46c090375264fbb733443622b9b843ddf31417500dfe679847a6756",
+    "sha256": "84d6bef9bf1313304225987244bae5b61a458174d6fdb08225c419e2b512a2a2",
     "lines": [
       290,
       290
@@ -1024,5 +1024,125 @@
     ],
     "blob": "a2595581a24b0ea0fa405fc079526259ffc138c5",
     "reason": "Required upstream attribution and licence reference; exact historical blob and line only."
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "7fc11388b0ad9f70371600bd7dd98be84d03870a9d9231cc0732a1b2f3e8cd8a",
+    "lines": [
+      122,
+      122
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "daeff47cb9989da8dfc7f1c40358254b8320437d"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "a6a6f9563a7c624d0698a46a2d8e160fa505eed092e4cb5ce4313c7eb9e616d4",
+    "lines": [
+      121,
+      121
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "81192ac1dccfa1ab9c934217c59e34bde7fb16ef"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "62d590530d16fc294d2aa7f1f86dd35e3dd391bde69abcaa2a8d5e97c389b885",
+    "lines": [
+      120,
+      120
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "947bcfd2bfa6934ebe16825b0c2a35a268a7c47b"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "4de4229dd63b1596f52f0e0afd33d0d2fe32adeeeaf5ad21b6ea21db7b5e9e2c",
+    "lines": [
+      22,
+      22
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "f7025bdbd060652a0cc7c0c2d954ccd1b1943c2e"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "4de4229dd63b1596f52f0e0afd33d0d2fe32adeeeaf5ad21b6ea21db7b5e9e2c",
+    "lines": [
+      24,
+      24
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "f7025bdbd060652a0cc7c0c2d954ccd1b1943c2e"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "CREDITS.md",
+    "surface": "historical_file",
+    "sha256": "4de4229dd63b1596f52f0e0afd33d0d2fe32adeeeaf5ad21b6ea21db7b5e9e2c",
+    "lines": [
+      35,
+      35
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "f7025bdbd060652a0cc7c0c2d954ccd1b1943c2e"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "10e9980f108c26e566c1e7eda207e33819013ac604cb7b023ffe6256ad8f2760",
+    "lines": [
+      122,
+      122
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "5388a2cc2e11f12aaf7af9b646a1902a379a6fd1"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "docs/release-readiness-audit.md",
+    "surface": "historical_file",
+    "sha256": "84d6bef9bf1313304225987244bae5b61a458174d6fdb08225c419e2b512a2a2",
+    "lines": [
+      169,
+      169
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "c7c2ac8b9c2d15b3b7eb04b0ce2a116350815a7f"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "docs/release-readiness-audit.md",
+    "surface": "historical_file",
+    "sha256": "84d6bef9bf1313304225987244bae5b61a458174d6fdb08225c419e2b512a2a2",
+    "lines": [
+      236,
+      236
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "c7c2ac8b9c2d15b3b7eb04b0ce2a116350815a7f"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "docs/release-readiness-audit.md",
+    "surface": "historical_file",
+    "sha256": "84d6bef9bf1313304225987244bae5b61a458174d6fdb08225c419e2b512a2a2",
+    "lines": [
+      290,
+      290
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "c7c2ac8b9c2d15b3b7eb04b0ce2a116350815a7f"
   }
 ]

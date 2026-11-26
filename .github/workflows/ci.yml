@@ -16,8 +16,12 @@ jobs:
       - name: Configure runner scratch directory
         # The runner context is available in steps, not job-level env.
         run: printf 'TMPDIR=%s\n' '${{ runner.temp }}' >> "$GITHUB_ENV"
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: the public hygiene gate scans reachable historical blobs.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: '1.4.3'
       - name: Install locked workspace dependencies
@@ -27,6 +31,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends caddy
           caddy version
+      - name: Server typecheck
+        run: bun run server:typecheck
       - name: Server tests (isolated)
         run: bun run server:test
       - name: Server Python tests
@@ -39,3 +45,29 @@ jobs:
         run: bun run panel:build
       - name: Hygiene gate tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Public hygiene gate (public catalog only)
+        # Operator-private patterns are deliberately unavailable here, so the
+        # gate reports "incomplete" rather than "pass". This step fails only on
+        # fatal findings or scan errors. It is not publication clearance; the
+        # protected "Publication hygiene" workflow remains authoritative.
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/public-hygiene"
+          python3 scripts/public-hygiene-gate.py \
+            --repo-root . \
+            --panel-dist-dir apps/panel/dist \
+            --allow-runtime-skip \
+            --allowlist scripts/hygiene_allowlist.json \
+            --evidence-dir "$evidence" || true
+          python3 - "$evidence" <<'EOF'
+          import json, pathlib, sys
+          reports = sorted(pathlib.Path(sys.argv[1]).glob("*/public-hygiene-report.json"))
+          if not reports:
+              sys.exit("public hygiene gate produced no report (scan error)")
+          gates = json.loads(reports[-1].read_text())["gates"]
+          failed = sorted(name for name, gate in gates.items() if gate["status"] == "fail")
+          for name, gate in gates.items():
+              print(f"{name}: {gate['status']}")
+          if failed:
+              sys.exit(f"public hygiene gate failed: {', '.join(failed)}")
+          EOF

@@ -12,8 +12,8 @@ Do not include credentials or production databases.
 
 Use Bun 1.4.3 and Python 3. Node.js is needed for browser fixtures and
 Node-specific tooling. npm publication is disabled. Work from the repository
-root. The workspace lockfile is
-`bun.lock`; the panel's npm lockfile is not used for the workspace install.
+root. `bun.lock` is the only lockfile; do not commit npm or other package-manager
+lockfiles for workspace packages.
 Do not use production credentials or data for development or tests.
 
 ```bash
@@ -90,13 +90,16 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `feat:`,
 Run the pre-publish hygiene gate from the repo root and inspect its full report:
 
 ```bash
-python3 scripts/public-hygiene-gate.py --repo-root . --panel-dist-dir apps/panel/dist
+python3 scripts/public-hygiene-gate.py --repo-root . \
+  --panel-dist-dir apps/panel/dist --allow-runtime-skip
 ```
 
 The gate reports matches in selected Git-listed surfaces and blocks patterns
-classified as fatal. A passing exit status can still include warnings or skipped
-checks; inspect those, untracked release candidates, and historical file contents
-separately. Attribution is not a complete license audit. If a match is legitimate,
+classified as fatal. Without the operator-private catalog it reports
+`OVERALL: incomplete` and exits non-zero even when no fatal finding exists; CI
+runs this public-only scan and fails only on a `fail` gate. A passing exit status
+can still include warnings or skipped checks; inspect those, untracked release
+candidates, and historical file contents separately. Attribution is not a complete license audit. If a match is legitimate,
 use a narrowly scoped entry in `scripts/hygiene_allowlist.json`; do not hide a
 real leak.
 
