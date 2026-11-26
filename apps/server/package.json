@@ -72,7 +72,7 @@
     "hono": "^4.13.20",
     "ioredis": "^5.10.1",
     "ipaddr.js": "^2.2.0",
-    "jose": "^6.2.9",
+    "jose": "^6.2.18",
     "js-tiktoken": "^1.0.21",
     "node-machine-id": "^1.1.12",
     "omniglyph": "^1.4.0",
