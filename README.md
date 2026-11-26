@@ -1,5 +1,9 @@
 # StyxRouter
 
+[![CI](https://github.com/rrddngtnn/styxrouter/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rrddngtnn/styxrouter/actions/workflows/ci.yml)
+[![Docker](https://github.com/rrddngtnn/styxrouter/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/rrddngtnn/styxrouter/actions/workflows/release.yml)
+[![Release](https://img.shields.io/github/v/release/rrddngtnn/styxrouter)](https://github.com/rrddngtnn/styxrouter/releases)
+
 StyxRouter routes model requests through a Hono + Bun server and provides a
 React administration panel for provider accounts, API keys, models, and routing.
 It exposes OpenAI Chat Completions, Anthropic Messages, and OpenAI Responses
@@ -12,6 +16,7 @@ endpoints. Account rotation and protocol support depend on the provider.
 - [Antigravity Hub default and legacy profile compatibility](docs/antigravity-profiles.md)
 - [Kiro supported generation client contract](docs/kiro-client-contract.md)
 - [Documentation index](docs/README.md)
+- [Changelog](CHANGELOG.md)
 
 ## Quick start
 
