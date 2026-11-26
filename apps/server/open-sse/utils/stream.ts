@@ -164,6 +164,7 @@ type StreamOptions = {
   toolNameMap?: unknown;
   model?: string | null;
   connectionId?: string | null;
+  signatureNamespace?: string | null;
   apiKeyInfo?: unknown;
   body?: unknown;
   onComplete?: ((payload: StreamCompletePayload) => void) | null;
@@ -647,6 +648,7 @@ export function createSSEStream(options: StreamOptions = {}) {
     toolNameMap = null,
     model = null,
     connectionId = null,
+    signatureNamespace = connectionId,
     apiKeyInfo = null,
     body = null,
     onComplete = null,
@@ -655,7 +657,6 @@ export function createSSEStream(options: StreamOptions = {}) {
     customToolNames = new Set<string>(),
     requestToolIdentityMap = null,
   } = options;
-  const signatureNamespace = connectionId;
   // Request-body-size metric (for monitoring payload size distribution & correlation with TTFT).
   // The size is JSON-serialised byte count; stored as a performance mark detail so monitoring
   // tools can query performance.getEntriesByType("mark") filtered by name.
@@ -2950,7 +2951,8 @@ export function createSSETransformStreamWithLogger(
   copilotCompatibleReasoning = false,
   suppressThinkClose = false,
   customToolNames: ReadonlySet<string> = new Set(),
-  requestToolIdentityMap: Map<string, { namespace: string; name: string }> | null = null
+  requestToolIdentityMap: Map<string, { namespace: string; name: string }> | null = null,
+  signatureNamespace?: string | null
 ) {
   return createSSEStream({
     mode: STREAM_MODE.TRANSLATE,
@@ -2961,6 +2963,7 @@ export function createSSETransformStreamWithLogger(
     toolNameMap,
     model,
     connectionId,
+    signatureNamespace,
     apiKeyInfo,
     body,
     onComplete,

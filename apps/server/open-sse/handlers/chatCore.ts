@@ -451,7 +451,11 @@ import {
   buildClaudeCodeCompatibleRequest,
   resolveClaudeCodeCompatibleSessionId,
 } from "../services/claudeCodeCompatible.ts";
-import { setGeminiThoughtSignatureMode } from "../services/geminiThoughtSignatureStore.ts";
+import {
+  getAntigravityThoughtSignatureNamespace,
+  setGeminiThoughtSignatureMode,
+} from "../services/geminiThoughtSignatureStore.ts";
+import { resolveAntigravityDispatchModel } from "../services/antigravityModelResolution.ts";
 import { fetchLiveProviderLimits } from "@/lib/usage/providerLimits";
 import { isClaudeExtraUsageBlockEnabled } from "@/lib/providers/claudeExtraUsage";
 import {
@@ -2137,6 +2141,15 @@ export async function handleChatCore({
   body = outputBudget.body;
 
   let translatedBody = body;
+  const scopeAntigravitySignatures = provider === "antigravity" &&
+    targetFormat === FORMATS.ANTIGRAVITY && sourceFormat !== targetFormat;
+  // Both IDs are already scoped by API key at HTTP admission. The conversation
+  // ID is stable across aliases when the client supplies x-styx-session-id.
+  const signatureSessionScope = scopeAntigravitySignatures
+    ? (explicitSessionIdHeader?.trim() ? conversationId : null) ?? sessionAffinityKey ??
+      JSON.stringify(["no-session", apiKeyInfo?.id ?? null])
+    : null;
+  let antigravitySignatureReplay: { namespace: string; sessionScope: string | null } | undefined;
   const isClaudePassthrough = sourceFormat === FORMATS.CLAUDE && targetFormat === FORMATS.CLAUDE;
   const isClaudeCodeCompatible = usesClaudeBridge(provider, targetFormat, credentials);
   const isClaudeCodeSemanticPassthrough = isClaudeCodeSemanticPassthroughRequest({
@@ -2410,6 +2423,15 @@ export async function handleChatCore({
         model || "",
         sourceFormat
       );
+      if (scopeAntigravitySignatures) {
+        const wireModel = await resolveAntigravityDispatchModel(effectiveModel, credentials);
+        antigravitySignatureReplay = {
+          namespace: getAntigravityThoughtSignatureNamespace(
+            getCurrentConnectionId(), wireModel, signatureSessionScope
+          ),
+          sessionScope: signatureSessionScope,
+        };
+      }
       translatedBody = translateRequest(
         sourceFormat,
         targetFormat,
@@ -2423,7 +2445,7 @@ export async function handleChatCore({
           normalizeToolCallId,
           preserveDeveloperRole,
           preserveCacheControl,
-          signatureNamespace: connectionId,
+          signatureNamespace: antigravitySignatureReplay?.namespace ?? connectionId,
           copilotClient: copilotCompatibleReasoning,
           reasoningCacheScope,
           ...(preCompressionBody ? { preCompressionBody } : {}),
@@ -3112,6 +3134,7 @@ export async function handleChatCore({
                             userAgent
                           ),
                           clientResponseFormat,
+                          antigravitySignatureReplay,
                           onCredentialsRefreshed,
                           skipUpstreamRetry,
                           contextEditing: { enabled: contextEditingEnabled },
@@ -3559,6 +3582,15 @@ export async function handleChatCore({
   let providerUrl;
   let providerHeaders;
   let finalBody;
+  const getResponseSignatureNamespace = () => {
+    if (!antigravitySignatureReplay) return undefined;
+    const wireModel = isJsonRecord(finalBody) && typeof finalBody.model === "string"
+      ? finalBody.model
+      : null;
+    return wireModel
+      ? getAntigravityThoughtSignatureNamespace(getCurrentConnectionId(), wireModel, signatureSessionScope)
+      : undefined;
+  };
   let claudePromptCacheLogMeta = null;
 
   try {
@@ -3872,6 +3904,7 @@ export async function handleChatCore({
               upstreamExtraHeaders: buildUpstreamHeadersForExecute(retryModelId),
               clientHeaders: buildExecutorClientHeaders(clientRawRequest?.headers, userAgent),
               clientResponseFormat,
+              antigravitySignatureReplay,
               onCredentialsRefreshed,
               skipUpstreamRetry: isCombo,
               contextEditing: { enabled: contextEditingEnabled },
@@ -4887,7 +4920,8 @@ export async function handleChatCore({
           responsePayloadFormat,
           clientResponseFormat,
           responseToolNameMap,
-          responseToolSchemas
+          responseToolSchemas,
+          getResponseSignatureNamespace()
         )
       : responseBody;
     const memoryExtractionResponse = translatedResponse;
@@ -4915,7 +4949,8 @@ export async function handleChatCore({
               responsePayloadFormat,
               FORMATS.OPENAI,
               responseToolNameMap,
-              responseToolSchemas
+              responseToolSchemas,
+              getResponseSignatureNamespace()
             )
           : responseBody;
       const firstChoice = cacheResponse?.choices?.[0];
@@ -5724,7 +5759,8 @@ export async function handleChatCore({
         clientResponseFormat,
       }),
       customToolNames,
-      requestToolIdentityMap
+      requestToolIdentityMap,
+      getResponseSignatureNamespace()
     );
   } else {
     log?.debug?.("STREAM", `Standard passthrough mode`);

@@ -1,6 +1,23 @@
 import { getMitmAlias } from "@/lib/db/models/mitmAlias";
 import { resolveAntigravityModelId } from "../config/antigravityModelAliases.ts";
 
+type AntigravityModelSelection = {
+  antigravityResolvedFor?: string;
+  antigravityWireModel?: string;
+  antigravityExactModel?: string;
+};
+
+export function resolveAntigravityDispatchModel(
+  model: string,
+  credentials?: AntigravityModelSelection | null,
+  override?: string
+): Promise<string> {
+  const exact = override ?? (credentials?.antigravityResolvedFor === model
+    ? credentials.antigravityWireModel
+    : credentials?.antigravityExactModel === model ? model : undefined);
+  return resolveAntigravityWireModel(exact ?? model, !!exact);
+}
+
 /** Resolve once for both account selection and dispatch. Exact catalog IDs win. */
 export async function resolveAntigravityWireModel(model: string, exact = false): Promise<string> {
   if (exact) return model;

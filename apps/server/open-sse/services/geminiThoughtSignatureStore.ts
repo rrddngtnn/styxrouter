@@ -47,6 +47,23 @@ export function buildGeminiThoughtSignatureKey(namespace: unknown, toolCallId: u
   return toolCallId;
 }
 
+export function getAntigravityThoughtSignatureNamespace(
+  connectionId: string | null | undefined,
+  wireModel: string,
+  sessionScope: string | null
+): string {
+  // Version the key so pre-upgrade entries without model/session provenance are never replayed.
+  return `antigravity-v1:${JSON.stringify([connectionId ?? null, wireModel, sessionScope])}`;
+}
+
+export const GEMINI_SIGNATURELESS_TOOL_CALL = "skip_thought_signature_validator";
+
+export function getAntigravitySignaturelessToolCallMarker(): string | undefined {
+  return process.env.ANTIGRAVITY_ALLOW_SIGNATURE_BYPASS === "0"
+    ? undefined
+    : GEMINI_SIGNATURELESS_TOOL_CALL;
+}
+
 function pruneExpired() {
   const now = Date.now();
   for (const [key, value] of signatures.entries()) {

@@ -3,6 +3,7 @@ import { FORMATS } from "../formats.ts";
 import { ANTIGRAVITY_DEFAULT_SYSTEM } from "../../config/constants.ts";
 import {
   buildGeminiThoughtSignatureKey,
+  getAntigravitySignaturelessToolCallMarker,
   resolveGeminiThoughtSignature,
 } from "../../services/geminiThoughtSignatureStore.ts";
 import {
@@ -433,9 +434,11 @@ function openaiToGeminiBase(
             }
 
             const args = tryParseJSON(fn.arguments || "{}");
-            const embeddedThoughtSignature = shouldUseEmbeddedSignature
-              ? firstPersistedSignature || signatureForToolCall
-              : undefined;
+            // A genuine Cloud Code signature belongs to its original functionCall,
+            // not merely to the first call in the assistant message.
+            const embeddedThoughtSignature = toolNameOptions.supportsSignatureBypass
+              ? signatureForToolCall
+              : shouldUseEmbeddedSignature ? firstPersistedSignature : undefined;
 
             if (embeddedThoughtSignature) {
               shouldUseEmbeddedSignature = false;
@@ -447,13 +450,11 @@ function openaiToGeminiBase(
             // an audit-trail risk (a magic validator-bypass string upstream could log/flag), so
             // operators can disable it via ANTIGRAVITY_ALLOW_SIGNATURE_BYPASS=0 — real signatures
             // are always preferred; the sentinel only fills the gap when none is available.
-            const signatureBypassEnabled =
-              toolNameOptions.supportsSignatureBypass &&
-              signaturelessToolCallMode !== "text" &&
-              process.env.ANTIGRAVITY_ALLOW_SIGNATURE_BYPASS !== "0";
-            const finalSignature =
-              embeddedThoughtSignature ||
-              (signatureBypassEnabled ? "skip_thought_signature_validator" : undefined);
+            const signaturelessMarker =
+              toolNameOptions.supportsSignatureBypass && signaturelessToolCallMode !== "text"
+                ? getAntigravitySignaturelessToolCallMarker()
+                : undefined;
+            const finalSignature = embeddedThoughtSignature || signaturelessMarker;
             parts.push({
               ...(finalSignature ? { thoughtSignature: finalSignature } : {}),
               functionCall: {

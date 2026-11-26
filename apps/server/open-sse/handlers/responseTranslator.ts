@@ -143,21 +143,24 @@ export function translateNonStreamingResponse(
   targetFormat: string,
   sourceFormat: string,
   toolNameMap?: Map<string, string> | null,
-  toolSchemas?: Map<string, JsonRecord> | null
+  toolSchemas?: Map<string, JsonRecord> | null,
+  signatureNamespace?: string
 ): JsonRecord;
 export function translateNonStreamingResponse(
   responseBody: unknown,
   targetFormat: string,
   sourceFormat: string,
   toolNameMap?: Map<string, string> | null,
-  toolSchemas?: Map<string, JsonRecord> | null
+  toolSchemas?: Map<string, JsonRecord> | null,
+  signatureNamespace?: string
 ): unknown;
 export function translateNonStreamingResponse(
   responseBody: unknown,
   targetFormat: string,
   sourceFormat: string,
   toolNameMap?: Map<string, string> | null,
-  toolSchemas?: Map<string, JsonRecord> | null
+  toolSchemas?: Map<string, JsonRecord> | null,
+  signatureNamespace?: string
 ): unknown {
   // If already in source format, return as-is
   if (targetFormat === sourceFormat) {
@@ -376,20 +379,13 @@ export function translateNonStreamingResponse(
               if (Array.isArray(content.parts)) {
                 for (const part of content.parts) {
                   const partObj = toRecord(part);
+                  const partThoughtSig = toString(partObj.thoughtSignature ?? partObj.thought_signature);
+                  if (partThoughtSig) pendingThoughtSignature = partThoughtSig;
                   if (partObj.thought === true && typeof partObj.text === "string") {
                     // #9500 — Gemini thinking parts are discrete segments; join with "\n\n"
                     // (matches extractThinkingFromContent convention) so they don't glue back-to-back.
                     reasoningContent += reasoningContent ? `\n\n${partObj.text}` : partObj.text;
                     continue;
-                  }
-
-                  // Capture thoughtSignature from thinking parts (Gemini thinking models)
-                  // so it can be stored alongside any subsequent functionCall part.
-                  const partThoughtSig = toString(
-                    partObj.thoughtSignature ?? partObj.thought_signature
-                  );
-                  if (partThoughtSig) {
-                    pendingThoughtSignature = partThoughtSig;
                   }
 
                   if (typeof partObj.text === "string") {
@@ -439,8 +435,9 @@ export function translateNonStreamingResponse(
                     // captured from an earlier thinking-only part.
                     const sig = partThoughtSig || pendingThoughtSignature;
                     if (sig) {
-                      const sigKey = buildGeminiThoughtSignatureKey(null, toolCallId);
+                      const sigKey = buildGeminiThoughtSignatureKey(signatureNamespace, toolCallId);
                       storeGeminiThoughtSignature(sigKey, sig);
+                      pendingThoughtSignature = "";
                     }
 
                     toolCalls.push({
