@@ -209,6 +209,8 @@ export type ExecuteInput = {
    * this to apply client-format-aware policies such as `</think>` close-marker
    * suppression. */
   clientResponseFormat?: string | null;
+  /** Provenance of cached signatures inserted during Antigravity request translation. */
+  antigravitySignatureReplay?: { namespace: string; sessionScope: string | null };
   /** Callback to persist tokens that are proactively refreshed during execution.
    * Accepts a partial credentials patch (e.g. `{ accessToken, refreshToken }` or
    * `{ testStatus: "expired", isActive: false }`); the caller merges into the

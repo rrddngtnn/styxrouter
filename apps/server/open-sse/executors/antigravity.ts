@@ -23,7 +23,12 @@ import {
 } from "../services/antigravityCredits.ts";
 import { persistCreditBalance, getAllPersistedCreditBalances } from "@/lib/db/creditBalance";
 import { setConnectionRateLimitUntil } from "@/lib/db/providers";
-import { resolveAntigravityWireModel } from "../services/antigravityModelResolution.ts";
+import { resolveAntigravityDispatchModel } from "../services/antigravityModelResolution.ts";
+import {
+  getAntigravityThoughtSignatureNamespace,
+  getAntigravitySignaturelessToolCallMarker,
+  GEMINI_SIGNATURELESS_TOOL_CALL,
+} from "../services/geminiThoughtSignatureStore.ts";
 import {
   MAX_ANTIGRAVITY_OUTPUT_TOKENS,
   resolveAntigravityOutputCap,
@@ -238,23 +243,6 @@ export function markConnectionQuotaExhausted(connectionId: string, retryAfterMs:
   } catch {
     // DB write failure must never crash the request path
   }
-}
-
-/**
- * Accumulate one Antigravity SSE `data:` payload into `collected`. Exported for unit
- * tests (the markdown / candidate-parts extraction branches). @internal
- */
-
-/**
- * Strip provider prefixes (e.g. "antigravity/model" → "model").
- * Ensures the model name sent to the upstream API never contains a routing prefix.
- *
- * `modelIdOverride` (#3786): when the per-request Pro-family fallback chain forces a
- * specific upstream id, pass it here. It is an ALREADY-RESOLVED upstream id, so it bypasses
- * the MITM/static alias resolution and is used verbatim (after prefix stripping).
- */
-async function cleanModelName(model: string, modelIdOverride?: string): Promise<string> {
-  return resolveAntigravityWireModel(modelIdOverride ?? model, !!modelIdOverride);
 }
 
 function applyAntigravityGenerationDefaults(
@@ -544,7 +532,8 @@ export class AntigravityExecutor extends BaseExecutor {
     _stream: boolean,
     credentials: AntigravityCredentials,
     modelIdOverride?: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    signatureReplay?: ExecuteInput["antigravitySignatureReplay"]
   ): Promise<AntigravityRequestEnvelope | Response> {
     // Project ID resolution: prefer OAuth-stored projectId over incoming body.project
     // to avoid stale/wrong client-side values causing 404/403 from Cloud Code endpoints.
@@ -666,7 +655,9 @@ export class AntigravityExecutor extends BaseExecutor {
       return resp as unknown as never;
     }
 
-    const upstreamModel = await cleanModelName(model, modelIdOverride ?? (credentials?.antigravityResolvedFor === model ? credentials.antigravityWireModel : credentials?.antigravityExactModel === model ? model : undefined));
+    const upstreamModel = await resolveAntigravityDispatchModel(model, credentials, modelIdOverride);
+    const signatureScopeChanged = signatureReplay && signatureReplay.namespace !==
+      getAntigravityThoughtSignatureNamespace(credentials?.connectionId, upstreamModel, signatureReplay.sessionScope);
     const isClaude = upstreamModel.toLowerCase().includes("claude");
     // #10104: newer Gemini endpoints reject a request ending on a `model` turn with
     // HTTP 400 "Requests ending with a model turn are not supported" — the same
@@ -708,8 +699,15 @@ export class AntigravityExecutor extends BaseExecutor {
               !p.thought &&
               (hasFunctionCall ||
                 !p.thoughtSignature ||
-                p.thoughtSignature === "skip_thought_signature_validator")
+                p.thoughtSignature === GEMINI_SIGNATURELESS_TOOL_CALL)
             );
+          }).map((part) => {
+            if (!signatureScopeChanged || !part.functionCall || !part.thoughtSignature ||
+                part.thoughtSignature === GEMINI_SIGNATURELESS_TOOL_CALL) return part;
+            // Rotation/fallback happened after translation. Treat these calls like unsigned history.
+            const { thoughtSignature: _priorSignature, ...unsignedPart } = part;
+            const marker = getAntigravitySignaturelessToolCallMarker();
+            return marker ? { ...unsignedPart, thoughtSignature: marker } : unsignedPart;
           }) || [];
         return { ...c, role, parts };
       }) || [];
@@ -1126,7 +1124,7 @@ export class AntigravityExecutor extends BaseExecutor {
 
     // Look up the chain by the NORMALLY-resolved upstream id (honours MITM/static aliases).
     // If a MITM alias remapped the id away from a known Pro tier, no chain applies → fast path.
-    const resolvedUpstreamId = await cleanModelName(input.model, input.credentials?.antigravityResolvedFor === input.model ? input.credentials.antigravityWireModel : input.credentials?.antigravityExactModel === input.model ? input.model : undefined);
+    const resolvedUpstreamId = await resolveAntigravityDispatchModel(input.model, input.credentials);
     const chain = getAntigravityModelFallbacks(resolvedUpstreamId);
 
     if (chain.length <= 1) {
@@ -1199,7 +1197,7 @@ export class AntigravityExecutor extends BaseExecutor {
    * status of the first response so `execute()` can decide whether to fall through. @internal
    */
   private async executeOnce(
-    { model, body, stream, credentials, signal, log, upstreamExtraHeaders }: ExecuteInput,
+    { model, body, stream, credentials, signal, log, upstreamExtraHeaders, antigravitySignatureReplay }: ExecuteInput,
     modelIdOverride?: string
   ) {
     await resolveAntigravityClientVersion(getAntigravityClientProfile(credentials));
@@ -1237,7 +1235,8 @@ export class AntigravityExecutor extends BaseExecutor {
         upstreamStream,
         credentials,
         modelIdOverride,
-        signal ?? undefined
+        signal ?? undefined,
+        antigravitySignatureReplay
       );
 
       if (transformed instanceof Response) {
