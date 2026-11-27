@@ -1,14 +1,13 @@
 import { DropdownMenu } from "@radix-ui/themes";
 import {saveResourceAnchor,useResourceAnchor} from "../lib/resource-anchor";
 import { useMobile } from "../lib/use-mobile";
-import { useLocation } from "react-router-dom";
 import { TagFilter } from "../components/TagFilter.tsx";
 import {usePageReady} from "../lib/page-ready";
 import {ReadFreshness} from "../components/OperationalUI";
 import {CardFrame} from "../components/OperationalUI";
 import { useTranslator } from "../lib/useTranslator.ts";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, KeyRound, LayoutGrid, Link2, List, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { usePreferences } from "../lib/preferences.tsx";
@@ -25,7 +24,7 @@ import {
   type BulkAction,
   type BulkResult,
 } from "../lib/account-management.ts";
-import { api, type JsonValue } from "../lib/api.ts";
+import { api, ApiError, type JsonValue } from "../lib/api.ts";
 import {useConfirmation} from "../components/ConfirmationDialog";
 import { Modal, useAction } from "../lib/actions.tsx";
 import { DASH } from "../lib/format.ts";
@@ -39,7 +38,8 @@ import { filterProviders } from "../lib/provider-search.ts";
 import { OAuthConnect, type FlowType } from "./OAuthConnect.tsx";
 import { ProviderModels } from "./ProviderModels.tsx";
 import { ProviderImport } from "./ProviderImport.tsx";
-import { ProviderNetworkRulesPanel } from "../components/settings/RoutingPoliciesPanel.tsx";
+import { LegacyPolicyRedirect } from "./ConnectionPolicy.tsx";
+import { legacyPolicyLocation } from "../lib/connection-policy.ts";
 import "./provider-workspace.css";
 
 interface Provider {
@@ -92,18 +92,23 @@ interface Node {
   createdAt: string | null;
 }
 
-type Tab = "oauth" | "apikey" | "custom" | "network";
+type Tab = "oauth" | "apikey" | "custom";
 
 const API_TYPES = ["chat", "responses", "embeddings", "rerank", "audio-transcriptions", "audio-speech", "images-generations"] as const;
 const blankNode = { type: "openai-compatible", name: "", prefix: "", apiType: "chat", baseUrl: "", chatPath: "", modelsPath: "" };
 
 export function Providers() {
+  const location = useLocation();
+  return legacyPolicyLocation(location.search, location.hash) ? <LegacyPolicyRedirect /> : <ProviderCatalog />;
+}
+
+function ProviderCatalog() {
   const tr = useTranslator();
   const [searchParams, setSearchParams] = useSearchParams();
   const mobile = useMobile();
   const initialTab = searchParams.get("tab");
   const tab: Tab =
-    initialTab === "apikey" || initialTab === "custom" || initialTab === "network"
+    initialTab === "apikey" || initialTab === "custom"
       ? initialTab
       : "oauth";
   const setTab = (next: Tab) => { const updated=new URLSearchParams(searchParams); updated.set("tab",next); setSearchParams(updated); };
@@ -112,6 +117,7 @@ export function Providers() {
   const accountsState = useFetch<{ connections?: Account[] }>("/api/connections");
   const nodesState = useFetch<{ nodes?: Node[] }>("/api/provider-nodes");
   const [editingNode, setEditingNode] = useState<"new" | null>(null);
+  const navigate = useNavigate();
   const nodeCanClose = useRef<() => Promise<boolean>>(async () => true);
   const [search, setSearch] = useState("");
   const { providerView, setProviderView } = usePreferences();
@@ -145,7 +151,7 @@ export function Providers() {
   const counts = useMemo(() => {
     const c: Record<string, { total: number; active: number }> = {};
     for (const a of accounts) {
-      if (tab !== "custom" && tab !== "network" && normalizeAccountAuthBucket(a.authType) !== tab) continue;
+      if (tab !== "custom" && normalizeAccountAuthBucket(a.authType) !== tab) continue;
       const slot = c[a.provider] ?? { total: 0, active: 0 };
       slot.total += 1;
       if (a.isActive && a.testStatus === "active") slot.active += 1;
@@ -168,7 +174,7 @@ export function Providers() {
       {(
         <>
           {mobile ? <label className="mobile-category-select">{tr("Provider category")}<select value={tab} onChange={e=>setTab(e.target.value as Tab)}>
-            <option value="oauth">{tr("OAuth Logins")}</option><option value="apikey">{tr("API Keys")}</option><option value="custom">{tr("Custom Providers")}</option><option value="network">{tr("Proxies & Error Rules")}</option>
+            <option value="oauth">{tr("OAuth Logins")}</option><option value="apikey">{tr("API Keys")}</option><option value="custom">{tr("Custom Providers")}</option>
           </select></label> : <div className="tabs" role="tablist">
             <button
               role="tab"
@@ -191,19 +197,9 @@ export function Providers() {
               onClick={() => setTab("custom")}
             >{tr("Custom Providers")}<span className="tab-count">{nodes.length}</span>
             </button>
-            <button
-              role="tab"
-              aria-selected={tab === "network"}
-              className={tab === "network" ? "tab active" : "tab"}
-              onClick={() => setTab("network")}
-            >{tr("Proxies & Error Rules")}
-            </button>
           </div>}
 
-          {tab === "network" ? (
-            <ProviderNetworkRulesPanel />
-          ) : (
-            <>
+          <>
           <div className="panel-provider-search">
             <label>{tr("Search providers")}<input type="search" aria-label={tr("Search providers")} placeholder={tr("Search providers")}
                 value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -266,15 +262,15 @@ export function Providers() {
                 title={tr("New custom provider")}
                 description={tr("Register an OpenAI- or Anthropic-compatible upstream endpoint under its own routing prefix.")}
               >
-                <NodeForm
+                {editingNode === "new" && <NodeForm
                   registerClose={(check) => { nodeCanClose.current = check; }}
                   onCancel={() => setEditingNode(null)}
-                  onDone={() => {
+                  onDone={(node, addKey) => {
                     setEditingNode(null);
-                    toast.success("Custom provider created");
                     refresh();
+                    if (node && addKey) navigate(`/providers/${encodeURIComponent(node.id)}?tab=custom`, { state: { createdNode: { ...node, customHeaders: null }, addKeyFor: node.id } });
                   }}
-                />
+                />}
               </Modal>
               <div className={providerView === "rows" ? "provider-grid provider-grid-rows" : "provider-grid"}>
                 {filteredNodes.map((n) => (
@@ -312,8 +308,7 @@ export function Providers() {
               </ul>
             </section>
           )}
-            </>
-          )}
+          </>
         </>
       )}
     </div>
@@ -360,7 +355,7 @@ export function ProviderCard({ provider, tab, view = "cards", accounts, activeAc
   </CardFrame>;
 }
 
-function CustomNodeCard({ node, view, accounts, activeAccounts }: {
+export function CustomNodeCard({ node, view, accounts, activeAccounts }: {
   node: Node; view: "cards" | "rows"; accounts: number | null; activeAccounts: number;
 }) {
   const tr = useTranslator();
@@ -371,7 +366,7 @@ function CustomNodeCard({ node, view, accounts, activeAccounts }: {
       <div className="provider-card-info">
         <div className="provider-name">{node.name}</div>
         <div className="provider-meta">
-          <AccountSummary accounts={accounts} activeAccounts={activeAccounts} />
+          {accounts === 0 ? <span className="muted">{tr("No accounts connected")}</span> : <AccountSummary accounts={accounts} activeAccounts={activeAccounts} />}
           <span className="auth-type">{node.apiType ?? "chat"}</span>
           <code className="provider-id">{node.prefix ? `${node.prefix}/*` : node.id.slice(0, 18)}</code>
           <span className="vendor-badge">{node.type.replace("-compatible", "")}</span>
@@ -379,13 +374,13 @@ function CustomNodeCard({ node, view, accounts, activeAccounts }: {
         <div className="muted provider-endpoint">{node.baseUrl ?? DASH}</div>
       </div>
     </Link>
-    <footer><Link to={href} className="btn-add provider-card-action" aria-label={`${tr("Manage")} ${node.name}`}>
-      {accounts !== null && accounts > 0 ? tr("Manage ({0})", {0: String(accounts)}) : tr("Manage")}
+    <footer><Link to={href} state={accounts === 0 ? { createdNode: { ...node, customHeaders: null }, addKeyFor: node.id } : undefined} className="btn-add provider-card-action custom-credential-action" aria-label={`${accounts === 0 ? tr("Add API key") : tr("Manage")} ${node.name}`}>
+      {accounts !== null && accounts > 0 ? tr("Manage ({0})", {0: String(accounts)}) : accounts === 0 ? tr("Add API key") : tr("Manage")}
     </Link></footer>
   </CardFrame>;
 }
 
-function NodeForm({ node, onDone, onCancel, registerClose }: { node?: Node; onDone: () => void; onCancel: () => void; registerClose: (check: () => Promise<boolean>) => void }) {
+export function NodeForm({ node, onDone, onCancel, registerClose, onDirtyChange }: { node?: Node; onDone: (node?: Node, addKey?: boolean) => void; onCancel: () => void; registerClose?: (check: () => Promise<boolean>) => void; onDirtyChange?: (dirty: boolean) => void }) {
   const tr = useTranslator();
   const editing = Boolean(node);
   const [form, setForm] = useState(
@@ -404,13 +399,24 @@ function NodeForm({ node, onDone, onCancel, registerClose }: { node?: Node; onDo
   const initialForm = useRef(JSON.stringify(form));
   const confirmation = useConfirmation();
   const canClose = async () => JSON.stringify(form) === initialForm.current || await confirmation.confirm({title:tr("Discard unsaved changes?"),description:tr("Unsaved provider settings will be lost."),resource:tr("Custom provider settings"),action:tr("Discard changes"),danger:true});
-  useEffect(() => { registerClose(canClose); return () => registerClose(async () => true); }, [form]);
-  const { busy, error, run } = useAction(onDone);
+  useEffect(() => { registerClose?.(canClose); return () => registerClose?.(async () => true); }, [form]);
+  useEffect(() => { onDirtyChange?.(JSON.stringify(form) !== initialForm.current); }, [form, onDirtyChange]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [uncertain, setUncertain] = useState(false);
+  const submitting = useRef(false);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting.current || uncertain) return;
+    submitting.current = true;
+    setBusy(true);
+    setError("");
+    const addKey = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") !== "later";
     const payload: Record<string, JsonValue> = {
       name: form.name.trim(),
       baseUrl: form.baseUrl.trim(),
@@ -422,9 +428,25 @@ function NodeForm({ node, onDone, onCancel, registerClose }: { node?: Node; onDo
       payload.prefix = form.prefix.trim();
     }
     if (form.type === "openai-compatible") payload.apiType = form.apiType;
-    await run("save", () =>
-      editing && node ? api.patch(`/api/provider-nodes/${node.id}`, payload) : api.post("/api/provider-nodes", payload),
-    );
+    try {
+      if (editing && node) {
+        await api.patch(`/api/provider-nodes/${node.id}`, payload);
+        if (alive.current) onDone(node, false);
+      } else {
+        const result = await api.post<{ node?: Node }>("/api/provider-nodes", payload);
+        if (typeof result.node?.id !== "string" || !result.node.id.trim() || result.node.id !== result.node.id.trim()) throw new Error("Missing provider identity");
+        if (alive.current) onDone(result.node, addKey);
+      }
+    } catch (error) {
+      if (alive.current) {
+        // These statuses are authoritative pre-write rejections from the API.
+        // Transport failures, malformed success bodies and server errors remain
+        // unknown writes: never invite a duplicate create after those failures.
+        const rejected = error instanceof ApiError && [400, 403, 404, 409, 422, 429].includes(error.status);
+        setError(rejected ? error.message : tr(editing ? "Endpoint could not be saved." : "Creation was not confirmed. Close and reload the provider list before creating again."));
+        if (!editing && !rejected) setUncertain(true);
+      }
+    } finally { submitting.current = false; if (alive.current) setBusy(false); }
   }
 
   return (
@@ -454,11 +476,13 @@ function NodeForm({ node, onDone, onCancel, registerClose }: { node?: Node; onDo
       </label>
       <label>{tr("Models path override")}<input value={form.modelsPath} onChange={set("modelsPath")} placeholder="/models" />
       </label>
-      {error && <div className="bad">{error}</div>}
+      {!editing && <p className="muted">{tr("Credentials belong to accounts, not this endpoint. Create without key saves the endpoint for later; it is not a no-auth mode.")}</p>}
+      {error && <div className="bad" role="alert">{error}</div>}
       <div className="row-actions">
-        <button type="submit" className="btn-add" disabled={busy !== null || !form.name.trim() || !form.baseUrl.trim()}>
-          {busy === "save" ? "…" : editing ? tr("Save") : tr("Create")}
+        <button type="submit" className="btn-add" disabled={busy || uncertain || !form.name.trim() || !form.baseUrl.trim()}>
+          {busy ? "…" : editing ? tr("Save") : tr("Create & add API key")}
         </button>
+        {!editing && <button type="submit" name="next" value="later" className="btn-ghost" disabled={busy || uncertain || !form.name.trim() || !form.baseUrl.trim()}>{tr("Create without key")}</button>}
         <button type="button" className="btn-ghost" onClick={async () => { if (await canClose()) onCancel(); }}>{tr("Cancel")}</button>
       </div>
     </form>
@@ -476,8 +500,8 @@ export function ProviderDetail() {
   const listScroll = useRef(0);
   const wasInspecting = useRef(false);
   const inspect = searchParams.get("tab") === "models" || searchParams.get("tab") === "import" ? null : searchParams.get("inspect");
-
   const navigate = useNavigate();
+  const handoff = location.state as { createdNode?: Node; addKeyFor?: string } | null;
 
   const state = useFetch<ProvidersResponse>("/api/providers");
   const accountsState = useFetch<{ connections?: Account[] }>("/api/connections");
@@ -501,7 +525,8 @@ export function ProviderDetail() {
     setTagRevision(r => r + 1);
   };
 
-  const target = useMemo(() => resolveProviderTarget(providerId, providers, nodes), [providerId, providers, nodes]);
+  const target = useMemo(() => resolveProviderTarget(providerId, providers,
+    handoff?.createdNode?.id === providerId && !nodes.some(n => n.id === providerId) ? [...nodes, handoff.createdNode] : nodes), [providerId, providers, nodes, handoff]);
   const rawAuthParam = searchParams.get("auth") ?? searchParams.get("tab") ?? "";
   const requestedBucket: AccountTab =
     rawAuthParam === "oauth" || rawAuthParam === "apikey" || rawAuthParam === "custom"
@@ -537,12 +562,29 @@ export function ProviderDetail() {
   const flow = flows.get(providerId);
 
   const [connecting, setConnecting] = useState(false);
-  const [addingKey, setAddingKey] = useState(false);
+  const [addingKey, setAddingKey] = useState(handoff?.addKeyFor === providerId && handoff?.createdNode?.id === providerId);
+  const keySubmitting = useRef(false);
+  const [keyUncertain, setKeyUncertain] = useState(false);
+  const currentProviderId = useRef(providerId);
+  currentProviderId.current = providerId;
+  const addKeyTrigger = useRef<HTMLButtonElement>(null);
+  const keyWasOpen = useRef(addingKey);
+  useEffect(() => {
+    if (keyWasOpen.current && !addingKey) {
+      const frame = requestAnimationFrame(() => addKeyTrigger.current?.focus());
+      keyWasOpen.current = addingKey;
+      return () => cancelAnimationFrame(frame);
+    }
+    keyWasOpen.current = addingKey;
+    return undefined;
+  }, [addingKey]);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [editingNode, setEditingNode] = useState(false);
   const nodeCanClose = useRef<() => Promise<boolean>>(async () => true);
   const [label, setLabel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [augmentApiUrl,setAugmentApiUrl]=useState("");
+  useEffect(() => { setApiKey(""); setLabel(""); setAddingKey(handoff?.addKeyFor === providerId && handoff?.createdNode?.id === providerId); }, [providerId]);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectionMode,setSelectionMode] = useState(false);
@@ -588,13 +630,22 @@ export function ProviderDetail() {
 
   async function addSingleKey(e: React.FormEvent) {
     e.preventDefault();
+    if (keySubmitting.current || locked || keyUncertain) return;
+    keySubmitting.current = true;
     const made = await run("add-key", () =>
       api.post("/api/connections", {
         provider: providerId,
+        ...(providerId === 'augment-api' ? {apiUrl:augmentApiUrl} : {}),
         name: label.trim() || `${target?.label ?? providerId}-${providerAccounts.length + 1}`,
         apiKey: apiKey.trim(),
+      }).catch((error) => {
+        const rejected = error instanceof ApiError && [400, 403, 404, 409, 422, 429].includes(error.status);
+        if (!rejected && currentProviderId.current === providerId) setKeyUncertain(true);
+        throw new Error(tr(rejected ? "API key could not be saved. The endpoint is retained; retry saving the key only." : "Key save was not confirmed. Reload and inspect accounts before adding another key."));
       }),
     );
+    keySubmitting.current = false;
+    if (currentProviderId.current !== providerId) return;
     if (made) {
       setApiKey("");
       setLabel("");
@@ -828,7 +879,7 @@ export function ProviderDetail() {
           )}
           {(backTab === "apikey" || backTab === "custom") && target.canApiKey && (
             <>
-              <button type="button" className="btn-add" onClick={() => setAddingKey(true)}>
+              <button type="button" className="btn-add custom-credential-action" ref={addKeyTrigger} onClick={() => setAddingKey(true)}>
                 <KeyRound size={14} />
                 <span>{tr("Add API key")}</span>
               </button>
@@ -862,6 +913,7 @@ export function ProviderDetail() {
       </div>
 
       </>}
+      {target.isCustomNode && accountsState.status === "ok" && providerAccounts.length === 0 && <p className="muted" role="status">{tr("No accounts connected")} — {tr("Add an API key to connect an account. The endpoint is saved.")}</p>}
       {flow?.flowType && (
         <Modal
           open={connecting}
@@ -886,14 +938,16 @@ export function ProviderDetail() {
 
       <Modal
         open={addingKey}
+        returnFocusFallback={() => addKeyTrigger.current}
         onOpenChange={(open) => {
+          if (!open && (keySubmitting.current || ((apiKey || label) && !window.confirm(tr("Discard this API key draft?"))))) return;
           setAddingKey(open);
-          if (!open) setApiKey("");
+          if (!open) { setApiKey(""); setLabel(""); }
         }}
         title={tr("Add API key — {0}", {0: String(target.label)})}
-        description={tr("Credentials are encrypted with AES-256-GCM before being written to SQLite.")}
+        description={tr("Add a credential account for this endpoint. Encryption at rest depends on the server storage-encryption configuration.")}
       >
-        <form className="stack-form" onSubmit={addSingleKey}>
+        <form className="stack-form custom-credential-form" onSubmit={addSingleKey}>
           <label>{tr("Account label (optional)")}<input
               type="text"
               placeholder={`${target.label} account`}
@@ -902,6 +956,7 @@ export function ProviderDetail() {
               onChange={(e) => setLabel(e.target.value)}
             />
           </label>
+          {providerId === 'augment-api' && <label>Tenant API URL<input type="url" required value={augmentApiUrl} onChange={e=>setAugmentApiUrl(e.target.value)} placeholder="https://your-tenant.api.augmentcode.com"/><span className="muted">Native API; token budgets and sampling options are unsupported and rejected. Use canonical tenant model IDs; not CLI aliases.</span></label>}
           <label>{tr("API key / token")}<input
               type="password"
               placeholder={tr("API key (min 8 chars)")}
@@ -914,15 +969,17 @@ export function ProviderDetail() {
           </label>
           {actionError && <div className="bad">{actionError}</div>}
           <div className="row-actions">
-            <button type="submit" className="btn-add" disabled={locked || apiKey.trim().length < 8}>
+            <button type="submit" className="btn-add" disabled={locked || keyUncertain || apiKey.trim().length < 8}>
               {busy === "add-key" ? "…" : tr("Save key")}
             </button>
             <button
               type="button"
               className="btn-ghost"
               onClick={() => {
+                if (keySubmitting.current || ((apiKey || label) && !window.confirm(tr("Discard this API key draft?")))) return;
                 setAddingKey(false);
                 setApiKey("");
+                setLabel("");
               }}
             >{tr("Cancel")}</button>
           </div>
@@ -1022,7 +1079,7 @@ export function ProviderDetail() {
       >
         {editingRulesAccount && (
           <form
-            className="stack-form"
+            className="stack-form provider-model-rules"
             onSubmit={async (e) => {
               e.preventDefault();
               const list = excludedModelsText

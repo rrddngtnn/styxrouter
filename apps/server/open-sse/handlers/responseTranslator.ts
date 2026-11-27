@@ -1,3 +1,4 @@
+import { pickOpencodeBilling } from "../utils/opencodeBilling.ts";
 import { FORMATS } from "../translator/formats.ts";
 import {
   buildGeminiThoughtSignatureKey,
@@ -144,7 +145,7 @@ export function translateNonStreamingResponse(
   sourceFormat: string,
   toolNameMap?: Map<string, string> | null,
   toolSchemas?: Map<string, JsonRecord> | null,
-  signatureNamespace?: string
+  signatureNamespace?: string | null
 ): JsonRecord;
 export function translateNonStreamingResponse(
   responseBody: unknown,
@@ -152,7 +153,7 @@ export function translateNonStreamingResponse(
   sourceFormat: string,
   toolNameMap?: Map<string, string> | null,
   toolSchemas?: Map<string, JsonRecord> | null,
-  signatureNamespace?: string
+  signatureNamespace?: string | null
 ): unknown;
 export function translateNonStreamingResponse(
   responseBody: unknown,
@@ -160,7 +161,7 @@ export function translateNonStreamingResponse(
   sourceFormat: string,
   toolNameMap?: Map<string, string> | null,
   toolSchemas?: Map<string, JsonRecord> | null,
-  signatureNamespace?: string
+  signatureNamespace?: string | null
 ): unknown {
   // If already in source format, return as-is
   if (targetFormat === sourceFormat) {
@@ -326,6 +327,7 @@ export function translateNonStreamingResponse(
       );
 
       result.usage = {
+        ...pickOpencodeBilling(usage),
         prompt_tokens: inputTokens,
         completion_tokens: outputTokens,
         total_tokens: inputTokens + outputTokens,
@@ -505,6 +507,7 @@ export function translateNonStreamingResponse(
         const completionTokens = toNumber(usage.candidatesTokenCount, 0) + reasoningTokens;
 
         result.usage = {
+          ...pickOpencodeBilling(usage),
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
           total_tokens: toNumber(usage.totalTokenCount, 0),
@@ -615,6 +618,7 @@ export function translateNonStreamingResponse(
           usage.reasoning_tokens
         );
         const usageOut: JsonRecord = {
+          ...pickOpencodeBilling(usage),
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
           total_tokens: promptTokens + completionTokens,

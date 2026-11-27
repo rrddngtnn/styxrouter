@@ -1201,7 +1201,7 @@ export async function loadAdvertisedModelsForSelfHostedConnections(
       .map((c) => c.provider)
       .filter((p): p is string =>
         typeof p === "string" &&
-        (p === "codex" || p === "antigravity" || p === "agy" || isSelfHostedChatProvider(p))
+        (p === "augment-api" || p === "codex" || p === "antigravity" || p === "agy" || isSelfHostedChatProvider(p))
       )
   );
   if (selfHostedProviders.size === 0) return advertised;

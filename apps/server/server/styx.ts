@@ -6,12 +6,13 @@ import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { extendQuotaSyncTimeout } from "./quotaSyncTimeout.ts";
-import { serveStatic } from "hono/bun";
+import { servePanel } from "./panel.ts";
 import { handleChat, markExactTargetProbe } from "../src/sse/handlers/chat.ts";
 import { sanitizeProbeError, readBoundedProbeJson, sanitizeProbeOutput, isCompletedProbeChoice } from "./modelProbeResult.ts";
 import { runWithPanelProbeLogContext } from "../src/lib/panelProbeLogContext.ts";
 import { initTranslators } from "../open-sse/translator/index.ts";
 import { getProviderConnectionById, getProviderConnections } from "../src/lib/db/providers.ts";
+import { SPECIALTY_PROVIDERS } from "./specialty.ts";
 import { REGISTRY } from "../open-sse/config/providers/index.ts";
 import { getProviderLabel } from "../src/shared/constants/providers.ts";
 import { getSettings } from "../src/lib/db/settings.ts";
@@ -91,7 +92,7 @@ app.get("/api/providers", async (c) => {
     if ((r.testStatus ?? r.test_status) === "active") slot.active += 1;
     liveByProvider.set(r.provider, slot);
   }
-  const providers = Object.entries(REGISTRY)
+  const providers = Object.entries({ ...SPECIALTY_PROVIDERS, ...REGISTRY })
     .filter(([id, entry]) => entry.id === id)
     .map(([id, entry]) => {
       const live = liveByProvider.get(id);
@@ -218,6 +219,7 @@ app.route("/api", createProviderModelsApi());
 let panelProbeActive = false;
 let panelProbeNextAt = 0;
 
+import { getModelProbePolicy } from "./modelProbePolicy.ts";
 // Session-only, fixed-prompt model probe. Never forward client headers, options,
 // or upstream response bodies; this is not a general-purpose inference API.
 app.post("/api/model-test", bodyLimit({ maxSize: 1024, onError: c => c.json({ error: "Request too large" }, 413) }), async (c) => {
@@ -236,6 +238,7 @@ app.post("/api/model-test", bodyLimit({ maxSize: 1024, onError: c => c.json({ er
     c.header("Retry-After", String(Math.max(1, Math.ceil((panelProbeNextAt - Date.now()) / 1000))));
     return c.json(failure(panelProbeActive ? "probe_busy" : "probe_cooldown", panelProbeActive ? "probe_busy" : "probe_cooldown", 429), 429);
   }
+  const probePolicy = getModelProbePolicy(input.model);
   panelProbeActive = true;
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout>;
@@ -243,7 +246,7 @@ app.post("/api/model-test", bodyLimit({ maxSize: 1024, onError: c => c.json({ er
     timer = setTimeout(() => {
       controller.abort();
       resolve(c.json(failure("timeout", "Probe timed out", 504), 504));
-    }, 10_000);
+    }, probePolicy.timeoutMs);
   });
   const work = (async () => {
   try {
@@ -258,7 +261,7 @@ app.post("/api/model-test", bodyLimit({ maxSize: 1024, onError: c => c.json({ er
     if (controller.signal.aborted) return c.json({ ok: false }, 504);
     panelProbeNextAt = Date.now() + 5000;
     await ensureTranslators();
-    const body = { model: input.model, messages: [{ role: "user", content: "Reply with OK." }], max_tokens: 8, stream: false };
+    const body = { model: input.model, messages: [{ role: "user", content: "Reply with OK." }], max_tokens: probePolicy.maxTokens, stream: false };
     if (controller.signal.aborted) return c.json({ ok: false }, 504);
     const request = new Request(new URL("/v1/chat/completions", c.req.url), { method: "POST", headers: { "content-type": "application/json", ...(account ? { "x-styx-connection": account.id } : {}) }, body: JSON.stringify(body), signal: controller.signal });
     markExactTargetProbe(request, input.model);
@@ -578,23 +581,7 @@ if (process.env.STYX_TEST_MODE !== "1" && !process.env.BUN_TEST) {
 }
 
 const panelRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../panel");
-app.use(
-  "/panel/*",
-  serveStatic({
-    root: panelRoot,
-    rewriteRequestPath: (p) => {
-      const stripped = p.replace(/^\/panel/, "");
-      const lastSegment = stripped.split("/").pop() ?? "";
-      // Single-page app: only static asset paths (under /assets/ or ending in a common static file extension)
-      // are served as files; every client-side route (including `/panel/providers/:id` where `:id` may contain
-      // dots) serves `/index.html`.
-      const isStaticAsset =
-        stripped.startsWith("/assets/") ||
-        /\.(?:js|mjs|css|map|html|json|svg|png|jpe?g|gif|webp|ico|woff2?|ttf)$/i.test(lastSegment);
-      return isStaticAsset ? stripped : "/index.html";
-    },
-  })
-);
+app.use("/panel/*", servePanel(panelRoot));
 
 const port = Number(process.env.PORT || 20128);
 console.log(`StyxRouter :${port} (Hono+Bun)`);

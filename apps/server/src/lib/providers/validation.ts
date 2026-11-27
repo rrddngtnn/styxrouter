@@ -1,3 +1,5 @@
+import { getProviderNodeById } from '@/lib/db/providers/nodes';
+import { validateCustomNodeApiKey } from './validation/customNode';
 import { getEmbeddingProvider } from "@styxrouter/open-sse/config/embeddingRegistry.ts";
 import { getRegistryEntry } from "@styxrouter/open-sse/config/providerRegistry.ts";
 import {
@@ -174,12 +176,21 @@ export async function validateFreebuffProvider({ apiKey }: { apiKey: string }) {
 
 export async function validateProviderApiKey({ provider, apiKey, providerSpecificData = {} }: any) {
   provider = typeof provider === "string" ? resolveProviderId(provider) : provider;
+  if(provider === 'augment-api') {
+    try {const {discoverAugment}=await import('../../../open-sse/services/augmentApi.ts');await discoverAugment(providerSpecificData.apiUrl,apiKey);return {valid:true,error:null};}
+    catch{return {valid:false,error:'Augment credential or tenant catalog validation failed',unsupported:false};}
+  }
   const requiresApiKey = !providerAllowsOptionalApiKey(provider);
   const isLocal = isLocalProvider(provider);
 
   if (!provider || (requiresApiKey && !apiKey)) {
     return { valid: false, error: "Provider and API key required", unsupported: false };
   }
+
+  // Current custom definitions have opaque IDs, not the legacy type prefixes.
+  // Resolve the saved definition, rather than trusting connection-supplied URLs.
+  const customNode = await getProviderNodeById(provider);
+  if (customNode) return validateCustomNodeApiKey(customNode, apiKey);
 
   if (isOpenAICompatibleProvider(provider)) {
     try {

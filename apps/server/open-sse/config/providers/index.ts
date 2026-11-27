@@ -1,3 +1,4 @@
+import {augmentApiProvider} from './registry/augment-api/index.ts';
 import type { RegistryEntry } from "./shared.ts";
 
 import { anthropicProvider } from "./registry/anthropic/index.ts";
@@ -85,6 +86,7 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   alibaba: alibabaProvider,
   "alibaba-cn": alibaba_cnProvider,
   "bailian-coding-plan": bailian_coding_planProvider,
+  "augment-api": augmentApiProvider,
   auggie: auggieProvider,
   "opencode-zen": opencode_zenProvider,
   "opencode-go": opencode_goProvider,

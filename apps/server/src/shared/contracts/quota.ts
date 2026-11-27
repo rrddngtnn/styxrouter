@@ -25,6 +25,8 @@ export interface QuotaProviderEntry {
   message: string | null;
   quotaSupported: boolean;
   windows: QuotaWindowEntry[];
+  /** Catalog IDs with no corresponding observed quota; not eligibility. */
+  unreportedQuotaModels?: string[];
   quotaUsed: number;
   quotaTotal: number | null;
   percentRemaining: number | null;
@@ -162,6 +164,7 @@ export function sanitizeQuotaProvider(input: unknown): QuotaProviderEntry {
     message,
     quotaSupported,
     windows,
+    ...(Array.isArray(source.unreportedQuotaModels) ? { unreportedQuotaModels: source.unreportedQuotaModels.filter((id): id is string => typeof id === "string" && id.length > 0) } : {}),
     quotaUsed,
     quotaTotal,
     percentRemaining,

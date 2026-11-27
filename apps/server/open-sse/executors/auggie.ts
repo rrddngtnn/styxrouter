@@ -84,7 +84,7 @@ export async function initAuggieModels(
   signal?: AbortSignal | null,
   timeoutMs = 8000
 ): Promise<void> {
-  if (liveModelSet !== null) return;
+  if (signal?.aborted || liveModelSet !== null) return;
   let bin: string;
   try {
     bin = resolveAuggieBin();
@@ -117,8 +117,7 @@ export async function initAuggieModels(
   };
   if (signal) {
     if (signal.aborted) {
-      clearTimeout(timer);
-      settle(new Set());
+      onAbort();
       return;
     }
     signal.addEventListener("abort", onAbort, { once: true });
@@ -395,6 +394,14 @@ export class AuggieExecutor extends BaseExecutor {
     // On first execution, try to discover model IDs the local auggie recognises.
     // Best-effort: missing/inactive CLI falls through to the static list.
     await initAuggieModels(signal);
+    // Discovery may finish after the caller has disconnected. Never start a
+    // generation subprocess for an already-cancelled request.
+    if (signal?.aborted) {
+      return {
+        response: buildAuggieErrorResponse("Auggie CLI request aborted"),
+        url: AUGGIE_URL, headers: {}, transformedBody: { error: true },
+      };
+    }
     // Argument-injection defense: never forward an unvalidated model into the argv.
     const modelResolution = resolveAuggieModel(model);
     if (isAuggieModelFailure(modelResolution)) {
@@ -456,10 +463,13 @@ export class AuggieExecutor extends BaseExecutor {
     const responseId = `chatcmpl-auggie-${Date.now()}`;
     const created = Math.floor(Date.now() / 1000);
 
+    let cancelChild = () => {};
     const sseStream = new ReadableStream<Uint8Array>({
       start(controller) {
         const enc = new TextEncoder();
-        const emit = (data: string) => controller.enqueue(enc.encode(data));
+        const emit = (data: string) => {
+          if (!closed) controller.enqueue(enc.encode(data));
+        };
         let closed = false;
         let roleEmitted = false;
         let finished = false;
@@ -552,12 +562,12 @@ export class AuggieExecutor extends BaseExecutor {
           /* ignore — error/close handlers below surface failures */
         }
 
-        if (signal) {
-          signal.addEventListener("abort", () => {
-            if (!child.killed) child.kill("SIGTERM");
-            finish();
-          });
-        }
+        cancelChild = () => {
+          if (!child.killed) child.kill("SIGTERM");
+          finish();
+        };
+        if (signal) signal.addEventListener("abort", cancelChild, { once: true });
+        child.once("close", () => signal?.removeEventListener("abort", cancelChild));
 
         child.on("error", (err: NodeJS.ErrnoException) => {
           const message = err?.message || String(err);
@@ -590,8 +600,8 @@ export class AuggieExecutor extends BaseExecutor {
         });
       },
       cancel() {
-        // Stream cancelled by the consumer — nothing extra to clean up here;
-        // the abort-signal listener above (if provided) handles process kill.
+        // Reader cancellation is independent of the caller's AbortSignal.
+        cancelChild();
       },
     });
 

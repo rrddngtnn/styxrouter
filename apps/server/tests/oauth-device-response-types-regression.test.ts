@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 test("Kilo and Kimi device OAuth response contracts typecheck", () => {
   const root = resolve(import.meta.dir, "../../..");
   const result = Bun.spawnSync([
-    resolve(root, "apps/panel/node_modules/.bin/tsc"), "--noEmit", "--pretty", "false",
+    process.execPath, "--bun", resolve(root, "apps/panel/node_modules/.bin/tsc"), "--noEmit", "--pretty", "false",
     "-p", resolve(root, "apps/server/tsconfig.json"),
   ], { cwd: root, stdout: "pipe", stderr: "pipe" });
   const output = new TextDecoder().decode(result.stdout);

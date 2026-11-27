@@ -34,7 +34,7 @@ test("status is authenticated, no-store, passive, and follows each product pin a
     for (const p of ["ide", "cli"]) { expect((await setPin(p, null)).status).toBe(200); }
     const count = outgoing.length;
     expect(await status("ide")).toMatchObject({ observedVersion: null, observedAt: null, pinnedVersion: null, cachedVersion: "2.1.1", effectiveVersion: "2.1.1" });
-    expect(await status("cli")).toMatchObject({ observedVersion: null, observedAt: null, pinnedVersion: null, cachedVersion: "1.1.5", effectiveVersion: "1.1.5" });
+    expect(await status("cli")).toMatchObject({ observedVersion: null, observedAt: null, pinnedVersion: null, cachedVersion: "1.5.7", effectiveVersion: "1.5.7" });
     expect(outgoing.length).toBe(count);
     expect((await request("/api/versions/antigravity/refresh", { method: "POST" })).status).toBe(200);
     for (const [p, version, pin] of [["ide", "8.7.6", "3.2.1"], ["cli", "7.6.5", "4.3.2"]]) {

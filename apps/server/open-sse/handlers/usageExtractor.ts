@@ -2,6 +2,8 @@
  * Extract usage from non-streaming response body
  * Handles different provider response formats
  */
+import { pickOpencodeBilling } from "../utils/opencodeBilling.ts";
+
 export function extractUsageFromResponse(responseBody, provider) {
   if (!responseBody || typeof responseBody !== "object") return null;
   const providerId = typeof provider === "string" ? provider.toLowerCase() : "";
@@ -17,6 +19,7 @@ export function extractUsageFromResponse(responseBody, provider) {
     responseBody.usage.prompt_tokens !== undefined
   ) {
     return {
+      ...pickOpencodeBilling(responseBody.usage),
       prompt_tokens: responseBody.usage.prompt_tokens || 0,
       completion_tokens: responseBody.usage.completion_tokens || 0,
       // DeepSeek native API uses flat prompt_cache_hit_tokens (NOT
@@ -60,6 +63,7 @@ export function extractUsageFromResponse(responseBody, provider) {
     const promptTokens = inputTokens + cacheRead + cacheCreation;
 
     return {
+      ...pickOpencodeBilling(responseBody.usage),
       prompt_tokens: promptTokens,
       completion_tokens: responseBody.usage.output_tokens || 0,
       cache_read_input_tokens: cacheRead,
@@ -78,6 +82,7 @@ export function extractUsageFromResponse(responseBody, provider) {
     (responsesUsage.input_tokens !== undefined || responsesUsage.output_tokens !== undefined)
   ) {
     return {
+      ...pickOpencodeBilling(responsesUsage),
       prompt_tokens: responsesUsage.input_tokens || 0,
       completion_tokens: responsesUsage.output_tokens || 0,
       cache_read_input_tokens: responsesUsage.cache_read_input_tokens,
@@ -102,6 +107,7 @@ export function extractUsageFromResponse(responseBody, provider) {
     // every provider keeps reasoning as a subset of completion tokens.
     const thoughts = usageMetadata.thoughtsTokenCount || 0;
     return {
+      ...pickOpencodeBilling(usageMetadata),
       prompt_tokens: usageMetadata.promptTokenCount || 0,
       completion_tokens: (usageMetadata.candidatesTokenCount || 0) + thoughts,
       cached_tokens: usageMetadata.cachedContentTokenCount || 0,

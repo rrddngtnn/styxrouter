@@ -7,5 +7,6 @@
 .advanced-table-wrap pre { white-space: pre-wrap; }
 .advanced-migration-title { display: flex; gap: 10px; align-items: center; font-weight: 600; }
 .advanced-results { display: flex; gap: 24px; flex-wrap: wrap; }
+.encrypted-bundle-forms > .stack-form { align-content: start; }
 .advanced-results dd { margin: 4px 0; font-size: 22px; }
 @media(max-width:600px) { .advanced-search { width: 100%; } .advanced-search input { width: 100%; min-width: 0 !important; } }

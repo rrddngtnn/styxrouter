@@ -5,6 +5,7 @@
 // Streaming: a large prompt can leave the connection silent for longer than a client's first-byte watchdog
 // (Claude Code, Codex), so streaming calls are wrapped in the early-keepalive helper, as the upstream routes did.
 import { Hono, type Context } from "hono";
+import { createSpecialtyApi } from "./specialty.ts";
 import { handleChat } from "../src/sse/handlers/chat.ts";
 import { SSE_HEARTBEAT_INTERVAL_MS } from "../open-sse/config/constants.ts";
 import { resolveStreamFlag } from "../open-sse/utils/aiSdkCompat.ts";
@@ -23,6 +24,7 @@ const invalid = (c: Context, message: string, status: 400 | 500 = 400) =>
 
 export function createV1Api(ensureTranslators: () => Promise<unknown>) {
   const api = new Hono();
+  api.route("/", createSpecialtyApi());
 
   api.post("/messages", async (c) => {
     await ensureTranslators();

@@ -2,6 +2,7 @@ import { Activity, BarChart3, Cpu, Database, Gauge, GitBranch, KeyRound, LayoutD
 export const navigation = [
  {group:'',label:'Overview',to:'/',icon:LayoutDashboard},
  {group:'Gateway',label:'Providers',to:'/providers',icon:Database},
+ {group:'Gateway',label:'Connection Policy',to:'/connection-policy',icon:Settings},
  {group:'Gateway',label:'Models',to:'/models',icon:Cpu},
  {group:'Gateway',label:'Routing',to:'/routing',icon:GitBranch},
  {group:'Access',label:'Client API Keys',to:'/keys',icon:KeyRound},

@@ -166,6 +166,8 @@ export type ProviderConfig = {
 };
 
 export type ProviderCredentials = {
+  /** Trusted request-scoped policy fence; never read from providerSpecificData or headers. */
+  augmentAuthorize?: () => Promise<void>;
   accessToken?: string;
   refreshToken?: string;
   apiKey?: string;
@@ -193,6 +195,8 @@ export type ExecutorLog = {
 };
 
 export type ExecuteInput = {
+  /** Trusted internal authenticated owner; never sourced from a caller header. */
+  sessionPrincipalId?: string | null;
   model: string;
   body: unknown;
   stream: boolean;

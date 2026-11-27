@@ -101,6 +101,7 @@ export interface QuotaRow {
   message?: string | null;
   quotaSupported?: boolean;
   windows?: QuotaWindow[];
+  unreportedQuotaModels?: string[];
   quotaUsed: number;
   quotaTotal: number | null;
   percentRemaining: number | null;
