@@ -634,9 +634,17 @@ export function createDisconnectAwareStream(transformStream, streamController) {
   const writer = transformStream.writable.getWriter();
   const terminalDecoder = new TextDecoder();
   const contentDecoder = new TextDecoder();
+  const doneInspectDecoder = new TextDecoder();
+  const chunkEncoder = new TextEncoder();
   const contentWatcher = createStreamContentWatcher();
   const completedToolHandoffWatcher = createCompletedResponsesToolHandoffWatcher();
   const toolHandoffDecoder = new TextDecoder();
+  const DONE_LINE_PATTERN = /(?:^|\r?\n)data:\s*\[DONE\]\s*(?:\r?\n|$)/;
+  const canHoldEmptyOpenAIDone =
+    !isResponsesClientFormat(streamController.clientResponseFormat) &&
+    streamController.clientResponseFormat !== FORMATS.CLAUDE &&
+    streamController.clientResponseFormat !== FORMATS.ANTIGRAVITY;
+  const heldDoneChunks: Uint8Array[] = [];
   let terminalTail = "";
   let clientTerminalSeen = false;
   let bytesWereForwarded = false;
@@ -668,12 +676,7 @@ export function createDisconnectAwareStream(transformStream, streamController) {
   };
   streamController.registerCompletedToolHandoffDrain?.(drainCompletedToolHandoff);
 
-  const noteClientChunk = (chunk: unknown) => {
-    if (!(chunk instanceof Uint8Array)) return;
-    bytesWereForwarded = true;
-    // Runs past clientTerminalSeen: the frame that carries the terminal marker
-    // can carry the only content too, and #8649 needs the whole stream scanned.
-    contentWatcher.note(contentDecoder.decode(chunk, { stream: true }));
+  const noteTerminalChunk = (chunk: Uint8Array) => {
     if (
       isResponsesClientFormat(streamController.clientResponseFormat) &&
       completedToolHandoffWatcher.note(toolHandoffDecoder.decode(chunk, { stream: true }))
@@ -706,58 +709,123 @@ export function createDisconnectAwareStream(transformStream, streamController) {
         }
 
         try {
-          const { done, value } = await reader.read();
-          if (done) {
-            contentWatcher.finish();
-            const silentClose = resolveSilentCloseOutcome({
-              bytesWereForwarded,
-              clientTerminalSeen,
-              clientResponseFormat: streamController.clientResponseFormat,
-              contentWatcher,
-            });
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              contentWatcher.finish();
+              const silentClose = resolveSilentCloseOutcome({
+                bytesWereForwarded,
+                clientTerminalSeen,
+                clientResponseFormat: streamController.clientResponseFormat,
+                contentWatcher,
+              });
 
-            if (silentClose?.kind === "truncated") {
-              // #7699 — the upstream dropped without a terminal marker after
-              // content reached the client. Keep the partial response: emit a
-              // clean `max_tokens` completion instead of an error frame so
-              // Anthropic SDK / Claude Code don't report a mid-response break.
-              streamController.handleComplete();
-              try {
-                for (const chunk of buildGracefulTruncationChunks(
-                  streamController.clientResponseFormat
-                )) {
-                  controller.enqueue(chunk);
+              if (silentClose?.kind === "truncated") {
+                // #7699 — the upstream dropped without a terminal marker after
+                // content reached the client. Keep the partial response: emit a
+                // clean `max_tokens` completion instead of an error frame so
+                // Anthropic SDK / Claude Code don't report a mid-response break.
+                heldDoneChunks.length = 0;
+                streamController.handleComplete();
+                try {
+                  for (const chunk of buildGracefulTruncationChunks(
+                    streamController.clientResponseFormat
+                  )) {
+                    controller.enqueue(chunk);
+                  }
+                } catch {
+                  // downstream may have closed; stream already marked complete
                 }
-              } catch {
-                // downstream may have closed; stream already marked complete
-              }
-            } else if (silentClose) {
-              streamController.handleError(
-                Object.assign(new Error(silentClose.reason), { statusCode: 502 })
-              );
-              try {
-                for (const chunk of buildStreamErrorChunks(
-                  silentClose.reason,
-                  502,
-                  streamController.clientResponseFormat
-                )) {
-                  controller.enqueue(chunk);
+              } else if (silentClose) {
+                // Drop any held premature `[DONE]` so the client receives the
+                // structured error + finish_reason:"error" frame BEFORE `[DONE]`.
+                heldDoneChunks.length = 0;
+                streamController.handleError(
+                  Object.assign(new Error(silentClose.reason), { statusCode: 502 })
+                );
+                try {
+                  for (const chunk of buildStreamErrorChunks(
+                    silentClose.reason,
+                    502,
+                    streamController.clientResponseFormat
+                  )) {
+                    controller.enqueue(chunk);
+                  }
+                } catch {
+                  // downstream may have closed; original error already recorded
                 }
-              } catch {
-                // downstream may have closed; original error already recorded
+              } else {
+                for (const held of heldDoneChunks.splice(0)) {
+                  noteTerminalChunk(held);
+                  try {
+                    controller.enqueue(held);
+                  } catch {
+                    // downstream may have closed
+                  }
+                }
+                streamController.handleComplete();
               }
-            } else {
-              streamController.handleComplete();
+              try {
+                controller.close();
+              } catch {
+                // Expected: downstream may have already closed
+              }
+              return;
             }
-            try {
-              controller.close();
-            } catch {
-              // Expected: downstream may have already closed
+
+            if (value instanceof Uint8Array) {
+              bytesWereForwarded = true;
+              // Runs past clientTerminalSeen: the frame that carries the terminal marker
+              // can carry the only content too, and #8649 needs the whole stream scanned.
+              contentWatcher.note(contentDecoder.decode(value, { stream: true }));
+
+              // Hold a premature OpenAI `data: [DONE]` when no content, legitimate
+              // empty terminal, or error has been emitted yet. Forwarding `[DONE]`
+              // immediately would cause OpenAI SSE clients to stop reading before
+              // the flush-time error frame arrives, surfacing as "ended without
+              // finish_reason" instead of the real 502 empty-content error.
+              if (
+                canHoldEmptyOpenAIDone &&
+                !contentWatcher.sawContent() &&
+                !contentWatcher.sawLegitEmptyTerminal() &&
+                !contentWatcher.sawError()
+              ) {
+                const decoded = doneInspectDecoder.decode(value);
+                const match = DONE_LINE_PATTERN.exec(decoded);
+                if (match) {
+                  const leadNewlineLen = match[0].startsWith("\r\n")
+                    ? 2
+                    : match[0].startsWith("\n")
+                      ? 1
+                      : 0;
+                  const splitAt = match.index + leadNewlineLen;
+                  const prefix = decoded.slice(0, splitAt);
+                  const doneTail = decoded.slice(splitAt);
+                  if (doneTail) {
+                    heldDoneChunks.push(chunkEncoder.encode(doneTail));
+                  }
+                  if (prefix) {
+                    const prefixBytes = chunkEncoder.encode(prefix);
+                    noteTerminalChunk(prefixBytes);
+                    controller.enqueue(prefixBytes);
+                    return;
+                  }
+                  continue;
+                }
+              }
+
+              if (heldDoneChunks.length > 0) {
+                for (const held of heldDoneChunks.splice(0)) {
+                  noteTerminalChunk(held);
+                  controller.enqueue(held);
+                }
+              }
+              noteTerminalChunk(value);
             }
+
+            controller.enqueue(value);
             return;
           }
-          controller.enqueue(value);
-          noteClientChunk(value);
         } catch (error) {
           if (!streamController.isConnected()) {
             try {
