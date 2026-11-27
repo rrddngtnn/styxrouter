@@ -45,6 +45,30 @@ export function Settings() {
         </div>
       </div>
 
+      <section className="card" style={{ padding: 14, marginBottom: 16 }} aria-label={tr("Contextual workspace shortcuts")}>
+        <div style={{ marginBottom: 8, fontSize: 14 }} className="muted">
+          {tr("Domain controls live directly inside their operational workspaces:")}
+        </div>
+        <div className="row-actions" style={{ flexWrap: "wrap", gap: 8 }}>
+          <Link to="/routing" className="btn-ghost" style={{ textDecoration: "none" }}>
+            <GitBranch size={14} />
+            <span>{tr("Routing → Failover, Pacing, Aliases & Trace")}</span>
+          </Link>
+          <Link to="/models" className="btn-ghost" style={{ textDecoration: "none" }}>
+            <Cpu size={14} />
+            <span>{tr("Models → Thinking Budget, Vision Bridge & Soul")}</span>
+          </Link>
+          <Link to="/connection-policy" className="btn-ghost" style={{ textDecoration: "none" }}>
+            <Database size={14} />
+            <span>{tr("Connection Policy → Proxies & Error Rules")}</span>
+          </Link>
+          <Link to="/activity" className="btn-ghost" style={{ textDecoration: "none" }}>
+            <Activity size={14} />
+            <span>{tr("Activity → Live Tail & Webhook Alerts")}</span>
+          </Link>
+        </div>
+      </section>
+
       {mobile ? <label className="mobile-category-select">{tr("Settings sections")}<select aria-label={tr("Settings sections")} value={tab} onChange={e=>setTab(e.target.value as SettingsTab)}>{(["health","security","backups","advanced"] as const).map((id,index)=><option key={id} value={id}>{tr(["Health & Versions","Security","Database Backups","Advanced"][index])}</option>)}</select></label> : <div className="tabs" role="tablist" onKeyDown={workspaceTabs.onKeyDown} aria-label={tr("Settings sections")}>
         <button
           type="button"

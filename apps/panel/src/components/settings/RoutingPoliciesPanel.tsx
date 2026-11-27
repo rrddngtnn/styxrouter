@@ -11,7 +11,6 @@ import { usePreferences } from "../../lib/preferences.tsx";
 import {ReadFreshness} from "../OperationalUI";
 import { useTranslator } from "../../lib/useTranslator.ts";
 import {
-  OutboundProxyConfigSection,
   type RoutingTracePayload,
 } from "./HealthAndVersionsSettings.tsx";
 import {
@@ -681,10 +680,11 @@ export function ModelDefaultsPanel() {
   );
 }
 
-export function ProviderNetworkRulesPanel() {
+export function ProviderNetworkRulesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void } = {}) {
   const tr = useTranslator();
   const state = useFetch<Record<string, unknown>>("/api/settings");
   const [errorRulesText, setErrorRulesText] = useState("");
+  const [savedRules, setSavedRules] = useState<string | null>(null);
   const [ruleProvider, setRuleProvider] = useState("");
   const [ruleStatus, setRuleStatus] = useState("400");
   const [ruleMatch, setRuleMatch] = useState("");
@@ -693,13 +693,25 @@ export function ProviderNetworkRulesPanel() {
   const [ruleCooldownSec, setRuleCooldownSec] = useState("300");
 
   useEffect(() => {
-    if (state.status === "ok") {
-      setErrorRulesText(formatProviderErrorRulesText(state.data.providerErrorRules));
+    if (state.status === "ok" && (savedRules === null || errorRulesText === savedRules)) {
+      const text = formatProviderErrorRulesText(state.data.providerErrorRules);
+      setErrorRulesText(text);
+      setSavedRules(text);
     }
   }, [state.status, state.data]);
+  useEffect(() => {
+    onDirtyChange?.((savedRules !== null && errorRulesText !== savedRules) || !!ruleProvider || !!ruleMatch || ruleStatus !== "400" || ruleScope !== "model" || ruleReason !== "quota_exhausted" || ruleCooldownSec !== "300");
+  }, [errorRulesText, savedRules, ruleProvider, ruleMatch, ruleStatus, ruleScope, ruleReason, ruleCooldownSec, onDirtyChange]);
 
   const { busy, error, run } = useAction(() => {
     toast.success(tr("Custom provider error rules saved"));
+    setSavedRules(errorRulesText);
+    setRuleProvider("");
+    setRuleMatch("");
+    setRuleStatus("400");
+    setRuleScope("model");
+    setRuleReason("quota_exhausted");
+    setRuleCooldownSec("300");
     state.reload();
   });
 
@@ -727,14 +739,15 @@ export function ProviderNetworkRulesPanel() {
   if(state.status === "error")return <ReadFreshness resource="Provider error rules" state={state}/>;
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <ReadFreshness resource="Provider error rules" state={state}/><OutboundProxyConfigSection />
-
-      <section className="settings-card">
+      <ReadFreshness resource="Provider error rules" state={state}/>
+      {state.status === "loading" && <LoadingState label={tr("Loading error rules")} />}
+      <button type="button" className="btn-ghost" disabled={busy !== null} onClick={state.reload}>{tr("Reload rules")}</button>
+      {savedRules !== null && <section className="settings-card">
         <div className="section-head" style={{ marginBottom: 12 }}>
           <div>
             <h2 style={{ marginBottom: 4 }}>{tr("Custom Provider Error Rules")}</h2>
             <p className="muted" style={{ margin: 0 }}>
-              {tr("Override cooldown classification per provider when upstream returns non-standard error codes (e.g. HTTP 400 code 6000 or 11128).")}
+              {tr("Provider-wide rule configuration. Lock scope determines the cooldown target (model, connection or provider), not which account owns the rule.")}
             </p>
           </div>
         </div>
@@ -801,7 +814,7 @@ export function ProviderNetworkRulesPanel() {
             </button>
           </div>
         </form>
-      </section>
+      </section>}
     </div>
   );
 }

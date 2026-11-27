@@ -1,0 +1,14 @@
+.inference-summary { flex: 1 0 100%; width: 100%; min-width: 0; max-width: 100%; display: grid; gap: 4px; text-align: left; font-size: 14px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+.inference-summary-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.accounts td.row-actions:has(> .inference-summary) { padding-inline: 4px; }
+.inference-summary-status { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px; font-weight: 600; overflow-wrap: anywhere; }
+.inference-summary-status svg { flex: none; }
+.inference-summary-time { min-width: 0; max-width: 100%; color: var(--muted); }
+.inference-summary-time summary { cursor: pointer; border-radius: 4px; list-style: none; }
+.inference-summary-time summary::-webkit-details-marker { display: none; }
+.inference-summary-time time { display: flex; flex-wrap: wrap; column-gap: 6px; }
+.inference-summary-time time > span { white-space: nowrap; }
+.inference-summary-time summary:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+.inference-summary-time[open] > span { display: block; margin-top: 4px; color: var(--fg); }
+.inference-summary .inference-summary-details { justify-self: start; height: auto; max-width: 100%; white-space: normal; text-align: left; font-size: inherit; }
+@media (pointer: coarse) { .inference-summary-time summary, .inference-summary .inference-summary-details { min-height: 44px; } }

@@ -41,6 +41,7 @@ import { ZedHostedExecutor } from "./zed-hosted.ts";
 import { DevinCliExecutor } from "./devin-cli.ts";
 import { ZcodeExecutor } from "./zcode.ts";
 import { DevinCliAgenticExecutor } from "./devin-cli-agentic.ts";
+import { AugmentApiExecutor } from './augment-api.ts';
 import { AuggieExecutor } from "./auggie.ts";
 import { DeepSeekWebExecutor } from "./deepseek-web.ts";
 import { DeepSeekWebWithAutoRefreshExecutor } from "./deepseek-web-with-auto-refresh.ts";
@@ -125,6 +126,7 @@ const executors = {
   "opencode-zen": new OpencodeExecutor("opencode-zen"),
   "opencode-go": new OpencodeExecutor("opencode-go"),
   opencode: new OpencodeExecutor("opencode-zen"), // Alias for opencode-zen
+  oc: new OpencodeExecutor("opencode"), // Registry's public alias
   vertex: new VertexExecutor(),
   "vertex-partner": new VertexExecutor(),
   cliproxyapi: new CliproxyapiExecutor(),
@@ -226,6 +228,7 @@ const executors = {
   hyperagent: new HyperAgentExecutor(),
   ha: new HyperAgentExecutor(), // Alias
   zmf: new ZenmuxFreeExecutor(), // Alias for zenmux-free
+  "augment-api": new AugmentApiExecutor(),
   auggie: new AuggieExecutor(),
   xai: new XaiExecutor(),
   "xai-oauth": new XaiExecutor("xai-oauth"),
@@ -341,6 +344,7 @@ export { DevinDesktopExecutor } from "./devin-desktop.ts";
 export { ZedHostedExecutor } from "./zed-hosted.ts";
 export { DevinCliExecutor } from "./devin-cli.ts";
 export { DevinCliAgenticExecutor } from "./devin-cli-agentic.ts";
+export { AugmentApiExecutor } from './augment-api.ts';
 export { AuggieExecutor } from "./auggie.ts";
 export { CopilotWebExecutor } from "./copilot-web.ts";
 export { CopilotM365WebExecutor } from "./copilot-m365-web.ts";

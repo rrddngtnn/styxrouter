@@ -24,19 +24,17 @@ export const NOAUTH_PROVIDERS = {
   opencode: {
     id: "opencode",
     alias: "oc",
-    name: "OpenCode Free",
+    name: "OpenCode Console",
     icon: "terminal",
     color: "#E87040",
     textIcon: "OC",
     website: "https://opencode.ai",
-    noAuth: true,
-    hasFree: true,
+    noAuth: false,
+    hasFree: false,
     serviceKinds: ["llm"],
-    authHint: "No API key required — uses OpenCode's public free endpoint.",
-    freeNote:
-      "No API key required — public OpenCode endpoint with Kimi, GLM, Qwen, MiMo, MiniMax models.",
+    authHint: "Console API key required. Use paid models or your Go subscription.",
     notice: {
-      text: "OpenCode Free uses the public OpenCode endpoint (https://opencode.ai/zen/v1). No signup or API key needed. Rate limits apply.",
+      text: "Legacy OpenCode alias. Third-party free-tier access is restricted by Console; use the Zen or Go API-key card.",
     },
   },
   "duckduckgo-web": {

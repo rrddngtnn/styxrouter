@@ -11,6 +11,14 @@
 
 ## Reference
 
+- [Antigravity Hub default and legacy profile compatibility](antigravity-profiles.md)
+- [Augment native API adapter and limitations](augment-api.md)
+- [Auggie local CLI prerequisites and transport limits](auggie-local-cli.md)
+- [Kiro supported generation client contract](kiro-client-contract.md)
+- [Hydrogen output budget policy](hydrogen-output-budgets.md)
+- [OpenCode Console upstream boundaries](opencode-console-upstream.md)
+- [Optional private runtime overlays](private-runtime-overlays.md)
+- [Specialty embedding and search routes](specialty-routes.md)
 - [Model naming, catalogs, and routing](model-naming.md)
 - [Reverse proxy origin checks](reverse-proxy-origin-security.md)
 - [SQLite backend safety](sqljs-file-backend-safety.md)

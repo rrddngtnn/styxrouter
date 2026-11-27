@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 test("Kiro and CodeBuddy Intl OAuth responses typecheck against their endpoint contracts", () => {
   const root = resolve(import.meta.dir, "../../..");
   const result = Bun.spawnSync([
-    resolve(root, "apps/panel/node_modules/.bin/tsc"),
+    process.execPath, "--bun", resolve(root, "apps/panel/node_modules/.bin/tsc"),
     "--noEmit", "--pretty", "false", "-p", resolve(root, "apps/server/tsconfig.json"),
   ], { cwd: root, stdout: "pipe", stderr: "pipe" });
   const output = new TextDecoder().decode(result.stdout);

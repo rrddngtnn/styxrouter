@@ -11,6 +11,7 @@ import {
   getPromptCacheReadTokens,
 } from "@/lib/usage/tokenAccounting";
 import { FORMATS } from "../translator/formats.ts";
+import { pickOpencodeBilling } from "./opencodeBilling.ts";
 
 /** Nested `*_tokens_details` containers ({ cached_tokens, reasoning_tokens, … }). */
 interface UsageTokenDetail {
@@ -335,7 +336,7 @@ export function filterUsageForFormat(usage: UsageLike | null | undefined, target
     fields = formatFields.default;
   }
 
-  return pickFields(fields);
+  return { ...pickFields(fields), ...pickOpencodeBilling(usage) };
 }
 
 // Provider usage is normally authoritative, but compatibility gateways can return
@@ -662,6 +663,11 @@ export function hasValidUsage(usage: UsageLike | null | undefined) {
 /**
  * Extract usage from supported formats (Claude, OpenAI, Gemini, Responses API)
  */
+function normalizeUsageWithBilling(usage: UsageLike) {
+  const normalized = normalizeUsage(usage);
+  return normalized ? { ...normalized, ...pickOpencodeBilling(usage) } : null;
+}
+
 export function extractUsage(chunk: UsagePayloadLike | null | undefined) {
   if (!chunk || typeof chunk !== "object") return null;
 
@@ -678,7 +684,8 @@ export function extractUsage(chunk: UsagePayloadLike | null | undefined) {
     const cacheRead = u.cache_read_input_tokens || 0;
     const cacheCreation = u.cache_creation_input_tokens || 0;
     if (inputTokens > 0 || cacheRead > 0 || cacheCreation > 0) {
-      return normalizeUsage({
+      return normalizeUsageWithBilling({
+        ...pickOpencodeBilling(u),
         prompt_tokens: inputTokens + cacheRead + cacheCreation,
         completion_tokens: u.output_tokens || u.completion_tokens || 0,
         input_tokens: inputTokens + cacheRead + cacheCreation,
@@ -694,7 +701,8 @@ export function extractUsage(chunk: UsagePayloadLike | null | undefined) {
     const deltaInput = chunk.usage.input_tokens || 0;
     const deltaCacheRead = chunk.usage.cache_read_input_tokens || 0;
     const deltaCacheCreation = chunk.usage.cache_creation_input_tokens || 0;
-    return normalizeUsage({
+    return normalizeUsageWithBilling({
+      ...pickOpencodeBilling(chunk.usage),
       prompt_tokens: deltaInput + deltaCacheRead + deltaCacheCreation,
       completion_tokens: chunk.usage.output_tokens || 0,
       input_tokens: deltaInput + deltaCacheRead + deltaCacheCreation,
@@ -712,7 +720,8 @@ export function extractUsage(chunk: UsagePayloadLike | null | undefined) {
     typeof chunk.response.usage === "object"
   ) {
     const usage = chunk.response.usage;
-    return normalizeUsage({
+    return normalizeUsageWithBilling({
+      ...pickOpencodeBilling(usage),
       prompt_tokens: usage.input_tokens || usage.prompt_tokens || 0,
       completion_tokens: usage.output_tokens || usage.completion_tokens || 0,
       cached_tokens:
@@ -733,7 +742,8 @@ export function extractUsage(chunk: UsagePayloadLike | null | undefined) {
     typeof chunk.usage === "object" &&
     (chunk.usage.prompt_tokens !== undefined || chunk.usage.input_tokens !== undefined)
   ) {
-    return normalizeUsage({
+    return normalizeUsageWithBilling({
+      ...pickOpencodeBilling(chunk.usage),
       prompt_tokens: chunk.usage.prompt_tokens ?? chunk.usage.input_tokens ?? 0,
       completion_tokens: chunk.usage.completion_tokens ?? chunk.usage.output_tokens ?? 0,
       cached_tokens:
@@ -762,7 +772,8 @@ export function extractUsage(chunk: UsagePayloadLike | null | undefined) {
     // Gemini reports thoughts outside candidates. Fold them into completion so
     // every provider keeps reasoning as a subset of completion tokens.
     const thoughts = usageMeta.thoughtsTokenCount || 0;
-    return normalizeUsage({
+    return normalizeUsageWithBilling({
+      ...pickOpencodeBilling(usageMeta),
       prompt_tokens: usageMeta.promptTokenCount || 0,
       completion_tokens: (usageMeta.candidatesTokenCount || 0) + thoughts,
       total_tokens: usageMeta.totalTokenCount,

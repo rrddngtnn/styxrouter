@@ -1,3 +1,4 @@
+import { getSyncedAvailableModelsForConnection } from "@/lib/db/models";
 import { getAllModelLockouts } from "@styxrouter/open-sse/services/accountFallback.ts";
 import { getProviderConnections } from "@/lib/localDb";
 import { getConnectionRoutingTags } from "@/domain/tagRouter";
@@ -112,7 +113,10 @@ function extractCachedWindows(
   for (const [key, raw] of Object.entries(quotas)) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     const q = raw as Record<string, unknown>;
-    const { used, total, remaining, pct } = deriveWindowPercent(q);
+    const unknownFraction = (provider === "antigravity" || provider === "agy") && q.fractionReported === false;
+    const { used, total, remaining, pct } = unknownFraction
+      ? { used: null, total: null, remaining: null, pct: null }
+      : deriveWindowPercent(q);
     const resetAt = typeof q.resetAt === "string" && q.resetAt.trim() ? q.resetAt.trim() : null;
     const unlimited = q.unlimited === true;
     const observedAt = windowFetchedAt?.[key] ?? fetchedAt ?? null;
@@ -382,10 +386,16 @@ export async function GET(request: Request) {
     const learnedLimits = getLearnedLimits();
     const limitsCache = await getSanitizedCachedProviderLimitsMap();
     const modelLockouts = getAllModelLockouts();
-    const providers = connections.map((conn) => {
+    const providers = await Promise.all(connections.map(async (conn) => {
       const learnedLimit = learnedLimits?.[`${conn.provider}:${conn.id}`] || null;
       const rateStatus = getRateLimitStatus(conn.provider, conn.id);
       const entry = applyCachedLimits(buildQuotaEntry(conn, learnedLimit, rateStatus), limitsCache[String(conn.id)]);
+      if (conn.provider === "antigravity" || conn.provider === "agy") {
+        const inventory = await getSyncedAvailableModelsForConnection(conn.provider, String(conn.id));
+        const reported = new Set(entry.windows.flatMap(w => w.models));
+        // Presentation only: no quota/window, numeric allowance or pool is invented.
+        entry.unreportedQuotaModels = inventory.map(m => m.id).filter(id => !reported.has(id));
+      }
       if (conn.provider !== "codebuddy-cn") return entry;
       const observed = entry.windows.filter(w => w.used !== null && w.total !== null);
       const creditStatus = observed.length === 0 || observed.length !== entry.windows.length || observed.some(w => (toDateMs(w.fetchedAt) ?? 0) <= 0) ? "unknown" : observed.some(w => w.stale || (w.resetAt && (toDateMs(w.resetAt) ?? 0) <= Date.now())) ? "stale" : "observed";
@@ -397,7 +407,7 @@ export async function GET(request: Request) {
         modelCooldowns: modelLockouts.filter(lock => lock.provider === conn.provider && lock.connectionId === conn.id)
           .map(lock => ({model: lock.model, reason: lock.reason, until: new Date(lock.until).toISOString()})),
       };
-    });
+    }));
 
     const response = normalizeQuotaResponse(
       {

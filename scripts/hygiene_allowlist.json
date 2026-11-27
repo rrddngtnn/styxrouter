@@ -1156,5 +1156,41 @@
     ],
     "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
     "blob": "4c764e57a32e9a4e2350f70711409a0539419324"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "8c0635fe2091c696e4672d353c4fda6f23f10a924a17087347854a7db6d2ee6f",
+    "lines": [
+      128,
+      128
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "56bbaca710479720efa9db917da72e3933e7cafa"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "4fb2c9ac9cb41ed086dbd167e640810e84770af3f5c93b04ab780ba0501b9458",
+    "lines": [
+      129,
+      129
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "4e4c19bcb48f139381113444fff24521db27d649"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "5e90242ed0ce0683c77926e66dd9d736444e2658bd9b9cda5c3c4aabecbdc4f5",
+    "lines": [
+      135,
+      135
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "cec815a0d982942e8e860a5d4f49db0e71aecaae"
   }
 ]

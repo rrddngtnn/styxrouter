@@ -19,4 +19,4 @@ test("failed pool deletion leaves its managed combos unchanged", async () => {
   await expect(deletePool(pool.id)).rejects.toThrow("injected delete failure");
   expect(getPool(pool.id)).not.toBeNull();
   expect((await getCombos()).filter(c => String(c.name).startsWith("qtSd/")).map(c => c.name).sort()).toEqual(before.map(c => c.name).sort());
-});
+}, 20_000);

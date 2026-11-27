@@ -1,3 +1,4 @@
+import {augmentTenantUrl} from '../../../open-sse/services/augmentApi.ts';
 import { createHmac, randomUUID } from "node:crypto";
 import type { SqliteAdapter } from "./adapters/types";
 import { decrypt, encrypt, hasCurrentEncryptionKey } from "./encryption";
@@ -13,6 +14,7 @@ export type ImportedCredential = {
   workspaceId?: string;
   kiroMetadata?: { authMethod: "social" | "external_idp"; profileArn?: string; region?: string };
   promptqlProjectId?: string;
+  augmentApiUrl?: string;
 };
 
 export class ImportCredentialConflict extends Error {}
@@ -22,6 +24,7 @@ export class ImportCredentialConflict extends Error {}
 export function saveImportedCredential(db: SqliteAdapter, input: ImportedCredential,
   audit: (db: SqliteAdapter, id: string, provider: string) => void): { id: string; created: boolean } {
   if (!hasCurrentEncryptionKey()) throw new Error("Secure import unavailable");
+  if(input.provider === 'augment-api')augmentTenantUrl(input.augmentApiUrl);
   const identity = input.refresh || input.access;
   if (!identity || !input.provider || (input.authType === "apikey" && input.refresh)) throw new Error("Invalid import");
   const key = createHmac("sha256", process.env.STORAGE_ENCRYPTION_KEY!)
@@ -63,17 +66,19 @@ export function saveImportedCredential(db: SqliteAdapter, input: ImportedCredent
         try { metadata = JSON.parse(String(row.provider_specific_data || "{}")); } catch { throw new ImportCredentialConflict("Conflicting import credentials"); }
         if (metadata?.importedToken !== true || metadata?.nonRefreshable !== true || (input.refresh && metadata?.autoRefreshDisabled !== true)) throw new ImportCredentialConflict("Conflicting import credentials");
       }
-      if (input.provider === "codex" || input.provider === "kiro" || input.provider === "promptql") {
+      if (input.provider === "codex" || input.provider === "kiro" || input.provider === "promptql" || input.provider === "augment-api") {
         let metadata: any;
         try { metadata = JSON.parse(String(row.provider_specific_data || "{}")); } catch { throw new Error("Secure import unavailable"); }
         if (input.provider === "codex" && (metadata?.workspaceId || undefined) !== input.workspaceId) throw new Error("Conflicting import binding");
         if (input.provider === "kiro" && ["authMethod", "profileArn", "region"].some(k => (metadata?.[k] || undefined) !== (input.kiroMetadata as any)?.[k])) throw new ImportCredentialConflict("Conflicting import binding");
+        if(input.provider === 'augment-api' && metadata?.apiUrl !== input.augmentApiUrl)throw new ImportCredentialConflict('Conflicting tenant binding');
         if (input.provider === "promptql" && metadata?.projectId !== input.promptqlProjectId) throw new ImportCredentialConflict("Conflicting import binding");
       }
       const id = String(row.id);
       if (!marker || marker.value !== id) db.prepare("INSERT INTO key_value (namespace, key, value) VALUES (?, ?, ?)").run("token_import_v1", key, id);
       result = { id, created: false }; return;
     }
+    if(input.provider === 'augment-api' && !input.augmentApiUrl)throw new ImportCredentialConflict('Missing tenant binding');
     const secure = (value: string) => {
       if (!hasCurrentEncryptionKey()) throw new Error("Secure import unavailable");
       const cipher = encrypt(value);
@@ -82,7 +87,7 @@ export function saveImportedCredential(db: SqliteAdapter, input: ImportedCredent
     };
     const access = secure(input.access), refresh = input.refresh ? secure(input.refresh) : null;
     const id = randomUUID(), now = new Date().toISOString();
-    const metadata = { importedToken: true, nonRefreshable: true, ...(refresh ? { autoRefreshDisabled: true } : {}), ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}), ...(input.provider === "kiro" ? input.kiroMetadata : {}), ...(input.provider === "promptql" ? {projectId: input.promptqlProjectId} : {}), ...(input.provider === "codex" ? { codexFingerprintSeed: randomUUID() } : {}) };
+    const metadata = { ...(input.provider === 'augment-api' ? {apiUrl:input.augmentApiUrl} : {}), importedToken: true, nonRefreshable: true, ...(refresh ? { autoRefreshDisabled: true } : {}), ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}), ...(input.provider === "kiro" ? input.kiroMetadata : {}), ...(input.provider === "promptql" ? {projectId: input.promptqlProjectId} : {}), ...(input.provider === "codex" ? { codexFingerprintSeed: randomUUID() } : {}) };
     const priority = (db.prepare("SELECT COALESCE(MAX(priority), 0) + 1 AS priority FROM provider_connections WHERE provider = ?").get(input.provider) as { priority: number }).priority;
     db.prepare(`INSERT INTO provider_connections (id, provider, auth_type, name, priority, is_active, access_token, refresh_token, api_key, expires_at, token_expires_at, provider_specific_data, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, input.provider, input.authType, input.name, priority, input.authType === "oauth" ? access : null, refresh, input.authType === "apikey" ? access : null, input.expiresAt, input.expiresAt, JSON.stringify(metadata), now, now);

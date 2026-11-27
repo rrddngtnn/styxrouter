@@ -2,28 +2,52 @@ import {useConfirmation} from '../components/ConfirmationDialog';
 import {BankedResetCredits} from '../components/BankedResetCredits';
 import {canRedeemCredit,redemptionOutcome} from '../lib/banked-reset';
 import {creditIdentity,beginCreditAttempt,readCreditAttempts,settleCreditAttempt} from '../lib/banked-reset-ledger';
-import {ApiError} from '../lib/api';
 import {quotaResetLabel} from "../lib/quota-reset-label";
 import { useWorkspaceTabs } from "../lib/workspace-tabs.ts";
-import {useSearchParams} from "react-router-dom";
 import {QuotaWindowInspector} from "../components/QuotaWindowInspector";
 import "../components/quota-interactions.css";
 import { TagFilter } from "../components/TagFilter.tsx";
 import {ReadFreshness} from "../components/OperationalUI";
 import {CardFrame} from "../components/OperationalUI";
 import { usePreferences } from "../lib/preferences.tsx";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Link, UNSAFE_DataRouterContext, useBlocker, useSearchParams } from "react-router-dom";
+
+export type QuotaView = "accounts" | "pools";
+export const quotaView = (value: string | null): QuotaView => value === "pools" ? "pools" : "accounts";
+export function QuotaWorkspaceTabs({ view, onChange, count }: { view: QuotaView; onChange: (view: QuotaView) => void; count: number | null }) {
+  const tr = useQuotaTranslator();
+  const views: QuotaView[] = ["accounts", "pools"];
+  return <div className="tabs quota-workspace-tabs" role="tablist" aria-label={tr("Quota workspaces")}>
+    {views.map((item, index) => <button key={item} id={`quota-tab-${item}`} role="tab" type="button" className={`tab ${view === item ? "active" : ""}`} aria-selected={view === item} aria-controls={`quota-panel-${item}`} tabIndex={view === item ? 0 : -1} onClick={() => onChange(item)} onKeyDown={e => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+      e.preventDefault();
+      const next = views[e.key === "Home" ? 0 : e.key === "End" ? 1 : 1 - index];
+      onChange(next);
+      document.getElementById(`quota-tab-${next}`)?.focus();
+    }}>{tr(item === "accounts" ? "Account Quota" : "Shared Pools")}{item === "pools" && count !== null ? ` (${count})` : ""}</button>)}
+  </div>;
+}
+
+function QuotaPoolLeaveModal({ dirty }: { dirty: boolean }) {
+  const tr = useQuotaTranslator();
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname);
+  return <Modal open={blocker.state === "blocked"} onOpenChange={open => { if (!open && blocker.state === "blocked") blocker.reset(); }} title={tr("Discard pool draft?")} description={tr("Leaving Quota will discard the unsaved pool draft. Switching workspaces preserves it.")}>
+    <div className="row-actions"><button className="btn-ghost" onClick={() => blocker.state === "blocked" && blocker.reset()}>{tr("Keep editing")}</button><button className="btn-danger" onClick={() => blocker.state === "blocked" && blocker.proceed()}>{tr("Discard draft")}</button></div>
+  </Modal>;
+}
 import { toast } from "sonner";
 import { Pagination } from "../components/Pagination.tsx";
 import { ProviderIcon } from "../components/ProviderIcon.tsx";
 import { Modal } from "../lib/actions.tsx";
 import { paginationState } from "../lib/pagination.ts";
-import { api } from "../lib/api.ts";
+import { api, ApiError } from "../lib/api.ts";
 import { Meter } from "../lib/charts.tsx";
 import { DASH, int, providerLabel, when } from "../lib/format.ts";
 import type { ProviderInfo, QuotaRow, QuotaWindow } from "../lib/types.ts";
 import { useFetch } from "../lib/useFetch.ts";
 import "./quota.css";
+import { beginPoolWrite, poolWriteBlocked, poolWriteStorage, settlePoolWrite } from "../lib/pool-write-guard.ts";
 
 const quotaId: Record<string, string> = {
   "Unsupported":"Tidak didukung", "Rate-limit reset credit":"Kredit reset batas laju", "Redeem this credit":"Gunakan kredit ini", "Redeem earliest expiring credit":"Gunakan kredit terdekat kedaluwarsa", "Redeeming…":"Menggunakan kredit…", "Available banked resets":"Reset tersimpan tersedia", "No expiration reported":"Kedaluwarsa tidak dilaporkan", "Refresh inventory":"Muat ulang inventaris", "Querying upstream reset-credit inventory…":"Memeriksa inventaris kredit reset penyedia…",
@@ -36,9 +60,24 @@ const quotaId: Record<string, string> = {
   "Redemption rejected. Refresh inventory and review again before retrying.":"Penukaran ditolak. Segarkan inventaris dan tinjau kembali sebelum mencoba lagi.",
   "Request diagnostics. Attempt ID:":"Minta diagnostik. ID percobaan:",
   "Safety storage unavailable. No credit was sent. Redemption disabled; request diagnostics.":"Penyimpanan pengaman tidak tersedia. Kredit tidak dikirim. Penukaran dinonaktifkan; minta diagnostik.",
-  "Reset time not reported":"Waktu reset tidak dilaporkan", "Reset time elapsed; check provider to verify allowance.":"Waktu reset terlewati; periksa penyedia untuk memverifikasi kuota.", "Checked locally":"Diperiksa secara lokal", "Check all eligible provider accounts":"Periksa semua akun penyedia yang memenuhi syarat", "Account Quota":"Kuota Akun", "Shared Pools":"Pool Kuota Bersama", "Quota workspace":"Ruang kerja kuota", "Pool name":"Nama pool", "Connect an account to create a pool, or retry account inventory if unavailable.":"Hubungkan akun untuk membuat pool, atau muat ulang inventaris akun jika tidak tersedia.",
+  "Reset time not reported":"Waktu reset tidak dilaporkan", "Reset time elapsed; check provider to verify allowance.":"Waktu reset terlewati; periksa penyedia untuk memverifikasi kuota.", "Checked locally":"Diperiksa secara lokal", "Check all eligible provider accounts":"Periksa semua akun penyedia yang memenuhi syarat", "Quota workspace":"Ruang kerja kuota", "Connect an account to create a pool, or retry account inventory if unavailable.":"Hubungkan akun untuk membuat pool, atau muat ulang inventaris akun jika tidak tersedia.",
+  "Pool creation was not confirmed. Draft preserved; do not submit again.": "Pembuatan pool belum terkonfirmasi. Draf dipertahankan; jangan kirim lagi.",
+  "Pool name (e.g. team-alpha)": "Nama pool (mis. tim-alfa)",
+  "Account Quota": "Kuota Akun", "Shared Pools": "Pool Bersama", "Quota workspaces": "Ruang kerja kuota", "Pool name": "Nama pool", "Primary account": "Akun utama", "Choose an account": "Pilih akun", "Create pool": "Buat pool", "Reload pools": "Muat ulang pool", "Search pools": "Cari pool", "Retry accounts": "Coba lagi akun", "Retry pools": "Coba lagi pool", "Loading pools…": "Memuat pool…", "Loading accounts…": "Memuat akun…", "No shared pools yet.": "Belum ada pool bersama.", "Members": "Anggota", "Disabled": "Dinonaktifkan", "Account identity unavailable": "Identitas akun tidak tersedia", "Selected account unavailable": "Akun pilihan tidak tersedia", "Delete shared pool?": "Hapus pool bersama?", "Delete pool": "Hapus pool", "Cancel": "Batal", "Delete": "Hapus", "Discard pool draft?": "Buang draf pool?", "Keep editing": "Lanjutkan mengedit", "Discard draft": "Buang draf",
+  "Pool definitions are not upstream remaining quota. Account tag and search filters do not apply here.": "Definisi pool bukan sisa kuota upstream. Filter tag dan pencarian akun tidak berlaku di sini.",
+  "Unable to load pools. Retry pools.": "Tidak dapat memuat pool. Coba lagi pool.", "Stale pool definitions shown.": "Menampilkan definisi pool lama.",
+  "Unable to load account inventory. Pool definitions remain available.": "Tidak dapat memuat inventaris akun. Definisi pool tetap tersedia.",
+  "Leaving Quota will discard the unsaved pool draft. Switching workspaces preserves it.": "Meninggalkan Kuota akan membuang draf pool yang belum disimpan. Beralih ruang kerja mempertahankannya.",
+  "Remove this pool definition and its managed routing combos? This does not delete the account.": "Hapus definisi pool ini dan kombo routing terkelolanya? Akun tidak dihapus.",
+  "Group accounts into named quota-share pools (auto-minting quotaShared-* routing combos).": "Kelompokkan akun dalam pool kuota bernama (membuat kombo routing quotaShared-* otomatis).",
+  "Pool created; list reloaded.": "Pool dibuat; daftar dimuat ulang.", "Pool removed; list reloaded.": "Pool dihapus; daftar dimuat ulang.",
+  "Pool created. Verifying pool list…": "Pool dibuat. Memverifikasi daftar pool…", "Pool removed. Verifying pool list…": "Pool dihapus. Memverifikasi daftar pool…",
+  "Pool created, but list could not be verified. Retry pools.": "Pool dibuat, tetapi daftar belum dapat diverifikasi. Coba lagi pool.", "Pool removed, but list could not be verified. Retry pools.": "Pool dihapus, tetapi daftar belum dapat diverifikasi. Coba lagi pool.",
+  "Unable to create pool. Draft preserved; check accounts and retry.": "Tidak dapat membuat pool. Draf dipertahankan; periksa akun dan coba lagi.", "Unable to remove pool. List preserved.": "Tidak dapat menghapus pool. Daftar dipertahankan.",
+  "Selected account is unavailable. Choose an account again; draft preserved.": "Akun pilihan tidak tersedia. Pilih akun lagi; draf dipertahankan.",
   "Filter by tag": "Filter berdasarkan tag", "Apply tag filter": "Terapkan filter tag", "Clear tag filter": "Hapus filter tag",
   "Hide providers": "Sembunyikan penyedia", "Show providers": "Tampilkan penyedia", "No matching providers.": "Tidak ada penyedia yang cocok.",
+  "Quota not provided": "Kuota tidak diberikan", "Catalog only; not proof of availability": "Hanya katalog; bukan bukti ketersediaan",
   "Selected": "Dipilih", "Remaining unknown": "Sisa tidak diketahui", "Reset": "Reset",
   "Fresh": "Terbaru", "Cached": "Cache", "Stale": "Data lama", "Freshly checked": "Baru diperiksa",
   "Updated": "Diperbarui", "Time unknown": "Waktu tidak diketahui", "Quota unavailable": "Kuota tidak tersedia", "More quota windows": "Jendela kuota lainnya",
@@ -77,12 +116,24 @@ const fmtUsedLimit = (w: { used?: number | null; total?: number | null; remainin
 
 export function Quota() {
   const tr = useQuotaTranslator();
-  const [params,setParams]=useSearchParams();
-  const workspace=params.get("tab")==="pools"?"pools":"accounts";
+  const [params, setParams] = useSearchParams();
+  const workspace = quotaView(params.get("view") ?? params.get("tab"));
   const workspaceTabs = useWorkspaceTabs(workspace);
-  const changeWorkspace=(tab:string)=>{const next=new URLSearchParams(params);next.set("tab",tab);setParams(next);};
-  const inventory=useFetch<{connections?: {id:string;name:string|null;provider:string}[]}>(workspace==="pools"?"/api/connections":null);
-  const poolConnections = inventory.status === "ok" ? (inventory.data.connections ?? []).map(a=>({connectionId:a.id,name:a.name ?? a.id,provider:a.provider})) : [];
+  const changeWorkspace = (next: QuotaView) => {
+    const query = new URLSearchParams(params);
+    query.set("tab", next);
+    query.delete("view");
+    setParams(query);
+  };
+  const [poolCountValue, setPoolCountValue] = useState<number | null>(null);
+  const [poolDirty, setPoolDirty] = useState(false);
+  const hasDataRouter = Boolean(useContext(UNSAFE_DataRouterContext));
+  useEffect(() => {
+    if (!poolDirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [poolDirty]);
   const [tagInput, setTagInput] = useState("");
   const [tag, setTag] = useState("");
   const [selectedProvider, setSelectedProvider] = useState("");
@@ -327,7 +378,7 @@ export function Quota() {
           className={workspace === "pools" ? "tab active" : "tab"}
           onClick={() => changeWorkspace("pools")}
         >
-          <span>{tr("Shared Pools")}</span>
+          <span>{tr("Shared Pools")}{poolCountValue !== null ? ` (${poolCountValue})` : ""}</span>
         </button>
       </div>
       <div {...workspaceTabs.panelProps}>
@@ -346,13 +397,11 @@ export function Quota() {
       {state.status === "ok" && !state.data.providers?.length && <p className="muted">{tag ? tr("No matching accounts.") : tr("No accounts connected.")}</p>}
       {state.status === "ok" && <QuotaBrowser rows={state.data.providers ?? []} names={names} live={live} syncingAll={syncingAll} onRefresh={refresh} onCheckGroup={checkGroup} selectedProvider={selectedProvider} onSelectProvider={setSelectedProvider} onOpenResetCredits={openResetCredits} />}
         </div>
-        {workspace === "pools" && (
-          <>
-            <ReadFreshness resource="Account inventory" state={inventory}/>
-            <QuotaPoolsSection connections={poolConnections}/>
-          </>
-        )}
+        <div hidden={workspace !== "pools"}>
+          <QuotaPoolsSection active={workspace === "pools"} onCount={setPoolCountValue} onDirty={setPoolDirty} />
+        </div>
       </div>
+      {hasDataRouter && <QuotaPoolLeaveModal dirty={poolDirty} />}
       <Modal
         open={resetCreditTarget !== null}
         onOpenChange={(open) => {
@@ -444,113 +493,162 @@ interface QuotaPoolItem {
   exclusive?: boolean;
 }
 
-function QuotaPoolsSection({ connections }: { connections: {connectionId:string;name:string;provider:string}[] }) {
+type PoolAccount = { id: string; provider: string; name?: string | null; isActive?: boolean };
+type PoolsResponse = { pools?: QuotaPoolItem[]; total?: number };
+export function poolCount(data: PoolsResponse | null): number | null {
+  if (!data || !Array.isArray(data.pools)) return null;
+  return Number.isSafeInteger(data.total) && data.total! >= 0 ? data.total! : data.pools.length;
+}
+export function poolTarget(accounts: PoolAccount[], id: string): PoolAccount | null {
+  return accounts.find(c => c.id === id && c.isActive !== false) ?? null;
+}
+
+export function QuotaPoolsSection({ active, onCount, onDirty }: { active: boolean; onCount: (count: number | null) => void; onDirty: (dirty: boolean) => void }) {
   const tr = useQuotaTranslator();
-  const confirmation = useConfirmation();
-  const removeBusy = useRef(false);
-  const poolsState = useFetch<{ pools?: QuotaPoolItem[]; total?: number }>("/api/quota/pools");
+  const [snapshot, setSnapshot] = useState<PoolsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<PoolAccount[]>([]);
+  const [inventoryStatus, setInventoryStatus] = useState<"loading" | "ok" | "error">("loading");
   const [poolName, setPoolName] = useState("");
   const [connId, setConnId] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(8);
   const [busy, setBusy] = useState(false);
-  const pools = poolsState.status === "ok" ? poolsState.data.pools ?? [] : [];
+  const lock = useRef(false);
+  const [unresolvedCreate, setUnresolvedCreate] = useState(() => poolWriteBlocked(poolWriteStorage()));
+  const [deleting, setDeleting] = useState<QuotaPoolItem | null>(null);
+  const poolGeneration = useRef(0);
+  const inventoryGeneration = useRef(0);
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => onDirty(!!poolName || !!connId), [poolName, connId, onDirty]);
+  useEffect(() => { onCount(error || loading ? null : poolCount(snapshot)); }, [snapshot, error, loading, onCount]);
+  useEffect(() => () => { poolGeneration.current++; inventoryGeneration.current++; }, []);
+
+  async function readPools(verify?: (pools: QuotaPoolItem[]) => boolean) {
+    const generation = ++poolGeneration.current;
+    setLoading(true); setError(null);
+    try {
+      const result = await api.get<PoolsResponse>("/api/quota/pools");
+      if (!Array.isArray(result.pools)) throw new Error(tr("Invalid pool list response"));
+      if (generation !== poolGeneration.current) return false;
+      setSnapshot(result); return verify ? verify(result.pools) : true;
+    } catch {
+      if (generation === poolGeneration.current) setError("Unable to load pools. Retry pools.");
+      return false;
+    } finally { if (generation === poolGeneration.current) setLoading(false); }
+  }
+  async function readAccounts() {
+    const generation = ++inventoryGeneration.current;
+    setInventoryStatus("loading");
+    try {
+      const result = await api.get<{ connections?: PoolAccount[] }>("/api/connections");
+      if (!Array.isArray(result.connections)) throw new Error("Invalid account inventory");
+      if (generation !== inventoryGeneration.current) return null;
+      // Keep only the account identity fields needed by this form, never credentials.
+      const inventory = result.connections.map(c => ({ id: c.id, name: c.name, provider: c.provider, isActive: c.isActive }));
+      setAccounts(inventory); setInventoryStatus("ok"); return inventory;
+    } catch {
+      if (generation === inventoryGeneration.current) setInventoryStatus("error");
+      return null;
+    }
+  }
+  useEffect(() => { void readPools(); }, []);
+  useEffect(() => {
+    if (active) void readAccounts();
+    else inventoryGeneration.current++;
+  }, [active]);
 
   async function createPoolNow(e: React.FormEvent) {
     e.preventDefault();
-    const targetConn = connId || connections[0]?.connectionId || "";
-    if (busy || !poolName.trim() || !connections.some(c=>c.connectionId===targetConn)) return;
-    setBusy(true);
+    if (lock.current || unresolvedCreate || inventoryStatus !== "ok" || !poolName.trim() || !poolTarget(accounts, connId)) return;
+    // Freeze intent before any awaited read. Never substitute another account.
+    const intent = { name: poolName.trim(), connectionId: connId, connectionIds: [connId] };
+    lock.current = true; setBusy(true); setNotice(null);
+    let attempt: string | null = null;
+    const writeStore = poolWriteStorage();
     try {
-      await api.post("/api/quota/pools", {
-        name: poolName.trim(),
-        connectionId: targetConn,
-        connectionIds: [targetConn],
-      });
-      toast.success(`Created quota pool “${poolName.trim()}”`);
-      setPoolName("");
-      poolsState.reload();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
+      const current = await readAccounts();
+      if (!current || !poolTarget(current, intent.connectionId)) { setNotice("Selected account is unavailable. Choose an account again; draft preserved."); return; }
+      attempt = crypto.randomUUID();
+      if (!beginPoolWrite(writeStore, attempt)) {
+        setUnresolvedCreate(true);
+        setNotice("Pool creation was not confirmed. Draft preserved; do not submit again.");
+        return;
+      }
+      const created = await api.post<{ pool?: QuotaPoolItem }>("/api/quota/pools", intent);
+      if (typeof created?.pool?.id !== "string" || !created.pool.id.trim()) {
+        setUnresolvedCreate(true);
+        setNotice("Pool creation was not confirmed. Draft preserved; do not submit again.");
+        return;
+      }
+      setUnresolvedCreate(!settlePoolWrite(writeStore, attempt));
+      setPoolName(""); setConnId("");
+      setNotice("Pool created. Verifying pool list…");
+      const verified = await readPools(pools => !!created.pool?.id && pools.some(p => p.id === created.pool!.id && p.connectionId === intent.connectionId));
+      setNotice(verified ? "Pool created; list reloaded." : "Pool created, but list could not be verified. Retry pools.");
+    } catch (error) {
+      const rejected = error instanceof ApiError && [400, 404, 409, 422].includes(error.status);
+      const cleared = rejected && attempt !== null && settlePoolWrite(writeStore, attempt);
+      setUnresolvedCreate(!cleared);
+      setNotice(cleared ? "Unable to create pool. Draft preserved; check accounts and retry." : "Pool creation was not confirmed. Draft preserved; do not submit again.");
+      await readAccounts();
+    } finally { lock.current = false; setBusy(false); }
   }
-
-  async function removePool(id: string) {
-    if(removeBusy.current)return;
-    const target=pools.find(p=>p.id===id);if(!target)return;
-    removeBusy.current=true;
-    const accepted=await confirmation.confirm({title:tr("Delete quota pool?"),description:tr("Remove this shared pool and its generated routing combo. Account credentials are not deleted."),resource:`${target.name} / ${target.id}`,action:tr("Delete"),danger:true});
-    if(!accepted){removeBusy.current=false;return;}
-    setBusy(true);
+  async function removePool() {
+    if (!deleting || lock.current) return;
+    const intent = deleting;
+    lock.current = true; setBusy(true); setNotice(null);
     try {
-      await api.delete(`/api/quota/pools/${encodeURIComponent(id)}`);
-      toast.success("Quota pool removed");
-      poolsState.reload();
-    } catch (err) {
-      toast.error("Outcome unknown; reload pools before attempting another deletion. " + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      removeBusy.current=false;
-      setBusy(false);
-    }
+      await api.delete(`/api/quota/pools/${encodeURIComponent(intent.id)}`);
+      setDeleting(null);
+      setNotice("Pool removed. Verifying pool list…");
+      const verified = await readPools(pools => !pools.some(p => p.id === intent.id));
+      setNotice(verified ? "Pool removed; list reloaded." : "Pool removed, but list could not be verified. Retry pools.");
+    } catch { setNotice("Unable to remove pool. List preserved."); }
+    finally { lock.current = false; setBusy(false); }
   }
-
-  return (
-    <section className="card" style={{ padding: 14, marginTop: 20 }}>
-      {confirmation.dialog}
-      <ReadFreshness resource="Quota pools" state={poolsState}/><h2>{tr("Shared Pools")}</h2>
-      <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-        <p className="muted" style={{ margin: 0, fontSize: 14 }}>
-          {tr("Group accounts into named quota-share pools (auto-minting quotaShared-* routing combos).")}
-        </p>
-        {!connections.length && <p className="muted">{tr("Connect an account to create a pool, or retry account inventory if unavailable.")}</p>}
-        {(
-          <form onSubmit={createPoolNow} className="toolbar" style={{ marginBottom: 0 }}>
-            <input
-              type="text"
-              aria-label={tr("Pool name")} placeholder={tr("Pool name (e.g. team-alpha)")}
-              value={poolName}
-              onChange={(e) => setPoolName(e.target.value)}
-              disabled={busy}
-            />
-            <select
-              aria-label={tr("Primary account")}
-              value={connId || connections[0]?.connectionId || ""}
-              onChange={(e) => setConnId(e.target.value)}
-              disabled={busy}
-            >
-              {connections.map((c) => (
-                <option key={c.connectionId} value={c.connectionId}>
-                  {c.name} ({c.provider})
-                </option>
-              ))}
-            </select>
-            <button type="submit" className="btn-add" disabled={busy || !poolName.trim() || !connections.some(c=>c.connectionId===(connId || connections[0]?.connectionId))}>
-              {tr("Create pool")}
-            </button>
-          </form>
-        )}
-        {pools.length > 0 && (
-          <div style={{ display: "grid", gap: 8 }}>
-            {pools.map((p) => (
-              <div
-                key={p.id}
-                className="card"
-                style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
-              >
-                <span>
-                  <strong>{p.name}</strong> · <code>{p.id.slice(0, 8)}</code>
-                </span>
-                <button type="button" className="btn-danger" disabled={busy} onClick={() => void removePool(p.id)}>
-                  {tr("Delete")}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </section>
-  );
+  const pools = snapshot?.pools ?? [];
+  const filtered = pools.filter(p => `${p.name} ${p.id}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const result = paginationState(filtered.length, pageSize, page);
+  const visible = filtered.slice((result.page - 1) * pageSize, result.page * pageSize);
+  const identity = (id: string) => {
+    const account = accounts.find(c => c.id === id);
+    return account ? `${account.name || account.id} (${account.provider})` : `${tr("Account identity unavailable")} · ${id}`;
+  };
+  return <div className="quota-pools-workspace">
+    <p className="muted">{tr("Group accounts into named quota-share pools (auto-minting quotaShared-* routing combos).")}</p>
+    <p className="muted">{tr("Pool definitions are not upstream remaining quota. Account tag and search filters do not apply here.")}</p>
+    <div className="toolbar"><button type="button" className="btn-ghost" disabled={loading || busy} onClick={() => void readPools()}>{tr("Reload pools")}</button><input type="search" aria-label={tr("Search pools")} placeholder={tr("Search pools")} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} /></div>
+    {loading && <p role="status">{tr("Loading pools…")}</p>}
+    {error && <p role="alert" className="bad">{tr(error)} {snapshot && tr("Stale pool definitions shown.")}</p>}
+    {error && <button type="button" className="btn-ghost" disabled={loading || busy} onClick={() => void readPools()}>{tr("Retry pools")}</button>}
+    {inventoryStatus === "loading" && <p role="status">{tr("Loading accounts…")}</p>}
+    {inventoryStatus === "error" && <p className="bad" role="alert">{tr("Unable to load account inventory. Pool definitions remain available.")}</p>}
+    <button type="button" className="btn-ghost" disabled={inventoryStatus === "loading" || busy} onClick={() => void readAccounts()}>{tr("Retry accounts")}</button>
+    {inventoryStatus === "ok" && !accounts.length && <p>{tr("No accounts connected.")} <Link to="/providers">{tr("Providers")}</Link></p>}
+    <form onSubmit={createPoolNow} className="stack-form quota-pool-form">
+      <label>{tr("Pool name")}<input type="text" aria-label={tr("Pool name")} placeholder={tr("Pool name (e.g. team-alpha)")} value={poolName} onChange={e => setPoolName(e.target.value)} disabled={busy} /></label>
+      <label>{tr("Primary account")}<select aria-label={tr("Primary account")} value={connId} onChange={e => setConnId(e.target.value)} disabled={busy || inventoryStatus !== "ok" || !accounts.length}>
+        <option value="">{tr("Choose an account")}</option>
+        {connId && !accounts.some(c => c.id === connId) && <option value={connId} disabled>{tr("Selected account unavailable")}</option>}
+        {accounts.map(c => <option key={c.id} value={c.id} disabled={c.isActive === false}>{c.name || c.id} ({c.provider}){c.isActive === false ? ` · ${tr("Disabled")}` : ""}</option>)}
+      </select></label>
+      <div className="row-actions"><button type="submit" className="btn-add" disabled={busy || unresolvedCreate || inventoryStatus !== "ok" || !poolName.trim() || !poolTarget(accounts, connId)}>{tr("Create pool")}</button></div>
+    </form>
+    {(notice || unresolvedCreate) && <p role="status">{tr(notice ?? "Pool creation was not confirmed. Draft preserved; do not submit again.")}</p>}
+    {!loading && !error && !pools.length && <p className="muted">{tr("No shared pools yet.")}</p>}
+    {visible.map(p => <div key={p.id} className="card quota-pool-row"><div><strong>{p.name}</strong> · <code>{p.id.slice(0, 8)}</code><div className="muted">{tr("Primary account")}: {identity(p.connectionId)}</div>{p.connectionIds && <div className="muted">{tr("Members")}: {p.connectionIds.map(identity).join(", ")}</div>}</div><button type="button" className="btn-danger" disabled={busy} onClick={() => setDeleting({ ...p })}>{tr("Delete")}</button></div>)}
+    {snapshot && <Pagination total={result.total} page={result.page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} itemLabel="pool" />}
+    <Modal open={deleting !== null} title={tr("Delete shared pool?")} description={deleting ? `${deleting.name} · ${deleting.id}` : ""} onOpenChange={open => { if (!open && !lock.current) { setDeleting(null); void readPools(); void readAccounts(); } }}>
+      <p>{tr("Remove this pool definition and its managed routing combos? This does not delete the account.")}</p>
+      <div className="row-actions"><button type="button" className="btn-ghost" disabled={busy} onClick={() => { setDeleting(null); void readPools(); void readAccounts(); }}>{tr("Cancel")}</button><button type="button" className="btn-danger" disabled={busy} onClick={() => void removePool()}>{tr("Delete pool")}</button></div>
+    </Modal>
+  </div>;
 }
+
+
 
 export function quotaPage(rows: QuotaRow[], search: string, requestedPage: number, pageSize = 8) {
   const query = search.trim().toLowerCase();
@@ -618,6 +716,7 @@ export function QuotaBrowser({ rows, names, live, syncingAll, onRefresh, onCheck
         // Stale responses may contain a merged cache with mixed timestamps; prefer
         // snapshot provenance and retain only response windows absent from it.
         const windows = cachedNewer ? baseline : response?._stale === true ? mergeWindows(fresh, baseline) : mergeWindows(baseline, fresh);
+        const unreported = [...new Set(row.unreportedQuotaModels ?? [])].filter(id => !windows.some(w => w.models?.includes(id)));
         const stale = (!cachedNewer && response?._stale === true) || !!status?.error;
         const warning = status?.error ?? (typeof response?._staleReason === "string" ? response._staleReason : null) ?? (typeof response?.message === "string" ? response.message : null) ?? row.message;
         const plan = !cachedNewer && typeof response?.plan === "string" ? response.plan : row.plan;
@@ -649,6 +748,10 @@ export function QuotaBrowser({ rows, names, live, syncingAll, onRefresh, onCheck
           </>}
           <p className="quota-fetched muted">{stale ? tr("Stale") : fresh.length && !cachedNewer ? tr("Freshly checked") : tr("Cached")} · {fetched ? `${tr("Updated")}: ${when(fetched)}` : tr("Never synced")}</p>
           {warning && <p className="bad" role="status">{warning}</p>}
+          {!!unreported.length && <>
+            <p className="muted">{tr("Quota not provided")}: {unreported.slice(0, 4).join(", ")} · {tr("Catalog only; not proof of availability")}</p>
+            {unreported.length > 4 && <details className="quota-more"><summary>{tr("Quota not provided")} ({unreported.length - 4})</summary><p className="muted">{unreported.slice(4).join(", ")}</p></details>}
+          </>}
           {row.quotaSupported === false ? <p className="muted">{tr("Upstream quota API unavailable")}</p> : windows.length === 0 ? <p className="muted">{row.fetchedAt ? tr("Quota unavailable") : tr("Not synced yet")}</p> : <>
             <QuotaWindowInspector windows={windows} renderWindow={renderWindow}/>
           </>}

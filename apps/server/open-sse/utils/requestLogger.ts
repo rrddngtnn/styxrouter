@@ -64,6 +64,11 @@ const MAX_LOG_STRING_LENGTH = 64 * 1024;
 export const MAX_LOG_ARRAY_ITEMS = 24;
 const MAX_LOG_OBJECT_KEYS = 80;
 
+// Caller conversation identifiers are private even before provider HMAC scoping.
+function isSessionLogKey(key: string): boolean {
+  return ["x-opencode-session", "x-session-id", "x-session-affinity"].includes(key.toLowerCase());
+}
+
 function maskSensitiveHeaders(headers: HeaderInput): Record<string, unknown> {
   if (!headers) return {};
 
@@ -87,7 +92,7 @@ function maskSensitiveHeaders(headers: HeaderInput): Record<string, unknown> {
 
   for (const key of Object.keys(masked)) {
     const lowerKey = key.toLowerCase();
-    if (isSensitiveLogKey(key) || sensitiveKeys.some((candidate) => lowerKey.includes(candidate))) {
+    if (isSessionLogKey(key) || isSensitiveLogKey(key) || sensitiveKeys.some((candidate) => lowerKey.includes(candidate))) {
       masked[key] = "[REDACTED]";
     }
   }
@@ -185,7 +190,7 @@ export function cloneBoundedForLog(value: unknown, depth = 0, key: string | null
     ([k]) => !(carried > 0 && k === TRUNCATED_KEYS_MARKER)
   );
   for (const [k, item] of entries.slice(0, MAX_LOG_OBJECT_KEYS)) {
-    result[k] = cloneBoundedForLog(item, depth + 1, k);
+    result[k] = isSessionLogKey(k) ? "[REDACTED]" : cloneBoundedForLog(item, depth + 1, k);
   }
   const dropped = Math.max(0, entries.length - MAX_LOG_OBJECT_KEYS) + carried;
   if (dropped > 0) {

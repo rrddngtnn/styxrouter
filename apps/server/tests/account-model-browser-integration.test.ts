@@ -12,7 +12,7 @@ test.skipIf(!process.env.PLAYWRIGHT_MODULE || !process.env.CHROMIUM_PATH)('brows
  await createProviderConnection({provider:node.id,authType:'apikey',apiKey:'wrong-fixture-key',priority:1,providerSpecificData:meta} as any);
  const account:any=await createProviderConnection({provider:node.id,authType:'apikey',apiKey:'upstream-fixture-secret',priority:20,providerSpecificData:meta} as any);
  await addCustomModel(node.id,'vendor/model');
- const browser=spawn('node',[join(import.meta.dir,'../../panel/tests/account-model-test.real.browser.mjs')],{env:{...process.env,NODE_ENV:'development',TMPDIR:process.env.STYX_BROWSER_TMPDIR || process.env.TMPDIR},stdio:['pipe','pipe','pipe']});
+ const browser=spawn(process.execPath,[join(import.meta.dir,'../../panel/tests/account-model-test.real.browser.mjs')],{env:{...process.env,NODE_ENV:'development',TMPDIR:process.env.STYX_BROWSER_TMPDIR || process.env.TMPDIR},stdio:['pipe','pipe','pipe']});
  let logs='';browser.stdout.on('data',x=>{logs+=x;process.stderr.write(x);});browser.stderr.on('data',x=>{logs+=x;process.stderr.write(x);});let server:any;
  try {
  const vite=await marker(browser,/VITE_READY:(\S+)\r?\n/);

@@ -19,6 +19,18 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
   const { t, language, setLanguage, theme, setTheme, density, setDensity } = usePreferences();
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const keyboardRouteLink = useRef<HTMLAnchorElement | null>(null);
+  useEffect(() => {
+    const source = keyboardRouteLink.current;
+    keyboardRouteLink.current = null;
+    if (!source) return;
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement !== source && document.activeElement !== triggerRef.current && document.activeElement !== document.body) return;
+      const title = document.querySelector<HTMLElement>('#main-content h1');
+      if (title) { title.tabIndex = -1; title.focus(); }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [location.pathname]);
   // Route change closes the drawer.
   useEffect(() => nav.close(), [location, nav.close]);
 
@@ -170,12 +182,19 @@ export function ShellFrame({ brand, logout, children }: { brand: ReactNode; logo
         ref={drawerRef}
       >
         <div className="shell-dialog-head">
-          <BrandMark />
+          {/* The dark lockup already contains the approved high-contrast emblem.
+              Crop its icon view (420 × 470 at the supplied 0.6510638297872341 scale)
+              rather than recoloring the light icon or changing either SVG. */}
+          {nav.desktop && !nav.isExpanded ? <div className="shell-rail-brand" role="img" aria-label="StyxRouter"><img className="brand-lockup-light" src={`${import.meta.env.BASE_URL}brand/styx-icon.svg`} alt="" /><img className="brand-lockup-dark" src={`${import.meta.env.BASE_URL}brand/styx-lockup-dark.svg#svgView(viewBox(-323.44680851063833,-53,273.44680851063833,306))`} alt="" /></div> : <BrandMark />}
           {<button type="button" className="shell-icon-button" aria-label={t("Close navigation")} onClick={nav.close}>
             <X size={16} />
           </button>}
         </div>
-        <nav id="styx-nav" className="sidebar shell-drawer-nav" aria-label={t("Main navigation")}>
+        <nav id="styx-nav" className="sidebar shell-drawer-nav" aria-label={t("Main navigation")}
+          onClickCapture={event => {
+            const link = (event.target as HTMLElement).closest('a');
+            keyboardRouteLink.current = event.detail === 0 && link instanceof HTMLAnchorElement ? link : null;
+          }}>
           {brand}
           <NavigationLinks onNavigate={nav.close} />
           <DecorativeGeometry />

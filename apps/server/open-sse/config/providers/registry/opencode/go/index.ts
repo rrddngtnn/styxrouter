@@ -8,9 +8,10 @@ export const opencode_goProvider: RegistryEntry = {
   alias: "opencode-go",
   format: "openai",
   executor: "opencode",
-  baseUrl: "https://opencode.ai/zen/go/v1",
+  baseUrl: "https://opencode.ai/inference/go",
   // (#532) Key validation must hit the main zen endpoint (same key works for both tiers)
-  testKeyBaseUrl: "https://opencode.ai/zen/v1",
+  testKeyBaseUrl: "https://opencode.ai/inference",
+  testKeyModelsUrl: "https://opencode.ai/inference/v1/models",
   authType: "apikey",
   authHeader: "Authorization",
   authPrefix: "Bearer",

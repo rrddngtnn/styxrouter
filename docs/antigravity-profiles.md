@@ -16,9 +16,24 @@ edited; it never enables IDE dispatch.
 
 The same selected identity is used for bootstrap, catalog discovery, quota and
 inference. Each inference resolves its profile before asynchronous work and
-retains it through its internal attempts. Hub uses the existing observed
-`2.24.0` identity and omits the consumer-project header and the ordinary agent
-`requestType`; CLI retains its project header, request type and version pin.
+retains it through its internal attempts. Hub uses the official App `2.31.2`
+identity `antigravity/hub/2.31.2 (aidev_client; os_type=darwin; arch=arm64)` and
+omits the consumer-project header and the ordinary agent `requestType`; CLI
+retains its project header, request type and independent version pin. The CLI
+baseline is `1.5.7`, not the Hub release number.
+
+The Hub identity follows the official App launcher's `--subclient_type hub`,
+`--override_ide_version` and `--override_user_agent_name antigravity` arguments
+and its bundled `codeassistclient.userAgent` formatter, including the
+parenthesized `aidev_client`, OS and architecture fields. The official
+[Hub releases feed](https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/releases)
+and [CLI darwin/arm64 manifest](https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/darwin_arm64.json)
+are separate sources. The CLI manifest was checked on 2026-11-13; its archive
+SHA-512 is
+`c9746409083a9b15c217757aa2ef399ee7d4398602a30038583ea45196fc27d1662745341e45a116c07be19c08587de1e5929e365d2a46aea385fa33f0c2396a`.
+Older CLI observations must not downgrade the current baseline or last-good
+cache. These identity fixtures establish the request contract, not live
+upstream acceptance.
 Canonical upstream model IDs are unchanged. No profile retry or new model
 fallback is introduced by this change.
 
