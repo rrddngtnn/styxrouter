@@ -7,6 +7,7 @@ published as `ghcr.io/rrddngtnn/styxrouter:<tag>` for `linux/amd64`.
 
 | Version | Date | Summary |
 | --- | --- | --- |
+| [v0.4.0](https://github.com/rrddngtnn/styxrouter/releases/tag/v0.4.0) | 2026-11-27 | Unified panel workspaces, catalog effort contract, Antigravity signature scoping, and security updates |
 | [v0.3.2](https://github.com/rrddngtnn/styxrouter/releases/tag/v0.3.2) | 2026-11-14 | Provider policy and quota workspaces |
 | [v0.3.1](https://github.com/rrddngtnn/styxrouter/releases/tag/v0.3.1) | 2026-11-14 | Custom provider API-key setup |
 | [v0.3.0](https://github.com/rrddngtnn/styxrouter/releases/tag/v0.3.0) | 2026-11-13 | Native Augment adapter, maintenance UI |

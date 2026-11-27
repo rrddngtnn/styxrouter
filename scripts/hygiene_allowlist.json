@@ -1192,5 +1192,17 @@
     ],
     "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
     "blob": "cec815a0d982942e8e860a5d4f49db0e71aecaae"
+  },
+  {
+    "pattern": "P-STRUCT-OMNI",
+    "file": "README.md",
+    "surface": "historical_file",
+    "sha256": "3c1ff5932425ac38121dd18add087af7881c61aba9194af57095b0b3b7b3e5d7",
+    "lines": [
+      135,
+      135
+    ],
+    "reason": "Reviewed public upstream attribution; preserve required lineage and licence references.",
+    "blob": "075256c740f0862ea7520c808152da081830d4cb"
   }
 ]
