@@ -4,7 +4,7 @@
 
 ## Published image
 
-`ghcr.io/rrddngtnn/styxrouter:v0.3.2` is published for `linux/amd64`.
+`ghcr.io/rrddngtnn/styxrouter:v0.4.0` is published for `linux/amd64`.
 There is no published ARM64 image for this release. `latest` follows main;
 use a version tag or digest when you need a fixed deployment.
 
@@ -19,13 +19,13 @@ Edit all four values before starting. Use a unique `INITIAL_PASSWORD` and genera
 separate values for each secret with `openssl rand -hex 32`. Do not commit `.env`.
 
 ```sh
-docker pull ghcr.io/rrddngtnn/styxrouter:v0.3.2
+docker pull ghcr.io/rrddngtnn/styxrouter:v0.4.0
 docker run -d --name styxrouter \
   --restart unless-stopped \
   -p 127.0.0.1:20128:20128 \
   --env-file .env \
   -v styx-data:/data \
-  ghcr.io/rrddngtnn/styxrouter:v0.3.2
+  ghcr.io/rrddngtnn/styxrouter:v0.4.0
 docker logs styxrouter
 curl --fail http://127.0.0.1:20128/api/health
 ```
