@@ -41,7 +41,8 @@ test('real panel create, canonical key handoff, models validation and authoritat
   // A response envelope named provider is not the actual canonical node contract.
   // Malformed success and lost responses must keep the duplicate-write fence.
   for (const response of [{provider:{id:'invented'}},{node:{id:123}},null]) {
-   page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Cancel',exact:true}).click();
+   await page.getByRole('button',{name:'Cancel',exact:true}).click();
+   await page.getByRole('button',{name:'Discard changes',exact:true}).click();
    let attempted=0;
    await page.route('**/api/provider-nodes',async route=>{if(route.request().method()!=='POST')return route.continue();attempted++;return response===null?route.abort('failed'):route.fulfill({status:201,json:response});});
    await create('Uncertain fixture');await page.getByRole('alert').getByText('Creation was not confirmed. Close and reload the provider list before creating again.',{exact:true}).waitFor();

@@ -778,8 +778,8 @@ export class OpencodeExecutor extends BaseExecutor {
     const secret = process.env.API_KEY_SECRET;
     if (!secret?.trim()) throw new Error("API_KEY_SECRET is required for OpenCode session identity");
     // Direct executor consumers without trusted owner retain credential-scoped isolation.
-    // Credentials are HMAC input only, never returned or persisted as session metadata.
-    const owner = sessionPrincipal.getStore() || incoming.authorization || incoming["x-api-key"] || "public";
+    // /v1 routes authenticate via Bearer only and populate sessionPrincipal before dispatch.
+    const owner = sessionPrincipal.getStore() || incoming.authorization || "public";
     headers["x-opencode-session"] = createHmac("sha256", secret)
       .update(JSON.stringify(["styx/opencode/session/v1", this.provider, owner, conversation])).digest("hex");
     headers["x-opencode-request"] = randomUUID();

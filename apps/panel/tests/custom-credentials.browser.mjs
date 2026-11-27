@@ -64,7 +64,7 @@ for(const width of [320,390,600,860,861,1280])for(const theme of ['light','dark'
 // A canceled in-flight creation may finish server-side, but must never reopen a modal.
 await page.goto(base+'providers?tab=custom');await page.getByRole('button',{name:'New custom provider',exact:true}).first().click();
 dialog=page.getByRole('dialog');await dialog.getByLabel('Name',{exact:true}).fill('Late fixture');await dialog.getByLabel('Request prefix',{exact:true}).fill('late');await dialog.getByLabel('Base URL',{exact:true}).fill('https://fixture.invalid');delayCreate=400;
-await dialog.getByRole('button',{name:'Create & add API key',exact:true}).click();page.once('dialog',d=>d.accept());await dialog.getByRole('button',{name:'Cancel',exact:true}).click();await page.waitForTimeout(650);assert.equal(await page.getByRole('dialog').count(),0);assert.ok(page.url().includes('providers?tab=custom'));
+await dialog.getByRole('button',{name:'Create & add API key',exact:true}).click();await dialog.getByRole('button',{name:'Cancel',exact:true}).click();await page.getByRole('button',{name:'Discard changes',exact:true}).click();await page.waitForTimeout(650);assert.equal(await page.getByRole('dialog').count(),0);assert.ok(page.url().includes('providers?tab=custom'));
 // Repeat the responsive modal contract under the actual Indonesian preference and both themes.
 for(const width of [320,390,600,860,861,1280])for(const theme of ['light','dark']) {
  await page.setViewportSize({width,height:900});
