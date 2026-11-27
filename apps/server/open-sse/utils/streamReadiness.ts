@@ -47,6 +47,7 @@ function hasUsefulValue(value: unknown): boolean {
   for (const key of [
     "content",
     "text",
+    "markdown",
     "delta",
     "reasoning_content",
     "reasoning",
@@ -66,6 +67,11 @@ function hasUsefulValue(value: unknown): boolean {
     const candidate = value[key];
     if (hasNonEmptyString(candidate)) return true;
     if ((Array.isArray(candidate) || isRecord(candidate)) && hasUsefulValue(candidate)) return true;
+  }
+
+  for (const key of ["inlineData", "inline_data"]) {
+    const inline = value[key];
+    if (isRecord(inline) && hasNonEmptyString(inline.data)) return true;
   }
 
   for (const key of [
@@ -171,6 +177,18 @@ const LEGIT_EMPTY_TERMINAL_REASONS = new Set([
   "content_filter",
   "max_tokens",
   "tool_use",
+]);
+
+const LEGIT_EMPTY_GEMINI_FINISH_REASONS = new Set([
+  "MAX_TOKENS",
+  "SAFETY",
+  "RECITATION",
+  "BLOCKLIST",
+  "PROHIBITED_CONTENT",
+  "SPII",
+  "IMAGE_SAFETY",
+  "MALFORMED_FUNCTION_CALL",
+  "UNEXPECTED_TOOL_CALL",
 ]);
 
 const TERMINAL_REASON_PATTERN = /"(?:finish_reason|stop_reason)"\s*:\s*"([^"]+)"/g;
@@ -363,6 +381,46 @@ function processStreamReadinessEvent(state: StreamReadinessSignalState): boolean
       return typeof delta?.stop_reason === "string" &&
         LEGIT_EMPTY_TERMINAL_REASONS.has(delta.stop_reason);
     }
+
+    // Gemini / Antigravity streams can emit metadata-only or empty-candidate
+    // frames (e.g. usageMetadata with 0 output tokens and empty parts, or an
+    // error-only `{ response: { error } }` wrapper). Hold them until real model
+    // output or a legitimate empty terminal reason arrives so zero-output turns
+    // fail pre-header with retryable 502 STREAM_EARLY_EOF instead of committing
+    // an HTTP 200 stream that terminates without finish_reason.
+    const geminiRoot =
+      isRecord(payload) && isRecord(payload.response) && !("choices" in payload) && !("type" in payload)
+        ? payload.response
+        : isRecord(payload) && Array.isArray(payload.candidates) && !("choices" in payload) && !("type" in payload)
+          ? payload
+          : null;
+    if (geminiRoot) {
+      if (isErrorOnlyStructuredPayload(geminiRoot)) {
+        if (!state.upstreamDiagnostic) {
+          const error = geminiRoot.error;
+          const rawMessage =
+            typeof error === "string"
+              ? error
+              : isRecord(error) && typeof error.message === "string"
+                ? error.message
+                : "";
+          const diagnostic = sanitizeErrorMessage(rawMessage).trim();
+          if (diagnostic) state.upstreamDiagnostic = diagnostic;
+        }
+        return false;
+      }
+      if (hasUsefulJsonPayload(geminiRoot)) return true;
+      const promptFeedback = isRecord(geminiRoot.promptFeedback) ? geminiRoot.promptFeedback : null;
+      if (promptFeedback && hasNonEmptyString(promptFeedback.blockReason)) return true;
+      const candidates = Array.isArray(geminiRoot.candidates) ? geminiRoot.candidates : [];
+      return candidates.some(
+        (candidate) =>
+          isRecord(candidate) &&
+          typeof candidate.finishReason === "string" &&
+          LEGIT_EMPTY_GEMINI_FINISH_REASONS.has(candidate.finishReason.toUpperCase())
+      );
+    }
+
     return hasNonPingStructuredPayload(payload, eventType);
   } catch {
     return data.length > 0;
